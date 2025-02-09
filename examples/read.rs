@@ -48,7 +48,7 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
             .ipv4(Ipv4Addr::new(10, 0, 0, 12), 24, None)
             // .ipv4(Ipv4Addr::new(10, 0, 0, 2), Ipv4Addr::new(255, 255, 255, 0), None)
             .ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)
-            // .iff_multi_queue(true)
+            // .multi_queue(true)
             .mtu(1400)
             // .ipv6(
             //     "CDCD:910A:2222:5498:8475:1111:3900:2021",

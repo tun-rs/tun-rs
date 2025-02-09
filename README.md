@@ -60,10 +60,8 @@ use tun_rs::DeviceBuilder;
 
 fn main() -> std::io::Result<()> {
     let dev = DeviceBuilder::new()
-        .name("utun6")
         .ipv4("10.0.0.1", 24, None)
         .ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)
-        // .iff_multi_queue(true)
         .mtu(1400)
         .build_sync()?;
 
@@ -83,7 +81,6 @@ use tun_rs::DeviceBuilder;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let dev = DeviceBuilder::new()
-        .name("utun6")
         .ipv4("10.0.0.1", 24, None)
         .build_async()?;
 
@@ -97,7 +94,31 @@ async fn main() -> std::io::Result<()> {
 }
 ````
 
-**Offload** is supported on the Linux platform, enable it via the config
+On Unix, a device can also be directly created using a file descriptor (fd).
+```rust
+use tun_rs::SyncDevice;
+
+fn main() -> std::io::Result<()> {
+    // Pass a valid fd value
+    let fd = 0;
+    let dev = SyncDevice::from_fd(fd);
+    // let async_dev = tun_rs::AsyncDevice::from_fd(fd)?;
+
+    let mut buf = [0; 4096];
+    loop {
+        let amount = dev.recv(&mut buf)?;
+        println!("{:?}", &buf[0..amount]);
+    }
+}
+```
+More examples are [here](https://github.com/tun-rs/tun-rs/tree/main/examples)
+
+Linux
+-----
+You will need the `tun-rs` module to be loaded and root is required to create
+interfaces.
+
+`TSO`/`GSO` and `multi-queue` is supported on the Linux platform, enable it via the config
 
 ````rust
 use tun_rs::DeviceBuilder;
@@ -107,14 +128,17 @@ use tun_rs::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
 #[cfg(target_os = "linux")]
 fn main() -> std::io::Result<()> {
     let builder = DeviceBuilder::new()
+        // enable `multi-queue`
+        .multi_queue(true)
+        // enable Offload (`TSO`/`GSO`)
         .offload(true)
-        .name("utun6")
         .ipv4("10.0.0.1", 24, None)
         .ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)
         .mtu(1400);
 
     let dev = builder.build_sync()?;
-
+    // use `multi-queue`
+    // let dev_clone = dev.try_clone()?; 
     let mut original_buffer = vec![0; VIRTIO_NET_HDR_LEN + 65535];
     let mut bufs = vec![vec![0u8; 1500]; IDEAL_BATCH_SIZE];
     let mut sizes = vec![0; IDEAL_BATCH_SIZE];
@@ -127,13 +151,6 @@ fn main() -> std::io::Result<()> {
     }
 }
 ````
-
-More examples are [here](https://github.com/tun-rs/tun-rs/tree/main/examples)
-
-Linux
------
-You will need the `tun-rs` module to be loaded and root is required to create
-interfaces.
 
 macOS & FreeBSD
 -----
@@ -191,6 +208,7 @@ private void startVpn(DeviceConfig config) {
                  .establish();
     int fd = vpnInterface.getFd();
     // Pass the fd to tun-rs using JNI
+    // example: let tun = unsafe { tun_rs::SyncDevice::from_raw_fd(fd) };
 }
 ```
 
