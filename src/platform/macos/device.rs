@@ -57,7 +57,7 @@ impl DeviceImpl {
 
         let device = unsafe {
             let fd = libc::socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
-            let tun = crate::platform::unix::Fd::new(fd).map_err(|_| io::Error::last_os_error())?;
+            let tun = crate::platform::unix::Fd::new(fd)?;
 
             let mut info = ctl_info {
                 ctl_id: 0,

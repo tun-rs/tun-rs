@@ -80,7 +80,7 @@ impl DeviceImpl {
                     let device_name = format!("{}{}", device_prefix, name_index);
                     let device_path = format!("/dev/{}\0", device_name);
                     let fd = libc::open(device_path.as_ptr() as *const _, O_RDWR);
-                    let tun = Fd::new(fd).map_err(|_| io::Error::last_os_error())?;
+                    let tun = Fd::new(fd)?;
                     (tun, device_name)
                 } else {
                     let (tun, device_name) = 'End: {
@@ -89,7 +89,7 @@ impl DeviceImpl {
                             let device_path = format!("/dev/{device_name}\0");
                             let fd = libc::open(device_path.as_ptr() as *const _, O_RDWR);
                             if fd > 0 {
-                                let tun = Fd::new(fd).map_err(|_| io::Error::last_os_error())?;
+                                let tun = Fd::new(fd)?;
                                 break 'End (tun, device_name);
                             }
                         }
