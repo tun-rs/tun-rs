@@ -13,12 +13,12 @@ use std::task::{Context, Poll};
 #[cfg(feature = "async_tokio")]
 mod tokio;
 #[cfg(feature = "async_tokio")]
-pub use self::tokio::*;
+use self::tokio::*;
 
 #[cfg(all(feature = "async_std", not(feature = "async_tokio")))]
 mod async_std;
 #[cfg(all(feature = "async_std", not(feature = "async_tokio")))]
-pub use self::async_std::*;
+use self::async_std::*;
 
 #[cfg(all(feature = "async_tokio", feature = "async_std", not(doc)))]
 compile_error! {"More than one asynchronous runtime is simultaneously specified in features"}
