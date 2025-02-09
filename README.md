@@ -101,8 +101,8 @@ use tun_rs::SyncDevice;
 fn main() -> std::io::Result<()> {
     // Pass a valid fd value
     let fd = 0;
-    let dev = SyncDevice::from_fd(fd);
-    // let async_dev = tun_rs::AsyncDevice::from_fd(fd)?;
+    let dev = unsafe { SyncDevice::from_fd(fd) };
+    // let async_dev = unsafe { tun_rs::AsyncDevice::from_fd(fd)?};
 
     let mut buf = [0; 4096];
     loop {
@@ -129,7 +129,7 @@ use tun_rs::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
 fn main() -> std::io::Result<()> {
     let builder = DeviceBuilder::new()
         // enable `multi-queue`
-        .multi_queue(true)
+        // .multi_queue(true)
         // enable Offload (`TSO`/`GSO`)
         .offload(true)
         .ipv4("10.0.0.1", 24, None)
