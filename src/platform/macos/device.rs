@@ -352,6 +352,7 @@ impl DeviceImpl {
     //     }
     // }
 
+    /// Retrieves the name of the network interface.
     pub fn name(&self) -> std::io::Result<String> {
         let mut tun_name = [0u8; 64];
         let mut name_len: socklen_t = 64;
@@ -374,7 +375,10 @@ impl DeviceImpl {
                 .into())
         }
     }
-
+    /// Enables or disables the network interface.
+    ///
+    /// If `value` is true, the interface is enabled by setting the IFF_UP and IFF_RUNNING flags.
+    /// If false, the IFF_UP flag is cleared. The change is applied using a system call.
     pub fn enabled(&self, value: bool) -> std::io::Result<()> {
         unsafe {
             let ctl = ctl()?;
@@ -427,7 +431,7 @@ impl DeviceImpl {
     //         Ok(())
     //     }
     // }
-
+    /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> std::io::Result<u16> {
         unsafe {
             let ctl = ctl()?;
@@ -445,7 +449,7 @@ impl DeviceImpl {
             Ok(r)
         }
     }
-
+    /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> std::io::Result<()> {
         unsafe {
             let ctl = ctl()?;
@@ -458,7 +462,7 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
+    /// Sets the IPv4 network address, netmask, and an optional destination address.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -481,7 +485,7 @@ impl DeviceImpl {
         self.set_alias(address, dest, netmask)?;
         Ok(())
     }
-
+    /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         unsafe {
             match addr {
@@ -520,7 +524,7 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
+    /// Adds an IPv6 address to the interface.
     pub fn add_address_v6<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         &self,
         addr: IPv6,
@@ -558,13 +562,5 @@ impl DeviceImpl {
             }
         }
         Ok(())
-    }
-
-    pub fn ignore_packet_info(&self) -> bool {
-        self.tun.ignore_packet_info()
-    }
-
-    pub fn set_ignore_packet_info(&self, ign: bool) {
-        self.tun.set_ignore_packet_info(ign)
     }
 }

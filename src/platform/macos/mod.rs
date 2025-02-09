@@ -2,4 +2,4 @@ mod sys;
 
 mod device;
 
-pub(crate) use self::device::DeviceImpl;
+pub use self::device::DeviceImpl;

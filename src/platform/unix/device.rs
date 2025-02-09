@@ -65,15 +65,51 @@ impl DeviceImpl {
 }
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
 impl DeviceImpl {
+    /// Retrieves the interface index for the network interface.
+    ///
+    /// This function converts the interface name (obtained via `self.name()`) into a
+    /// C-compatible string (CString) and then calls the libc function `if_nametoindex`
+    /// to retrieve the corresponding interface index.
     pub fn if_index(&self) -> io::Result<u32> {
         let if_name = std::ffi::CString::new(self.name()?)?;
         unsafe { Ok(libc::if_nametoindex(if_name.as_ptr())) }
     }
+    /// Retrieves all IP addresses associated with the network interface.
+    ///
+    /// This function calls `getifaddrs` with the interface name,
+    /// then iterates over the returned list of interface addresses, extracting and collecting
+    /// the IP addresses into a vector.
     pub fn addresses(&self) -> io::Result<Vec<std::net::IpAddr>> {
         Ok(crate::platform::get_if_addrs_by_name(self.name()?)?
             .iter()
             .map(|v| v.address)
             .collect())
+    }
+}
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+impl DeviceImpl {
+    /// Returns whether the TUN device is set to ignore packet information (PI).
+    ///
+    /// When enabled, the device does not prepend the `struct tun_pi` header
+    /// to packets, which can simplify packet processing in some cases.
+    ///
+    /// # Returns
+    /// * `true` - The TUN device ignores packet information.
+    /// * `false` - The TUN device includes packet information.
+    pub fn ignore_packet_info(&self) -> bool {
+        self.tun.ignore_packet_info()
+    }
+    /// Sets whether the TUN device should ignore packet information (PI).
+    ///
+    /// When `ignore_packet_info` is set to `true`, the TUN device does not
+    /// prepend the `struct tun_pi` header to packets. This can be useful
+    /// if the additional metadata is not needed.
+    ///
+    /// # Parameters
+    /// * `ign` - If `true`, the TUN device will ignore packet information.
+    ///           If `false`, it will include packet information.
+    pub fn set_ignore_packet_info(&self, ign: bool) {
+        self.tun.set_ignore_packet_info(ign)
     }
 }
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]

@@ -40,6 +40,27 @@ pub trait Encoder<Item> {
 
 const INITIAL_RD_CAPACITY: usize = 64 * 1024;
 const INITIAL_WR_CAPACITY: usize = 8 * 1024;
+
+/// A unified `Stream` and `Sink` interface to an underlying `AsyncDevice`,
+/// using the `Encoder` and `Decoder` traits to encode and decode frames.
+///
+/// Raw device interfaces work with packets, but higher-level code usually
+/// wants to batch these into meaningful chunks, called "frames".
+/// This struct layers framing on top of the device by using the `Encoder`
+/// and `Decoder` traits to handle encoding and decoding of message frames.
+/// Note that the incoming and outgoing frame types may be distinct.
+///
+/// This function returns a single object that is both `Stream` and `Sink`;
+/// grouping this into a single object is often useful for layering things
+/// which require both read and write access to the underlying device.
+///
+/// If you want to work more directly with the stream and sink, consider
+/// calling `split` on the `DeviceFramed` returned by this method, which
+/// will break them into separate objects, allowing them to interact more easily.
+///
+/// Additionally, you can create multiple framing tools using
+/// `DeviceFramed::new(dev.clone(), BytesCodec::new())`(use `Arc<AsyncDevice>`), allowing multiple
+/// independent framed streams to operate on the same device.
 pub struct DeviceFramed<C, T = AsyncDevice> {
     dev: T,
     codec: C,

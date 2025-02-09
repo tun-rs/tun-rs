@@ -4,4 +4,4 @@ mod netsh;
 mod tap;
 mod tun;
 
-pub(crate) use device::DeviceImpl;
+pub use device::DeviceImpl;

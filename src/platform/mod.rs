@@ -1,38 +1,38 @@
 #[cfg(unix)]
-pub mod unix;
+pub(crate) mod unix;
 
 #[cfg(target_os = "linux")]
-pub mod linux;
+pub(crate) mod linux;
 #[cfg(target_os = "linux")]
-pub(crate) use self::linux::DeviceImpl;
+pub use self::linux::DeviceImpl;
 
 #[cfg(target_os = "linux")]
 pub use self::linux::*;
 
 #[cfg(target_os = "freebsd")]
-pub mod freebsd;
+pub(crate) mod freebsd;
 #[cfg(target_os = "freebsd")]
-pub(crate) use self::freebsd::DeviceImpl;
+pub use self::freebsd::DeviceImpl;
 
 #[cfg(target_os = "macos")]
-pub mod macos;
+pub(crate) mod macos;
 #[cfg(target_os = "macos")]
-pub(crate) use self::macos::DeviceImpl;
+pub use self::macos::DeviceImpl;
 
 #[cfg(target_os = "ios")]
-pub mod ios;
+pub(crate) mod ios;
 #[cfg(target_os = "ios")]
-pub(crate) use self::ios::DeviceImpl;
+pub use self::ios::DeviceImpl;
 
 #[cfg(target_os = "android")]
-pub mod android;
+pub(crate) mod android;
 #[cfg(target_os = "android")]
-pub(crate) use self::android::DeviceImpl;
+pub use self::android::DeviceImpl;
 
 #[cfg(target_os = "windows")]
-pub mod windows;
+pub(crate) mod windows;
 #[cfg(target_os = "windows")]
-pub(crate) use self::windows::DeviceImpl;
+pub use self::windows::DeviceImpl;
 
 use getifaddrs::Interface;
 #[cfg(unix)]
@@ -51,53 +51,95 @@ pub(crate) fn get_if_addrs_by_name(if_name: String) -> std::io::Result<Vec<Inter
     Ok(ifs)
 }
 
+/// A transparent wrapper around DeviceImpl, providing synchronous I/O operations.
 #[repr(transparent)]
 pub struct SyncDevice(pub(crate) DeviceImpl);
 
 impl SyncDevice {
+    /// Creates a new SyncDevice from a raw file descriptor.
+    ///
     /// # Safety
-    /// The fd passed in must be an owned file descriptor; in particular, it must be open.
+    /// - The file descriptor (`fd`) must be an owned file descriptor.
+    /// - It must be valid and open.
+    ///
+    /// This function is only available on Unix platforms.
     #[cfg(unix)]
     pub unsafe fn from_fd(fd: RawFd) -> Self {
         SyncDevice(DeviceImpl::from_fd(fd))
     }
+    /// Receives data from the device into the provided buffer.
+    ///
+    /// Returns the number of bytes read, or an I/O error.
     pub fn recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.recv(buf)
     }
+    /// Sends data from the provided buffer to the device.
+    ///
+    /// Returns the number of bytes written, or an I/O error.
     pub fn send(&self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.send(buf)
     }
+    /// Attempts to receive data from the device in a non-blocking fashion.
+    ///
+    /// Returns the number of bytes read or an error if the operation would block.
     #[cfg(target_os = "windows")]
     pub fn try_recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.try_recv(buf)
     }
+    /// Attempts to send data to the device in a non-blocking fashion.
+    ///
+    /// Returns the number of bytes written or an error if the operation would block.
     #[cfg(target_os = "windows")]
     pub fn try_send(&self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.try_send(buf)
     }
+    /// Shuts down the device on Windows.
+    ///
+    /// This may close the device or signal that no further operations will occur.
     #[cfg(target_os = "windows")]
     pub fn shutdown(&self) -> std::io::Result<()> {
         self.0.shutdown()
     }
-
+    /// Shuts down the device on Unix when the experimental feature is enabled.
+    ///
+    /// This method signals the device to stop operations.
     #[cfg(all(unix, feature = "experimental"))]
     pub fn shutdown(&self) -> std::io::Result<()> {
         self.0.shutdown()
     }
+    /// Receives data from the device into multiple buffers using vectored I/O.
+    ///
+    /// **Note:** This method operates on a single packet only. It will only read data from one packet,
+    /// even if multiple buffers are provided.
+    ///
+    /// Returns the total number of bytes read from the packet, or an error.
     #[cfg(unix)]
     pub fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> std::io::Result<usize> {
         self.0.recv_vectored(bufs)
     }
+    /// Sends data to the device from multiple buffers using vectored I/O.
+    ///
+    /// **Note:** This method operates on a single packet only. It will only send the data contained in
+    /// the provided buffers as one packet.
+    ///
+    /// Returns the total number of bytes written for the packet, or an error.
     #[cfg(unix)]
     pub fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
         self.0.send_vectored(bufs)
     }
+    /// Checks whether the device is currently operating in nonblocking mode.
+    ///
+    /// Returns `true` if nonblocking mode is enabled, `false` otherwise, or an error.
     #[cfg(unix)]
     pub fn is_nonblocking(&self) -> std::io::Result<bool> {
         self.0.is_nonblocking()
     }
 
-    /// Moves this Device into or out of nonblocking mode.
+    /// Sets the nonblocking mode for the device.
+    ///
+    /// - `nonblocking`: Pass `true` to enable nonblocking mode, `false` to disable.
+    ///
+    /// Returns an empty result on success or an I/O error.
     #[cfg(unix)]
     pub fn set_nonblocking(&self, nonblocking: bool) -> std::io::Result<()> {
         self.0.set_nonblocking(nonblocking)

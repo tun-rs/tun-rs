@@ -4,7 +4,10 @@ use std::str::FromStr;
 
 use crate::platform::{DeviceImpl, SyncDevice};
 
-/// TUN interface OSI layer of operation.
+/// Represents the OSI layer at which the TUN interface operates.
+///
+/// - **L2**: Data Link Layer (available on Windows, Linux, and FreeBSD; used for TAP interfaces).
+/// - **L3**: Network Layer (default for TUN interfaces).
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub enum Layer {
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
@@ -14,15 +17,23 @@ pub enum Layer {
 }
 
 /// Configuration for a TUN/TAP interface.
+///
+/// This structure stores settings such as the device name, operating layer,
+/// and platform-specific parameters (e.g., GUID, wintun file, ring capacity on Windows).
 #[derive(Clone, Default, Debug)]
 pub(crate) struct DeviceConfig {
+    /// The name of the device/interface.
     pub dev_name: Option<String>,
+    /// Specifies whether the interface operates at L2 or L3.
     #[allow(dead_code)]
     pub layer: Option<Layer>,
+    /// Device GUID on Windows.
     #[cfg(windows)]
     pub device_guid: Option<u128>,
+    /// Path to the wintun file on Windows.
     #[cfg(windows)]
     pub wintun_file: Option<String>,
+    /// Capacity of the ring buffer on Windows.
     #[cfg(windows)]
     pub ring_capacity: Option<u32>,
     /// switch of Enable/Disable packet information for network driver
@@ -41,7 +52,10 @@ type IPV4 = (
     io::Result<u8>,
     Option<io::Result<Ipv4Addr>>,
 );
-/// Builder for a TUN/TAP interface.
+/// A builder for configuring a TUN/TAP interface.
+///
+/// This builder allows you to set parameters such as device name, MTU,
+/// IPv4/IPv6 addresses, MAC address, and other platform-specific options.
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,
@@ -77,36 +91,48 @@ pub struct DeviceBuilder {
 }
 
 impl DeviceBuilder {
+    /// Creates a new DeviceBuilder instance with default settings.
     pub fn new() -> Self {
         Self::default()
     }
+    /// Sets the device name.
     pub fn name<S: Into<String>>(mut self, dev_name: S) -> Self {
         self.dev_name = Some(dev_name.into());
         self
     }
+    /// Sets the device MTU (Maximum Transmission Unit).
     pub fn mtu(mut self, mtu: u16) -> Self {
         self.mtu = Some(mtu);
         #[cfg(windows)]
         {
+            // On Windows, also set the MTU for IPv6.
             self.mtu_v6 = Some(mtu);
         }
         self
     }
+    /// Sets the IPv4 MTU specifically for Windows.
     #[cfg(windows)]
     pub fn mtu_v4(mut self, mtu: u16) -> Self {
         self.mtu = Some(mtu);
         self
     }
+    /// Sets the IPv6 MTU specifically for Windows.
     #[cfg(windows)]
     pub fn mtu_v6(mut self, mtu: u16) -> Self {
         self.mtu_v6 = Some(mtu);
         self
     }
+    /// Sets the MAC address for the device (effective only in L2 mode).
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
     pub fn mac_addr(mut self, mac_addr: [u8; 6]) -> Self {
         self.mac_addr = Some(mac_addr);
         self
     }
+    /// Configures the IPv4 address for the device.
+    ///
+    /// - `address`: The IPv4 address of the device.
+    /// - `mask`: The subnet mask or prefix length.
+    /// - `destination`: Optional destination address for point-to-point links.
     pub fn ipv4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         mut self,
         address: IPv4,
@@ -116,6 +142,10 @@ impl DeviceBuilder {
         self.ipv4 = Some((address.ipv4(), mask.prefix(), destination.map(|v| v.ipv4())));
         self
     }
+    /// Configures an IPv6 address for the device.
+    ///
+    /// - `address`: The IPv6 address.
+    /// - `mask`: The subnet mask or prefix length.
     pub fn ipv6<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         mut self,
         address: IPv6,
@@ -129,6 +159,9 @@ impl DeviceBuilder {
 
         self
     }
+    /// Configures multiple IPv6 addresses in batch.
+    ///
+    /// Accepts a slice of (IPv6 address, netmask) tuples.
     pub fn ipv6_tuple<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         mut self,
         addrs: &[(IPv6, Netmask)],
@@ -147,52 +180,62 @@ impl DeviceBuilder {
         }
         self
     }
+    /// Sets the operating layer (L2 or L3) for the device.
     pub fn layer(mut self, layer: Layer) -> Self {
         self.layer = Some(layer);
         self
     }
+    /// Sets the device GUID on Windows.
     #[cfg(windows)]
     pub fn device_guid(mut self, device_guid: u128) -> Self {
         self.device_guid = Some(device_guid);
         self
     }
+    /// Sets the wintun file path on Windows.
     #[cfg(windows)]
     pub fn wintun_file(mut self, wintun_file: String) -> Self {
         self.wintun_file = Some(wintun_file);
         self
     }
+    /// Sets the ring capacity on Windows.
     #[cfg(windows)]
     pub fn ring_capacity(mut self, ring_capacity: u32) -> Self {
         self.ring_capacity = Some(ring_capacity);
         self
     }
+    /// Sets the routing metric on Windows.
     #[cfg(windows)]
     pub fn metric(mut self, metric: u16) -> Self {
         self.metric = Some(metric);
         self
     }
+    /// Sets the transmit queue length on Linux.
     #[cfg(target_os = "linux")]
     pub fn tx_queue_len(mut self, tx_queue_len: u32) -> Self {
         self.tx_queue_len = Some(tx_queue_len);
         self
     }
+    /// Enables TUN offloads on Linux.
     /// After enabling, use `recv_multiple`/`send_multiple` for data transmission.
     #[cfg(target_os = "linux")]
     pub fn offload(mut self, offload: bool) -> Self {
         self.offload = Some(offload);
         self
     }
+    /// Enables multi-queue support on Linux.
     #[cfg(target_os = "linux")]
     pub fn multi_queue(mut self, multi_queue: bool) -> Self {
         self.multi_queue = Some(multi_queue);
         self
     }
-
+    /// Enables or disables packet information for the network driver
+    /// on iOS, macOS, and Linux.
     #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux"))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
         self.packet_information = Some(packet_information);
         self
     }
+    /// Enables or disables the device. Defaults to enabled.
     pub fn enable(mut self, enable: bool) -> Self {
         self.enabled = Some(enable);
         self
@@ -254,11 +297,16 @@ impl DeviceBuilder {
         device.enabled(self.enabled.unwrap_or(true))?;
         Ok(())
     }
+    /// Builds a synchronous device instance and applies all configuration parameters.
     pub fn build_sync(mut self) -> io::Result<SyncDevice> {
         let device = DeviceImpl::new(self.build_config())?;
         self.config(&device)?;
         Ok(SyncDevice(device))
     }
+    /// Builds an asynchronous device instance.
+    ///
+    /// This method is available only when the async_std or async_tokio features are enabled.
+
     #[cfg(any(feature = "async_std", feature = "async_tokio"))]
     pub fn build_async(self) -> io::Result<crate::AsyncDevice> {
         let sync_device = self.build_sync()?;
@@ -267,7 +315,10 @@ impl DeviceBuilder {
     }
 }
 
+/// Trait for converting various types into an IPv4 address.
 pub trait ToIpv4Address {
+    /// Attempts to convert the implementing type into an `Ipv4Addr`.
+    /// Returns the IPv4 address on success or an error on failure.
     fn ipv4(&self) -> io::Result<Ipv4Addr>;
 }
 impl ToIpv4Address for Ipv4Addr {
@@ -303,7 +354,10 @@ impl ToIpv4Address for &str {
     }
 }
 
+/// Trait for converting various types into an IPv6 address.
 pub trait ToIpv6Address {
+    /// Attempts to convert the implementing type into an `Ipv6Addr`.
+    /// Returns the IPv6 address on success or an error on failure.
     fn ipv6(&self) -> io::Result<Ipv6Addr>;
 }
 
@@ -339,9 +393,11 @@ impl ToIpv6Address for &str {
         }
     }
 }
-
+/// Trait for converting various types into an IPv4 netmask (prefix length).
 pub trait ToIpv4Netmask {
+    /// Returns the prefix length (i.e., the number of consecutive 1s in the netmask).
     fn prefix(&self) -> io::Result<u8>;
+    /// Computes the IPv4 netmask based on the prefix length.
     fn netmask(&self) -> io::Result<Ipv4Addr> {
         let ip = u32::MAX
             .checked_shl(32 - self.prefix()? as u32)
@@ -365,6 +421,7 @@ impl ToIpv4Netmask for u8 {
 impl ToIpv4Netmask for Ipv4Addr {
     fn prefix(&self) -> io::Result<u8> {
         let ip = u32::from_be_bytes(self.octets());
+        // Validate that the netmask is contiguous (all 1s followed by all 0s).
         if ip.leading_ones() != ip.count_ones() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -390,9 +447,11 @@ impl ToIpv4Netmask for &str {
         }
     }
 }
-
+/// Trait for converting various types into an IPv6 netmask (prefix length).
 pub trait ToIpv6Netmask {
+    /// Returns the prefix length.
     fn prefix(&self) -> io::Result<u8>;
+    /// Computes the IPv6 netmask based on the prefix length.
     fn netmask(&self) -> io::Result<Ipv6Addr> {
         let ip = u128::MAX
             .checked_shl(32 - self.prefix()? as u32)

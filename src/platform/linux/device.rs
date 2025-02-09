@@ -172,12 +172,24 @@ impl DeviceImpl {
             Ok(dev)
         }
     }
+    /// Returns whether UDP Generic Segmentation Offload (GSO) is enabled.
+    ///
+    /// This is determined by the `udp_gso` flag in the device.
     pub fn udp_gso(&self) -> bool {
         self.udp_gso
     }
+    /// Returns whether TCP Generic Segmentation Offload (GSO) is enabled.
+    ///
+    /// In this implementation, this is represented by the `vnet_hdr` flag.
     pub fn tcp_gso(&self) -> bool {
         self.vnet_hdr
     }
+    /// Sets the transmit queue length for the network interface.
+    ///
+    /// This method constructs an interface request (`ifreq`) structure,
+    /// assigns the desired transmit queue length to the `ifru_metric` field,
+    /// and calls the `change_tx_queue_len` function using the control file descriptor.
+    /// If the underlying operation fails, an I/O error is returned.
     pub fn set_tx_queue_len(&self, tx_queue_len: u32) -> io::Result<()> {
         unsafe {
             let mut ifreq = self.request()?;
@@ -188,6 +200,10 @@ impl DeviceImpl {
         }
         Ok(())
     }
+    /// Retrieves the current transmit queue length for the network interface.
+    ///
+    /// This function constructs an interface request structure and calls `tx_queue_len`
+    /// to populate it with the current transmit queue length. The value is then returned.
     pub fn tx_queue_len(&self) -> io::Result<u32> {
         unsafe {
             let mut ifreq = self.request()?;
@@ -490,11 +506,16 @@ impl DeviceImpl {
         }
         Ok(())
     }
-
+    /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
         unsafe { name(self.as_raw_fd()) }
     }
-
+    /// Sets a new name for the network interface.
+    ///
+    /// This function converts the provided name into a C-compatible string,
+    /// checks that its length does not exceed the maximum allowed (IFNAMSIZ),
+    /// and then copies it into an interface request structure. It then uses a system call
+    /// (via `siocsifname`) to apply the new name.
     pub fn set_name(&self, value: &str) -> io::Result<()> {
         unsafe {
             let tun_name = CString::new(value)?;
@@ -529,11 +550,17 @@ impl DeviceImpl {
             Ok(req.ifr_ifru.ifru_flags)
         }
     }
+    /// Checks whether the network interface is currently running.
+    ///
+    /// The interface is considered running if both the IFF_UP and IFF_RUNNING flags are set.
     pub fn is_running(&self) -> io::Result<bool> {
         let flags = self.ifru_flags()?;
         Ok(flags & (IFF_UP | IFF_RUNNING) as c_short == (IFF_UP | IFF_RUNNING) as c_short)
     }
-
+    /// Enables or disables the network interface.
+    ///
+    /// If `value` is true, the interface is enabled by setting the IFF_UP and IFF_RUNNING flags.
+    /// If false, the IFF_UP flag is cleared. The change is applied using a system call.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
         unsafe {
             let ctl = ctl()?;
@@ -556,7 +583,10 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
+    /// Retrieves the broadcast address of the network interface.
+    ///
+    /// This function populates an interface request with the broadcast address via a system call,
+    /// converts it into a sockaddr structure, and then extracts the IP address.
     pub fn broadcast(&self) -> io::Result<IpAddr> {
         unsafe {
             let mut req = self.request()?;
@@ -567,7 +597,10 @@ impl DeviceImpl {
             Ok(std::net::SocketAddr::try_from(sa)?.ip())
         }
     }
-
+    /// Sets the broadcast address of the network interface.
+    ///
+    /// This function converts the given IP address into a sockaddr structure (with a specified overwrite size)
+    /// and then applies it to the interface via a system call.
     pub fn set_broadcast(&self, value: IpAddr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
@@ -578,7 +611,10 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
+    /// Sets the IPv4 network address, netmask, and an optional destination address.
+    ///
+    /// This function sets the interface's address, netmask, and if provided, the destination address.
+    /// It calls the helper methods `set_address_v4`, `set_netmask`, and `set_destination` respectively.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -592,6 +628,12 @@ impl DeviceImpl {
         }
         Ok(())
     }
+    /// Removes an IP address from the interface.
+    ///
+    /// For IPv4 addresses, it iterates over the current addresses and if a match is found,
+    /// resets the address to `0.0.0.0` (unspecified).
+    /// For IPv6 addresses, it retrieves the interface addresses by name and removes the matching address,
+    /// taking into account its prefix length.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         match addr {
             IpAddr::V4(_) => {
@@ -615,7 +657,11 @@ impl DeviceImpl {
         }
         Ok(())
     }
-
+    /// Adds an IPv6 address to the interface.
+    ///
+    /// This function creates an `in6_ifreq` structure, fills in the interface index,
+    /// prefix length, and IPv6 address (converted into a sockaddr structure),
+    /// and then applies it using a system call.
     pub fn add_address_v6<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         &self,
         addr: IPv6,
@@ -637,7 +683,10 @@ impl DeviceImpl {
         }
         Ok(())
     }
-
+    /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
+    ///
+    /// This function constructs an interface request and uses a system call (via `siocgifmtu`)
+    /// to obtain the MTU. The result is then converted to a u16.
     pub fn mtu(&self) -> io::Result<u16> {
         unsafe {
             let mut req = self.request()?;
@@ -652,7 +701,10 @@ impl DeviceImpl {
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))
         }
     }
-
+    /// Sets the MTU (Maximum Transmission Unit) for the interface.
+    ///
+    /// This function creates an interface request, sets the `ifru_mtu` field to the new value,
+    /// and then applies it via a system call.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
@@ -664,7 +716,11 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
+    /// Sets the MAC (hardware) address for the interface.
+    ///
+    /// This function constructs an interface request and copies the provided MAC address
+    /// into the hardware address field. It then applies the change via a system call.
+    /// This operation is typically supported only for TAP devices.
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
@@ -677,7 +733,10 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
+    /// Retrieves the MAC (hardware) address of the interface.
+    ///
+    /// This function queries the MAC address by the interface name using a helper function.
+    /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let mac = mac_address_by_name(&self.name()?)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
