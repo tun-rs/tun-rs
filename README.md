@@ -12,7 +12,7 @@ cross-platform.
 1. Supporting TUN and TAP
 2. Supporting both IPv4 and IPv6
 3. Supporting Synchronous and Asynchronous API
-4. Supporting Tokio and async-std asynchronous runtimes
+4. Supports choosing between Tokio and async-io for asynchronous I/O operations.
 5. All platforms have consistent IP packets(macOS's 4-byte head information can be eliminated)
 6. Experimentally supporting shutdown for Synchronous version
 7. Supporting Offload (`TSO`/`GSO`) on Linux
@@ -40,15 +40,15 @@ tun-rs = "2"
 ```
 
 If you want to use the TUN interface with asynchronous runtimes, you need to enable the `async`(aliased
-as `async_tokio`), or `async_std` feature:
+as `async_tokio`), or `async_io` feature:
 
 ```toml
 [dependencies]
 # tokio
 tun-rs = { version = "2", features = ["async"] }
 
-# async-std
-#tun-rs = { version = "2", features = ["async_std"] }
+# async-io
+#tun-rs = { version = "2", features = ["async_io"] }
 ```
 
 Example
