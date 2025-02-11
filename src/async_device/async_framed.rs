@@ -109,8 +109,10 @@ where
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        while let Some(frame) = self.wr.pop_front() {
-            ready!(self.dev.borrow().poll_send(cx, &frame))?;
+        while let Some(frame) = self.wr.front() {
+            let rs = ready!(self.dev.borrow().poll_send(cx, frame));
+            _ = self.wr.pop_front();
+            rs?;
         }
         Poll::Ready(Ok(()))
     }

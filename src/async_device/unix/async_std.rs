@@ -17,11 +17,33 @@ impl AsyncFd {
     pub fn poll_readable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.0.poll_readable(cx)
     }
+    pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        match self.0.get_ref().recv(buf) {
+            Err(e) => if e.kind() == io::ErrorKind::WouldBlock {},
+            rs => return Poll::Ready(rs),
+        }
+        match self.0.poll_readable(cx) {
+            Poll::Ready(Ok(())) => Poll::Ready(self.0.get_ref().recv(buf)),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
     pub async fn writable(&self) -> io::Result<()> {
         self.0.writable().await
     }
     pub fn poll_writable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.0.poll_writable(cx)
+    }
+    pub fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        match self.0.get_ref().send(buf) {
+            Err(e) => if e.kind() == io::ErrorKind::WouldBlock {},
+            rs => return Poll::Ready(rs),
+        }
+        match self.0.poll_writable(cx) {
+            Poll::Ready(Ok(())) => Poll::Ready(self.0.get_ref().send(buf)),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
     }
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.0.read_with(|device| device.recv(buf)).await
@@ -34,6 +56,12 @@ impl AsyncFd {
     }
     pub async fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         self.0.read_with(|device| device.recv_vectored(bufs)).await
+    }
+    pub fn try_recv_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
+        f(self.0.get_ref())
+    }
+    pub fn try_send_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
+        f(self.0.get_ref())
     }
 
     pub fn get_ref(&self) -> &DeviceImpl {

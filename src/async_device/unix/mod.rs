@@ -70,30 +70,10 @@ impl AsyncDevice {
         Ok(self.inner.into_device()?.into_raw_fd())
     }
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        loop {
-            return match self.poll_readable(cx) {
-                Poll::Ready(Ok(())) => match self.try_recv(buf) {
-                    Ok(n) => Poll::Ready(Ok(n)),
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-                    Err(e) => Poll::Ready(Err(e)),
-                },
-                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                Poll::Pending => Poll::Pending,
-            };
-        }
+        self.inner.poll_recv(cx, buf)
     }
     pub fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        loop {
-            return match self.poll_writable(cx) {
-                Poll::Ready(Ok(())) => match self.try_send(buf) {
-                    Ok(n) => Poll::Ready(Ok(n)),
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-                    Err(e) => Poll::Ready(Err(e)),
-                },
-                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                Poll::Pending => Poll::Pending,
-            };
-        }
+        self.inner.poll_send(cx, buf)
     }
     pub async fn readable(&self) -> io::Result<()> {
         self.inner.readable().await
@@ -112,7 +92,7 @@ impl AsyncDevice {
         self.inner.recv(buf).await
     }
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.get_ref().recv(buf)
+        self.inner.try_recv_io(|device| device.recv(buf))
     }
 
     /// Send a packet to tun device
@@ -120,7 +100,7 @@ impl AsyncDevice {
         self.inner.send(buf).await
     }
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.inner.get_ref().send(buf)
+        self.inner.try_send_io(|device| device.send(buf))
     }
     pub async fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.inner.send_vectored(bufs).await
