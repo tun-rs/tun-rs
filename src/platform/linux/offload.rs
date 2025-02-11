@@ -495,7 +495,7 @@ fn tcp_packets_can_coalesce<B: ExpandBuffer>(
     let mut lhs_len = item.gso_size as usize;
     lhs_len += (item.num_merged as usize) * (item.gso_size as usize);
 
-    if seq == item.sent_seq + lhs_len as u32 {
+    if seq == item.sent_seq.wrapping_add(lhs_len as u32) {
         // pkt aligns following item from a seq num perspective
         if item.psh_set {
             // We cannot append to a segment that has the PSH flag set, PSH
@@ -515,7 +515,7 @@ fn tcp_packets_can_coalesce<B: ExpandBuffer>(
         }
 
         return CanCoalesce::Append;
-    } else if seq + gso_size as u32 == item.sent_seq {
+    } else if seq.wrapping_add(gso_size as u32) == item.sent_seq {
         // pkt aligns in front of item from a seq num perspective
         if psh_set {
             // We cannot prepend with a segment that has the PSH flag set, PSH
@@ -1293,7 +1293,7 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             .copy_from_slice(&input[hdr.csum_start as usize..hdr.hdr_len as usize]);
 
         if protocol == IPPROTO_TCP {
-            let tcp_seq = first_tcp_seq_num + hdr.gso_size as u32 * i as u32;
+            let tcp_seq = first_tcp_seq_num.wrapping_add(hdr.gso_size as u32 * i as u32);
             BigEndian::write_u32(
                 &mut out[(hdr.csum_start + 4) as usize..(hdr.csum_start + 8) as usize],
                 tcp_seq,
