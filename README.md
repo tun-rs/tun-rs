@@ -1,8 +1,8 @@
 Tun/Tap interfaces
 ==============
 [![Crates.io](https://img.shields.io/crates/v/tun-rs.svg)](https://crates.io/crates/tun-rs)
-![tun-rs](https://docs.rs/tun-rs/badge.svg)
-![Apache-2.0](https://img.shields.io/github/license/xmh0511/tun-rs?style=flat)
+[![tun-rs](https://docs.rs/tun-rs/badge.svg)](https://docs.rs/tun-rs/latest/tun_rs)
+[![Apache-2.0](https://img.shields.io/github/license/tun-rs/tun-rs?style=flat)](https://github.com/tun-rs/tun-rs/blob/master/LICENSE)
 
 This crate allows the creation and usage of Tun/Tap interfaces(**supporting both Ipv4 and ipv6**), aiming to make this
 cross-platform.
