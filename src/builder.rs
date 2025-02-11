@@ -453,7 +453,7 @@ pub trait ToIpv6Netmask {
     /// Computes the IPv6 netmask based on the prefix length.
     fn netmask(&self) -> io::Result<Ipv6Addr> {
         let ip = u128::MAX
-            .checked_shl(32 - self.prefix()? as u32)
+            .checked_shl(128 - self.prefix()? as u32)
             .unwrap_or(0);
         Ok(Ipv6Addr::from(ip))
     }
