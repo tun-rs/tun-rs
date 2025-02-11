@@ -20,9 +20,6 @@ mod async_std;
 #[cfg(all(feature = "async_std", not(feature = "async_tokio")))]
 use self::async_std::*;
 
-#[cfg(all(feature = "async_tokio", feature = "async_std", not(doc)))]
-compile_error! {"More than one asynchronous runtime is simultaneously specified in features"}
-
 /// An async TUN device wrapper around a TUN device.
 pub struct AsyncDevice {
     inner: AsyncFd,
