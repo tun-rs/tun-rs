@@ -69,51 +69,184 @@ impl AsyncDevice {
     pub fn into_fd(self) -> io::Result<RawFd> {
         Ok(self.inner.into_device()?.into_raw_fd())
     }
+
+    /// Attempts to receive a single datagram message on the TUN
+    ///
+    ///
+    /// Note that on multiple calls to a `poll_*` method in the `recv` direction, only the
+    /// `Waker` from the `Context` passed to the most recent call will be scheduled to
+    /// receive a wakeup.
+    ///
+    /// # Return value
+    ///
+    /// The function returns:
+    ///
+    /// * `Poll::Pending` if the TUN is not ready to read
+    /// * `Poll::Ready(Ok(()))` reads data `buf` if the TUN is ready
+    /// * `Poll::Ready(Err(e))` if an error is encountered.
+    ///
+    /// # Errors
+    ///
+    /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         self.inner.poll_recv(cx, buf)
     }
+    /// Attempts to send data on the TUN
+    ///
+    /// Note that on multiple calls to a `poll_*` method in the send direction,
+    /// only the `Waker` from the `Context` passed to the most recent call will
+    /// be scheduled to receive a wakeup.
+    ///
+    /// # Return value
+    ///
+    /// The function returns:
+    ///
+    /// * `Poll::Pending` if the TUN is not available to write
+    /// * `Poll::Ready(Ok(n))` `n` is the number of bytes sent
+    /// * `Poll::Ready(Err(e))` if an error is encountered.
+    ///
+    /// # Errors
+    ///
+    /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         self.inner.poll_send(cx, buf)
     }
+    /// Waits for the TUN to become readable.
+    ///
+    /// This function is usually paired with `try_recv()`.
+    ///
+    /// The function may complete without the TUN being readable. This is a
+    /// false-positive and attempting a `try_recv()` will return with
+    /// `io::ErrorKind::WouldBlock`.
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. Once a readiness event occurs, the method
+    /// will continue to return immediately until the readiness event is
+    /// consumed by an attempt to read that fails with `WouldBlock` or
+    /// `Poll::Pending`.
     pub async fn readable(&self) -> io::Result<()> {
         self.inner.readable().await
     }
+    /// Attempts to receive a single datagram message on the TUN.
+    ///
+    ///
+    /// Note that on multiple calls to a `poll_*` method in the `recv` direction, only the
+    /// `Waker` from the `Context` passed to the most recent call will be scheduled to
+    /// receive a wakeup.
+    ///
+    /// # Return value
+    ///
+    /// The function returns:
+    ///
+    /// * `Poll::Pending` if the TUN is not ready to read
+    /// * `Poll::Ready(Ok(()))` reads data `buf` if the TUN is ready
+    /// * `Poll::Ready(Err(e))` if an error is encountered.
+    ///
+    /// # Errors
+    ///
+    /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_readable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.inner.poll_readable(cx)
     }
+    /// Waits for the TUN to become writable.
+    ///
+    /// This function is usually paired with `try_send()`.
+    ///
+    /// The function may complete without the TUN being writable. This is a
+    /// false-positive and attempting a `try_send()` will return with
+    /// `io::ErrorKind::WouldBlock`.
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. Once a readiness event occurs, the method
+    /// will continue to return immediately until the readiness event is
+    /// consumed by an attempt to write that fails with `WouldBlock` or
+    /// `Poll::Pending`.
     pub async fn writable(&self) -> io::Result<()> {
         self.inner.writable().await
     }
+
+    /// Attempts to send data on the TUN.
+    ///
+    /// Note that on multiple calls to a `poll_*` method in the send direction,
+    /// only the `Waker` from the `Context` passed to the most recent call will
+    /// be scheduled to receive a wakeup.
+    ///
+    /// # Return value
+    ///
+    /// The function returns:
+    ///
+    /// * `Poll::Pending` if the TUN is not available to write
+    /// * `Poll::Ready(Ok(n))` `n` is the number of bytes sent
+    /// * `Poll::Ready(Err(e))` if an error is encountered.
+    ///
+    /// # Errors
+    ///
+    /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_writable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.inner.poll_writable(cx)
     }
+    /// Receives a single datagram message on the TUN.
+    /// On success, returns the number of bytes read.
+    ///
+    /// The function must be called with valid byte array `buf` of sufficient
+    /// size to hold the message bytes. If a message is too long to fit in the
+    /// supplied buffer, excess bytes may be discarded.
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.inner.read_with(|device| device.recv(buf)).await
     }
+    /// Tries to receive a single datagram message on the TUN.
+    /// On success, returns the number of bytes read.
+    ///
+    /// This method must be called with valid byte array `buf` of sufficient size
+    /// to hold the message bytes. If a message is too long to fit in the
+    /// supplied buffer, excess bytes may be discarded.
+    ///
+    /// When there is no pending data, `Err(io::ErrorKind::WouldBlock)` is
+    /// returned. This function is usually paired with `readable()`.
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.inner.try_read_io(|device| device.recv(buf))
     }
 
     /// Send a packet to tun device
+    ///
+    /// # Return
+    /// On success, the number of bytes sent is returned, otherwise, the encountered error is returned.
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.write_with(|device| device.send(buf)).await
     }
+    /// Tries to send data on the TUN.
+    ///
+    /// When the TUN buffer is full, `Err(io::ErrorKind::WouldBlock)` is
+    /// returned. This function is usually paired with `writable()`.
+    ///
+    /// # Returns
+    ///
+    /// If successful, `Ok(n)` is returned, where `n` is the number of bytes
+    /// sent. If the TUN is not ready to send data,
+    /// `Err(ErrorKind::WouldBlock)` is returned.
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.try_write_io(|device| device.send(buf))
     }
+    /// Receives a packet into multiple buffers (scatter read).
+    /// **Processes single packet per call**.
     pub async fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         self.inner
             .read_with(|device| device.recv_vectored(bufs))
             .await
     }
+    /// Non-blocking version of `recv_vectored`.
     pub fn try_recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         self.inner.try_read_io(|device| device.recv_vectored(bufs))
     }
+    /// Sends multiple buffers as a single packet (gather write).
     pub async fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.inner
             .write_with(|device| device.send_vectored(bufs))
             .await
     }
+    /// Non-blocking version of `send_vectored`.
     pub fn try_send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.inner.try_write_io(|device| device.send_vectored(bufs))
     }
