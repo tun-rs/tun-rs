@@ -70,12 +70,11 @@ impl AsyncDevice {
         } else {
             let device = self.inner.clone();
             let size = buf.len();
-            let task = blocking::unblock(move || {
+            blocking::unblock(move || {
                 let mut in_buf = vec![0; size];
                 let n = device.recv(&mut in_buf)?;
                 Ok((in_buf, n))
-            });
-            task
+            })
         };
         match Pin::new(&mut task).poll(cx) {
             Poll::Ready(rs) => {
