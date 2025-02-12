@@ -1,8 +1,8 @@
 use crate::platform::DeviceImpl;
 use ::async_io::Async;
 use std::io;
-use std::io::{IoSlice, IoSliceMut};
 use std::task::{Context, Poll};
+
 pub struct AsyncFd(Async<DeviceImpl>);
 impl AsyncFd {
     pub fn new(device: DeviceImpl) -> io::Result<Self> {
@@ -45,22 +45,22 @@ impl AsyncFd {
             Poll::Pending => Poll::Pending,
         }
     }
-    pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read_with(|device| device.recv(buf)).await
+    pub async fn read_with<R>(
+        &self,
+        op: impl FnMut(&DeviceImpl) -> io::Result<R>,
+    ) -> io::Result<R> {
+        self.0.read_with(op).await
     }
-    pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write_with(|device| device.send(buf)).await
+    pub async fn write_with<R>(
+        &self,
+        op: impl FnMut(&DeviceImpl) -> io::Result<R>,
+    ) -> io::Result<R> {
+        self.0.write_with(op).await
     }
-    pub async fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        self.0.write_with(|device| device.send_vectored(bufs)).await
-    }
-    pub async fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        self.0.read_with(|device| device.recv_vectored(bufs)).await
-    }
-    pub fn try_recv_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
+    pub fn try_read_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
         f(self.0.get_ref())
     }
-    pub fn try_send_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
+    pub fn try_write_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
         f(self.0.get_ref())
     }
 

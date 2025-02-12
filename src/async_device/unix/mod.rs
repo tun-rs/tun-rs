@@ -87,26 +87,35 @@ impl AsyncDevice {
     pub fn poll_writable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.inner.poll_writable(cx)
     }
-    /// Recv a packet from tun device
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.recv(buf).await
+        self.inner.read_with(|device| device.recv(buf)).await
     }
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.try_recv_io(|device| device.recv(buf))
+        self.inner.try_read_io(|device| device.recv(buf))
     }
 
     /// Send a packet to tun device
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.inner.send(buf).await
+        self.inner.write_with(|device| device.send(buf)).await
     }
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.inner.try_send_io(|device| device.send(buf))
-    }
-    pub async fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        self.inner.send_vectored(bufs).await
+        self.inner.try_write_io(|device| device.send(buf))
     }
     pub async fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        self.inner.recv_vectored(bufs).await
+        self.inner
+            .read_with(|device| device.recv_vectored(bufs))
+            .await
+    }
+    pub fn try_recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
+        self.inner.try_read_io(|device| device.recv_vectored(bufs))
+    }
+    pub async fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+        self.inner
+            .write_with(|device| device.send_vectored(bufs))
+            .await
+    }
+    pub fn try_send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+        self.inner.try_write_io(|device| device.send_vectored(bufs))
     }
 }
 

@@ -1,5 +1,4 @@
 use std::io;
-use std::io::{IoSlice, IoSliceMut};
 use std::task::{Context, Poll};
 
 use crate::platform::DeviceImpl;
@@ -65,35 +64,29 @@ impl AsyncFd {
             };
         }
     }
-    pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+    pub async fn read_with<R>(
+        &self,
+        mut op: impl FnMut(&DeviceImpl) -> io::Result<R>,
+    ) -> io::Result<R> {
         self.0
-            .async_io(Interest::READABLE.add(Interest::ERROR), |device| {
-                device.recv(buf)
-            })
+            .async_io(Interest::READABLE.add(Interest::ERROR), |device| op(device))
             .await
     }
-    pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
+    pub async fn write_with<R>(
+        &self,
+        mut op: impl FnMut(&DeviceImpl) -> io::Result<R>,
+    ) -> io::Result<R> {
         self.0
-            .async_io(Interest::WRITABLE, |device| device.send(buf))
+            .async_io(Interest::WRITABLE, |device| op(device))
             .await
     }
-    pub async fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        self.0
-            .async_io(Interest::WRITABLE, |device| device.send_vectored(bufs))
-            .await
-    }
-    pub async fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        self.0
-            .async_io(Interest::READABLE.add(Interest::ERROR), |device| {
-                device.recv_vectored(bufs)
-            })
-            .await
-    }
-    pub fn try_recv_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
+
+    pub fn try_read_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
         self.0
             .try_io(Interest::READABLE.add(Interest::ERROR), |device| f(device))
     }
-    pub fn try_send_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
+
+    pub fn try_write_io<R>(&self, f: impl FnOnce(&DeviceImpl) -> io::Result<R>) -> io::Result<R> {
         self.0.try_io(Interest::WRITABLE, |device| f(device))
     }
 

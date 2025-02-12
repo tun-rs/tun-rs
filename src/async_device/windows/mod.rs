@@ -131,7 +131,7 @@ impl AsyncDevice {
         }
     }
 
-    /// Recv a packet from tun device - Not implemented for windows
+    /// Recv a packet from tun device
     pub async fn recv(&self, mut buf: &mut [u8]) -> io::Result<usize> {
         match self.try_recv(buf) {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
@@ -156,7 +156,7 @@ impl AsyncDevice {
         self.inner.try_recv(buf)
     }
 
-    /// Send a packet to tun device - Not implemented for windows
+    /// Send a packet to tun device
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
         match self.inner.try_send(buf) {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
