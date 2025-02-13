@@ -8,22 +8,16 @@ use std::io;
 use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
-use std::task::{Context, Poll};
 
 #[cfg(feature = "async_tokio")]
 mod tokio;
 #[cfg(feature = "async_tokio")]
-use self::tokio::*;
+pub use self::tokio::AsyncDevice;
 
 #[cfg(all(feature = "async_std", not(feature = "async_tokio")))]
 mod async_std;
 #[cfg(all(feature = "async_std", not(feature = "async_tokio")))]
-use self::async_std::*;
-
-/// An async Tun/Tap device wrapper around a Tun/Tap device.
-pub struct AsyncDevice {
-    inner: AsyncFd,
-}
+pub use self::async_std::AsyncDevice;
 
 impl FromRawFd for AsyncDevice {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
@@ -37,7 +31,7 @@ impl IntoRawFd for AsyncDevice {
 }
 impl AsRawFd for AsyncDevice {
     fn as_raw_fd(&self) -> RawFd {
-        self.inner.get_ref().as_raw_fd()
+        self.get_ref().as_raw_fd()
     }
 }
 
@@ -45,19 +39,13 @@ impl Deref for AsyncDevice {
     type Target = DeviceImpl;
 
     fn deref(&self) -> &Self::Target {
-        self.inner.get_ref()
+        self.get_ref()
     }
 }
 
 impl AsyncDevice {
     pub fn new(device: SyncDevice) -> io::Result<AsyncDevice> {
         AsyncDevice::new_dev(device.0)
-    }
-    /// Create a new `AsyncDevice` wrapping around a `Device`.
-    pub(crate) fn new_dev(device: DeviceImpl) -> io::Result<AsyncDevice> {
-        Ok(AsyncDevice {
-            inner: AsyncFd::new(device)?,
-        })
     }
 
     /// # Safety
@@ -67,49 +55,7 @@ impl AsyncDevice {
         AsyncDevice::new_dev(DeviceImpl::from_fd(fd))
     }
     pub fn into_fd(self) -> io::Result<RawFd> {
-        Ok(self.inner.into_device()?.into_raw_fd())
-    }
-
-    /// Attempts to receive a single packet from the device
-    ///
-    ///
-    /// Note that on multiple calls to a `poll_*` method in the `recv` direction, only the
-    /// `Waker` from the `Context` passed to the most recent call will be scheduled to
-    /// receive a wakeup.
-    ///
-    /// # Return value
-    ///
-    /// The function returns:
-    ///
-    /// * `Poll::Pending` if the device is not ready to read
-    /// * `Poll::Ready(Ok(()))` reads data `buf` if the device is ready
-    /// * `Poll::Ready(Err(e))` if an error is encountered.
-    ///
-    /// # Errors
-    ///
-    /// This function may encounter any standard I/O error except `WouldBlock`.
-    pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        self.inner.poll_recv(cx, buf)
-    }
-    /// Attempts to send packet to the device
-    ///
-    /// Note that on multiple calls to a `poll_*` method in the send direction,
-    /// only the `Waker` from the `Context` passed to the most recent call will
-    /// be scheduled to receive a wakeup.
-    ///
-    /// # Return value
-    ///
-    /// The function returns:
-    ///
-    /// * `Poll::Pending` if the device is not available to write
-    /// * `Poll::Ready(Ok(n))` `n` is the number of bytes sent
-    /// * `Poll::Ready(Err(e))` if an error is encountered.
-    ///
-    /// # Errors
-    ///
-    /// This function may encounter any standard I/O error except `WouldBlock`.
-    pub fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        self.inner.poll_send(cx, buf)
+        Ok(self.into_device()?.into_raw_fd())
     }
     /// Waits for the device to become readable.
     ///
@@ -126,28 +72,7 @@ impl AsyncDevice {
     /// consumed by an attempt to read that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn readable(&self) -> io::Result<()> {
-        self.inner.readable().await
-    }
-    /// Attempts to receive a single packet from the device.
-    ///
-    ///
-    /// Note that on multiple calls to a `poll_*` method in the `recv` direction, only the
-    /// `Waker` from the `Context` passed to the most recent call will be scheduled to
-    /// receive a wakeup.
-    ///
-    /// # Return value
-    ///
-    /// The function returns:
-    ///
-    /// * `Poll::Pending` if the device is not ready to read
-    /// * `Poll::Ready(Ok(()))` reads data `buf` if the device is ready
-    /// * `Poll::Ready(Err(e))` if an error is encountered.
-    ///
-    /// # Errors
-    ///
-    /// This function may encounter any standard I/O error except `WouldBlock`.
-    pub fn poll_readable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.inner.poll_readable(cx)
+        self.0.readable().await.map(|_| ())
     }
     /// Waits for the device to become writable.
     ///
@@ -164,28 +89,7 @@ impl AsyncDevice {
     /// consumed by an attempt to write that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn writable(&self) -> io::Result<()> {
-        self.inner.writable().await
-    }
-
-    /// Attempts to send packet on the device.
-    ///
-    /// Note that on multiple calls to a `poll_*` method in the send direction,
-    /// only the `Waker` from the `Context` passed to the most recent call will
-    /// be scheduled to receive a wakeup.
-    ///
-    /// # Return value
-    ///
-    /// The function returns:
-    ///
-    /// * `Poll::Pending` if the device is not available to write
-    /// * `Poll::Ready(Ok(n))` `n` is the number of bytes sent
-    /// * `Poll::Ready(Err(e))` if an error is encountered.
-    ///
-    /// # Errors
-    ///
-    /// This function may encounter any standard I/O error except `WouldBlock`.
-    pub fn poll_writable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.inner.poll_writable(cx)
+        self.0.writable().await.map(|_| ())
     }
     /// Receives a single packet from the device.
     /// On success, returns the number of bytes read.
@@ -194,7 +98,7 @@ impl AsyncDevice {
     /// size to hold the message bytes. If a message is too long to fit in the
     /// supplied buffer, excess bytes may be discarded.
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.read_with(|device| device.recv(buf)).await
+        self.read_with(|device| device.recv(buf)).await
     }
     /// Tries to receive a single packet from the device.
     /// On success, returns the number of bytes read.
@@ -206,7 +110,7 @@ impl AsyncDevice {
     /// When there is no pending data, `Err(io::ErrorKind::WouldBlock)` is
     /// returned. This function is usually paired with `readable()`.
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.try_read_io(|device| device.recv(buf))
+        self.try_read_io(|device| device.recv(buf))
     }
 
     /// Send a packet to the device
@@ -214,7 +118,7 @@ impl AsyncDevice {
     /// # Return
     /// On success, the number of bytes sent is returned, otherwise, the encountered error is returned.
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.inner.write_with(|device| device.send(buf)).await
+        self.write_with(|device| device.send(buf)).await
     }
     /// Tries to send packet to the device.
     ///
@@ -227,35 +131,31 @@ impl AsyncDevice {
     /// sent. If the device is not ready to send data,
     /// `Err(ErrorKind::WouldBlock)` is returned.
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.inner.try_write_io(|device| device.send(buf))
+        self.try_write_io(|device| device.send(buf))
     }
     /// Receives a packet into multiple buffers (scatter read).
     /// **Processes single packet per call**.
     pub async fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        self.inner
-            .read_with(|device| device.recv_vectored(bufs))
-            .await
+        self.read_with(|device| device.recv_vectored(bufs)).await
     }
     /// Non-blocking version of `recv_vectored`.
     pub fn try_recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        self.inner.try_read_io(|device| device.recv_vectored(bufs))
+        self.try_read_io(|device| device.recv_vectored(bufs))
     }
     /// Sends multiple buffers as a single packet (gather write).
     pub async fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        self.inner
-            .write_with(|device| device.send_vectored(bufs))
-            .await
+        self.write_with(|device| device.send_vectored(bufs)).await
     }
     /// Non-blocking version of `send_vectored`.
     pub fn try_send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        self.inner.try_write_io(|device| device.send_vectored(bufs))
+        self.try_write_io(|device| device.send_vectored(bufs))
     }
 }
 
 #[cfg(target_os = "linux")]
 impl AsyncDevice {
     pub fn try_clone(&self) -> io::Result<Self> {
-        AsyncDevice::new_dev(self.inner.get_ref().try_clone()?)
+        AsyncDevice::new_dev(self.get_ref().try_clone()?)
     }
     /// Recv a packet from the device.
     /// If offload is enabled. This method can be used to obtain processed data.
@@ -274,7 +174,7 @@ impl AsyncDevice {
         if bufs.is_empty() || bufs.len() != sizes.len() {
             return Err(io::Error::new(io::ErrorKind::Other, "bufs error"));
         }
-        let tun = self.inner.get_ref();
+        let tun = self.get_ref();
         if tun.vnet_hdr {
             let len = self.recv(original_buffer).await?;
             if len <= VIRTIO_NET_HDR_LEN {
@@ -310,7 +210,7 @@ impl AsyncDevice {
         mut offset: usize,
     ) -> io::Result<usize> {
         gro_table.reset();
-        let tun = self.inner.get_ref();
+        let tun = self.get_ref();
         if tun.vnet_hdr {
             handle_gro(
                 bufs,
