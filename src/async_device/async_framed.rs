@@ -64,6 +64,8 @@ const INITIAL_WR_CAPACITY: usize = 8 * 1024;
 pub struct DeviceFramed<C, T = AsyncDevice> {
     dev: T,
     codec: C,
+    recv_buffer_size: usize,
+    send_buffer_size: usize,
     rd: BytesMut,
     wr: VecDeque<BytesMut>,
 }
@@ -77,7 +79,7 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let pin = self.get_mut();
 
-        pin.rd.reserve(INITIAL_RD_CAPACITY);
+        pin.rd.reserve(pin.recv_buffer_size);
         let buf = unsafe { &mut *(pin.rd.chunk_mut() as *mut _ as *mut [u8]) };
 
         let len = ready!(pin.dev.borrow().poll_recv(cx, buf))?;
@@ -102,7 +104,7 @@ where
 
     fn start_send(self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
         let pin = self.get_mut();
-        let mut buf = BytesMut::with_capacity(INITIAL_WR_CAPACITY);
+        let mut buf = BytesMut::with_capacity(pin.send_buffer_size);
         pin.codec.encode(item, &mut buf)?;
         pin.wr.push_back(buf);
         Ok(())
@@ -131,9 +133,36 @@ where
         DeviceFramed {
             dev,
             codec,
+            recv_buffer_size: INITIAL_RD_CAPACITY,
+            send_buffer_size: INITIAL_WR_CAPACITY,
             rd: BytesMut::with_capacity(INITIAL_RD_CAPACITY),
             wr: Default::default(),
         }
+    }
+    pub fn read_buffer_size(&self) -> usize {
+        self.recv_buffer_size
+    }
+    pub fn write_buffer_size(&self) -> usize {
+        self.send_buffer_size
+    }
+    pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
+        self.recv_buffer_size = read_buffer_size;
+    }
+    pub fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
+        self.send_buffer_size = write_buffer_size;
+    }
+    /// Returns a reference to the read buffer.
+    pub fn read_buffer(&self) -> &BytesMut {
+        &self.rd
+    }
+
+    /// Returns a mutable reference to the read buffer.
+    pub fn read_buffer_mut(&mut self) -> &mut BytesMut {
+        &mut self.rd
+    }
+    /// Consumes the `Framed`, returning its underlying I/O stream.
+    pub fn into_inner(self) -> T {
+        self.dev
     }
 }
 
