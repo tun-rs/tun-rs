@@ -43,10 +43,10 @@ impl AsyncDevice {
     }
     /// Attempts to receive a single packet from the device
     ///
+    /// # Caveats
     ///
-    /// Note that on multiple calls to a `poll_*` method in the `recv` direction, only the
-    /// `Waker` from the `Context` passed to the most recent call will be scheduled to
-    /// receive a wakeup.
+    /// Two different tasks should not call this method concurrently. Otherwise, conflicting tasks
+    /// will just keep waking each other in turn, thus wasting CPU time.
     ///
     /// # Return value
     ///
@@ -98,9 +98,10 @@ impl AsyncDevice {
     }
     /// Attempts to send packet to the device
     ///
-    /// Note that on multiple calls to a `poll_*` method in the send direction,
-    /// only the `Waker` from the `Context` passed to the most recent call will
-    /// be scheduled to receive a wakeup.
+    /// # Caveats
+    ///
+    /// Two different tasks should not call this method concurrently. Otherwise, conflicting tasks
+    /// will just keep waking each other in turn, thus wasting CPU time.
     ///
     /// # Return value
     ///
