@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 use crate::platform::DeviceImpl;
 use crate::SyncDevice;
 
-/// An async TUN device wrapper around a TUN device.
+/// An async Tun/Tap device wrapper around a Tun/Tap device.
 pub struct AsyncDevice {
     inner: Arc<DeviceImpl>,
     recv_task_lock: Arc<Mutex<Option<RecvTask>>>,
@@ -41,7 +41,7 @@ impl AsyncDevice {
             send_task_lock: Arc::new(Mutex::new(None)),
         })
     }
-    /// Attempts to receive a single datagram message on the TUN
+    /// Attempts to receive a single packet from the device
     ///
     ///
     /// Note that on multiple calls to a `poll_*` method in the `recv` direction, only the
@@ -52,8 +52,8 @@ impl AsyncDevice {
     ///
     /// The function returns:
     ///
-    /// * `Poll::Pending` if the TUN is not ready to read
-    /// * `Poll::Ready(Ok(()))` reads data `buf` if the TUN is ready
+    /// * `Poll::Pending` if the device is not ready to read
+    /// * `Poll::Ready(Ok(()))` reads data `buf` if the device is ready
     /// * `Poll::Ready(Err(e))` if an error is encountered.
     ///
     /// # Errors
@@ -96,7 +96,7 @@ impl AsyncDevice {
             }
         }
     }
-    /// Attempts to send data on the TUN
+    /// Attempts to send packet to the device
     ///
     /// Note that on multiple calls to a `poll_*` method in the send direction,
     /// only the `Waker` from the `Context` passed to the most recent call will
@@ -106,7 +106,7 @@ impl AsyncDevice {
     ///
     /// The function returns:
     ///
-    /// * `Poll::Pending` if the TUN is not available to write
+    /// * `Poll::Pending` if the device is not available to write
     /// * `Poll::Ready(Ok(n))` `n` is the number of bytes sent
     /// * `Poll::Ready(Err(e))` if an error is encountered.
     ///
@@ -144,7 +144,7 @@ impl AsyncDevice {
         }
     }
 
-    /// Recv a packet from tun device
+    /// Recv a packet from the device
     pub async fn recv(&self, mut buf: &mut [u8]) -> io::Result<usize> {
         match self.try_recv(buf) {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
@@ -169,7 +169,7 @@ impl AsyncDevice {
         self.inner.try_recv(buf)
     }
 
-    /// Send a packet to tun device
+    /// Send a packet to the device
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
         match self.inner.try_send(buf) {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}

@@ -20,7 +20,7 @@ mod async_std;
 #[cfg(all(feature = "async_std", not(feature = "async_tokio")))]
 use self::async_std::*;
 
-/// An async TUN device wrapper around a TUN device.
+/// An async Tun/Tap device wrapper around a Tun/Tap device.
 pub struct AsyncDevice {
     inner: AsyncFd,
 }
@@ -70,7 +70,7 @@ impl AsyncDevice {
         Ok(self.inner.into_device()?.into_raw_fd())
     }
 
-    /// Attempts to receive a single datagram message on the TUN
+    /// Attempts to receive a single packet from the device
     ///
     ///
     /// Note that on multiple calls to a `poll_*` method in the `recv` direction, only the
@@ -81,8 +81,8 @@ impl AsyncDevice {
     ///
     /// The function returns:
     ///
-    /// * `Poll::Pending` if the TUN is not ready to read
-    /// * `Poll::Ready(Ok(()))` reads data `buf` if the TUN is ready
+    /// * `Poll::Pending` if the device is not ready to read
+    /// * `Poll::Ready(Ok(()))` reads data `buf` if the device is ready
     /// * `Poll::Ready(Err(e))` if an error is encountered.
     ///
     /// # Errors
@@ -91,7 +91,7 @@ impl AsyncDevice {
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         self.inner.poll_recv(cx, buf)
     }
-    /// Attempts to send data on the TUN
+    /// Attempts to send packet to the device
     ///
     /// Note that on multiple calls to a `poll_*` method in the send direction,
     /// only the `Waker` from the `Context` passed to the most recent call will
@@ -101,7 +101,7 @@ impl AsyncDevice {
     ///
     /// The function returns:
     ///
-    /// * `Poll::Pending` if the TUN is not available to write
+    /// * `Poll::Pending` if the device is not available to write
     /// * `Poll::Ready(Ok(n))` `n` is the number of bytes sent
     /// * `Poll::Ready(Err(e))` if an error is encountered.
     ///
@@ -111,11 +111,11 @@ impl AsyncDevice {
     pub fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         self.inner.poll_send(cx, buf)
     }
-    /// Waits for the TUN to become readable.
+    /// Waits for the device to become readable.
     ///
     /// This function is usually paired with `try_recv()`.
     ///
-    /// The function may complete without the TUN being readable. This is a
+    /// The function may complete without the device being readable. This is a
     /// false-positive and attempting a `try_recv()` will return with
     /// `io::ErrorKind::WouldBlock`.
     ///
@@ -128,7 +128,7 @@ impl AsyncDevice {
     pub async fn readable(&self) -> io::Result<()> {
         self.inner.readable().await
     }
-    /// Attempts to receive a single datagram message on the TUN.
+    /// Attempts to receive a single packet from the device.
     ///
     ///
     /// Note that on multiple calls to a `poll_*` method in the `recv` direction, only the
@@ -139,8 +139,8 @@ impl AsyncDevice {
     ///
     /// The function returns:
     ///
-    /// * `Poll::Pending` if the TUN is not ready to read
-    /// * `Poll::Ready(Ok(()))` reads data `buf` if the TUN is ready
+    /// * `Poll::Pending` if the device is not ready to read
+    /// * `Poll::Ready(Ok(()))` reads data `buf` if the device is ready
     /// * `Poll::Ready(Err(e))` if an error is encountered.
     ///
     /// # Errors
@@ -149,11 +149,11 @@ impl AsyncDevice {
     pub fn poll_readable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.inner.poll_readable(cx)
     }
-    /// Waits for the TUN to become writable.
+    /// Waits for the device to become writable.
     ///
     /// This function is usually paired with `try_send()`.
     ///
-    /// The function may complete without the TUN being writable. This is a
+    /// The function may complete without the device being writable. This is a
     /// false-positive and attempting a `try_send()` will return with
     /// `io::ErrorKind::WouldBlock`.
     ///
@@ -167,7 +167,7 @@ impl AsyncDevice {
         self.inner.writable().await
     }
 
-    /// Attempts to send data on the TUN.
+    /// Attempts to send packet on the device.
     ///
     /// Note that on multiple calls to a `poll_*` method in the send direction,
     /// only the `Waker` from the `Context` passed to the most recent call will
@@ -177,7 +177,7 @@ impl AsyncDevice {
     ///
     /// The function returns:
     ///
-    /// * `Poll::Pending` if the TUN is not available to write
+    /// * `Poll::Pending` if the device is not available to write
     /// * `Poll::Ready(Ok(n))` `n` is the number of bytes sent
     /// * `Poll::Ready(Err(e))` if an error is encountered.
     ///
@@ -187,7 +187,7 @@ impl AsyncDevice {
     pub fn poll_writable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.inner.poll_writable(cx)
     }
-    /// Receives a single datagram message on the TUN.
+    /// Receives a single packet from the device.
     /// On success, returns the number of bytes read.
     ///
     /// The function must be called with valid byte array `buf` of sufficient
@@ -196,7 +196,7 @@ impl AsyncDevice {
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.inner.read_with(|device| device.recv(buf)).await
     }
-    /// Tries to receive a single datagram message on the TUN.
+    /// Tries to receive a single packet from the device.
     /// On success, returns the number of bytes read.
     ///
     /// This method must be called with valid byte array `buf` of sufficient size
@@ -209,22 +209,22 @@ impl AsyncDevice {
         self.inner.try_read_io(|device| device.recv(buf))
     }
 
-    /// Send a packet to tun device
+    /// Send a packet to the device
     ///
     /// # Return
     /// On success, the number of bytes sent is returned, otherwise, the encountered error is returned.
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.write_with(|device| device.send(buf)).await
     }
-    /// Tries to send data on the TUN.
+    /// Tries to send packet to the device.
     ///
-    /// When the TUN buffer is full, `Err(io::ErrorKind::WouldBlock)` is
+    /// When the device buffer is full, `Err(io::ErrorKind::WouldBlock)` is
     /// returned. This function is usually paired with `writable()`.
     ///
     /// # Returns
     ///
     /// If successful, `Ok(n)` is returned, where `n` is the number of bytes
-    /// sent. If the TUN is not ready to send data,
+    /// sent. If the device is not ready to send data,
     /// `Err(ErrorKind::WouldBlock)` is returned.
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.try_write_io(|device| device.send(buf))
@@ -257,7 +257,7 @@ impl AsyncDevice {
     pub fn try_clone(&self) -> io::Result<Self> {
         AsyncDevice::new_dev(self.inner.get_ref().try_clone()?)
     }
-    /// Recv a packet from tun device.
+    /// Recv a packet from the device.
     /// If offload is enabled. This method can be used to obtain processed data.
     ///
     /// original_buffer is used to store raw data, including the VirtioNetHdr and the unsplit IP packet. The recommended size is 10 + 65535.
