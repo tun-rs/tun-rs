@@ -70,6 +70,7 @@ fn main() -> std::io::Result<()> {
         let amount = dev.recv(&mut buf)?;
         println!("{:?}", &buf[0..amount]);
     }
+    Ok(())
 }
 ```
 
@@ -109,6 +110,7 @@ fn main() -> std::io::Result<()> {
         let amount = dev.recv(&mut buf)?;
         println!("{:?}", &buf[0..amount]);
     }
+    Ok(())
 }
 ```
 More examples are [here](https://github.com/tun-rs/tun-rs/tree/main/examples)
@@ -149,6 +151,7 @@ fn main() -> std::io::Result<()> {
             println!("num={num},bytes={:?}", &bufs[i][..sizes[i]]);
         }
     }
+    Ok(())
 }
 ````
 
