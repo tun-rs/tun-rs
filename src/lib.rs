@@ -44,7 +44,7 @@ pub use crate::platform::*;
 
 #[cfg_attr(docsrs, doc(cfg(any(feature = "async_std", feature = "async_tokio"))))]
 #[cfg(any(feature = "async_std", feature = "async_tokio"))]
-pub mod async_device;
+mod async_device;
 
 #[cfg_attr(docsrs, doc(cfg(any(feature = "async_std", feature = "async_tokio"))))]
 #[cfg(any(feature = "async_std", feature = "async_tokio"))]
@@ -57,7 +57,7 @@ pub use async_device::*;
     target_os = "freebsd"
 ))]
 mod builder;
-pub mod platform;
+mod platform;
 pub const PACKET_INFORMATION_LENGTH: usize = 4;
 
 /// Runs a command and returns an error if the command fails, just convenience for users.

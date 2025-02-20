@@ -9,6 +9,16 @@ use crate::platform::DeviceImpl;
 use crate::SyncDevice;
 
 /// An async Tun/Tap device wrapper around a Tun/Tap device.
+///
+/// This type does not provide a split method, because this functionality can be achieved by instead wrapping the socket in an Arc.
+///
+/// # Streams
+///
+/// If you need to produce a [`Stream`], you can look at [`DeviceFramed`](crate::async_framed::DeviceFramed).
+///
+/// **Note:** `DeviceFramed` is only available when the `async_framed` feature is enabled.
+///
+/// [`Stream`]: https://docs.rs/futures/0.3/futures/stream/trait.Stream.html
 pub struct AsyncDevice {
     inner: Arc<DeviceImpl>,
     recv_task_lock: Arc<Mutex<Option<RecvTask>>>,
