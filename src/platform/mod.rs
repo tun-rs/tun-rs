@@ -205,5 +205,6 @@ mod test {
             .any(|v| v == "192.168.50.1".parse::<Ipv4Addr>().unwrap()));
 
         assert_eq!(1400, dev.mtu().unwrap());
+        assert_eq!("utun6", dev.name().unwrap());
     }
 }

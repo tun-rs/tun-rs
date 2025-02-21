@@ -78,8 +78,15 @@ async fn test_udp() {
         .ipv6("CDCD:910A:2222:5498:8475:1112:1900:2025", 64)
         .build_async()
         .unwrap();
+    let vec = device.addresses().unwrap();
+    assert!(vec
+        .iter()
+        .any(|ip| *ip == "10.26.1.100".parse::<std::net::Ipv4Addr>().unwrap()));
+    assert!(vec.iter().any(|ip| *ip
+        == "CDCD:910A:2222:5498:8475:1112:1900:2025"
+            .parse::<std::net::Ipv6Addr>()
+            .unwrap()));
     let device = Arc::new(device);
-    let _device_s = device.clone();
     let test_udp_v4 = Arc::new(AtomicBool::new(false));
     let test_udp_v6 = Arc::new(AtomicBool::new(false));
     let test_udp_v4_c = test_udp_v4.clone();
