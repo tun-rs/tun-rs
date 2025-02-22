@@ -27,8 +27,8 @@ cross-platform.
 | Linux    | ✅   | ✅   |
 | macOS    | ✅   | ⬜   |
 | FreeBSD  | ✅   | ✅   |
-| Android  | ✅   | ⬜   |
-| iOS      | ✅   | ⬜   |
+| Android  | ✅   |     |
+| iOS      | ✅   |     |
 
 Usage
 -----
@@ -36,18 +36,12 @@ First, add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
+# Base sync API (no async runtime)
 tun-rs = "2"
-```
-
-If you want to use the TUN interface with asynchronous runtimes, you need to enable the `async`(aliased
-as `async_tokio`), or `async_io` feature:
-
-```toml
-[dependencies]
-# tokio
-tun-rs = { version = "2", features = ["async"] }
-
-# async-io
+# For async runtime integration (choose ONE based on your runtime):
+# tokio: 
+#tun-rs = { version = "2", features = ["async"] }
+# async-std, smol, and other asynchronous runtimes based on async-io:
 #tun-rs = { version = "2", features = ["async_io"] }
 ```
 
@@ -65,7 +59,7 @@ fn main() -> std::io::Result<()> {
         .mtu(1400)
         .build_sync()?;
 
-    let mut buf = [0; 4096];
+    let mut buf = [0; 1400];
     loop {
         let amount = dev.recv(&mut buf)?;
         println!("{:?}", &buf[0..amount]);
@@ -85,7 +79,7 @@ async fn main() -> std::io::Result<()> {
         .ipv4("10.0.0.1", 24, None)
         .build_async()?;
 
-    let mut buf = vec![0; 1500];
+    let mut buf = vec![0; 65536];
     loop {
         let len = dev.recv(&mut buf).await?;
         println!("pkt: {:?}", &buf[..len]);
@@ -96,6 +90,7 @@ async fn main() -> std::io::Result<()> {
 ````
 
 On Unix, a device can also be directly created using a file descriptor (fd).
+
 ```rust
 use tun_rs::SyncDevice;
 
@@ -113,6 +108,7 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 ```
+
 More examples are [here](https://github.com/tun-rs/tun-rs/tree/main/examples)
 
 Linux
@@ -192,7 +188,7 @@ pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
     let tun = unsafe { tun_rs::SyncDevice::from_raw_fd(fd) };
     let mut buf = [0u8; 1500];
     while let Ok(packet) = tun.recv(&mut buf) {
-        ...
+        // ...
     }
 }
 ```

@@ -36,7 +36,7 @@ async fn main() -> std::io::Result<()> {
             .build_async()?,
     );
 
-    let size = dev.mtu()? as usize + tun_rs::PACKET_INFORMATION_LENGTH;
+    let size = dev.mtu()? as usize;
     let mut buf = vec![0; size];
     loop {
         tokio::select! {
@@ -72,7 +72,7 @@ async fn main() -> std::io::Result<()> {
             .ipv4(Ipv4Addr::from([10, 0, 0, 9]), 24, None)
             .build_async()?,
     );
-    let size = dev.mtu()? as usize + tun_rs::PACKET_INFORMATION_LENGTH;
+    let size = dev.mtu()? as usize;
     let mut buf = vec![0; size];
     let ctrlc = CtrlC::new().expect("cannot create Ctrl+C handler?");
     ctrlc
