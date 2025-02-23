@@ -73,11 +73,9 @@ ctrlc2 = { version = "3", features = ["tokio", "termination"] }
 env_logger = "0.11"
 futures = "0.3"
 pnet_packet = "0.35.0"
-serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 async-std = { version = "1", features = ["attributes", "unstable"] }
 async-ctrlc = "1.2.0"
-packet = "0.1"
 
 [features]
 async = ["async_tokio"]
