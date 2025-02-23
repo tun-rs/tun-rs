@@ -1,3 +1,4 @@
+use std::os::windows::io::{FromRawHandle, OwnedHandle};
 use std::{io, mem, ptr};
 
 use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, NO_ERROR};
@@ -55,6 +56,7 @@ pub struct SP_DRVINFO_DETAIL_DATA_W2 {
     pub DrvDescription: [u16; 256],
     pub HardwareID: [u16; 512],
 }
+
 /// Encode a string as a utf16 buffer
 pub fn encode_utf16(string: &str) -> Vec<u16> {
     use std::iter::once;
@@ -109,6 +111,16 @@ pub fn luid_to_alias(luid: &NET_LUID_LH) -> io::Result<String> {
     }
 }
 
+pub fn create_event() -> io::Result<OwnedHandle> {
+    unsafe {
+        let read_event_handle = CreateEventW(ptr::null_mut(), 0, 0, ptr::null_mut());
+        if read_event_handle.is_null() {
+            Err(io::Error::last_os_error())?
+        }
+        Ok(OwnedHandle::from_raw_handle(read_event_handle))
+    }
+}
+
 pub fn create_file(
     file_name: &str,
     desired_access: u32,
@@ -134,7 +146,8 @@ pub fn create_file(
         Ok(handle)
     }
 }
-fn ip_overlapped() -> OVERLAPPED {
+
+pub fn io_overlapped() -> OVERLAPPED {
     OVERLAPPED {
         Internal: 0,
         InternalHigh: 0,
@@ -147,75 +160,87 @@ fn ip_overlapped() -> OVERLAPPED {
         hEvent: ptr::null_mut(),
     }
 }
-pub fn try_read_file(handle: HANDLE, buffer: &mut [u8]) -> io::Result<u32> {
+
+pub fn try_read_file(
+    handle: HANDLE,
+    io_overlapped: &mut OVERLAPPED,
+    buffer: &mut [u8],
+) -> io::Result<u32> {
     let mut ret = 0;
     //https://www.cnblogs.com/linyilong3/archive/2012/05/03/2480451.html
     unsafe {
-        let mut ip_overlapped = ip_overlapped();
         if 0 == ReadFile(
             handle,
             buffer.as_mut_ptr() as _,
             buffer.len() as _,
             &mut ret,
-            &mut ip_overlapped,
+            io_overlapped,
         ) {
-            let e = io::Error::last_os_error();
-            if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                try_ip_overlapped(handle, ip_overlapped)
-            } else {
-                Err(e)
-            }
+            Err(error_map())
         } else {
             Ok(ret)
         }
     }
 }
-pub fn try_write_file(handle: HANDLE, buffer: &[u8]) -> io::Result<u32> {
+
+pub fn try_write_file(
+    handle: HANDLE,
+    io_overlapped: &mut OVERLAPPED,
+    buffer: &[u8],
+) -> io::Result<u32> {
     let mut ret = 0;
-    let mut ip_overlapped = ip_overlapped();
     unsafe {
         if 0 == WriteFile(
             handle,
             buffer.as_ptr() as _,
             buffer.len() as _,
             &mut ret,
-            &mut ip_overlapped,
+            io_overlapped,
         ) {
-            let e = io::Error::last_os_error();
-            if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                try_ip_overlapped(handle, ip_overlapped)
-            } else {
-                Err(e)
-            }
+            Err(error_map())
         } else {
             Ok(ret)
         }
     }
 }
-fn try_ip_overlapped(handle: HANDLE, ip_overlapped: OVERLAPPED) -> io::Result<u32> {
+fn error_map() -> io::Error {
+    let e = io::Error::last_os_error();
+    if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
+        io::Error::from(io::ErrorKind::WouldBlock)
+    } else {
+        e
+    }
+}
+
+pub fn try_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Result<u32> {
     let mut ret = 0;
     unsafe {
-        if 0 == GetOverlappedResult(handle, &ip_overlapped, &mut ret, 0) {
-            windows_sys::Win32::System::IO::CancelIoEx(handle, &ip_overlapped);
+        if 0 == GetOverlappedResult(handle, io_overlapped, &mut ret, 0) {
             Err(io::Error::from(io::ErrorKind::WouldBlock))
         } else {
             Ok(ret)
         }
     }
 }
+
 pub fn read_file(handle: HANDLE, buffer: &mut [u8]) -> io::Result<u32> {
     let mut ret = 0;
     //https://www.cnblogs.com/linyilong3/archive/2012/05/03/2480451.html
     unsafe {
-        let mut ip_overlapped = ip_overlapped();
+        let mut io_overlapped = io_overlapped();
         if 0 == ReadFile(
             handle,
             buffer.as_mut_ptr() as _,
             buffer.len() as _,
             &mut ret,
-            &mut ip_overlapped,
+            &mut io_overlapped,
         ) {
-            wait_ip_overlapped(handle, &ip_overlapped)
+            let e = io::Error::last_os_error();
+            if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
+                wait_io_overlapped(handle, &io_overlapped)
+            } else {
+                Err(e)
+            }
         } else {
             Ok(ret)
         }
@@ -224,32 +249,35 @@ pub fn read_file(handle: HANDLE, buffer: &mut [u8]) -> io::Result<u32> {
 
 pub fn write_file(handle: HANDLE, buffer: &[u8]) -> io::Result<u32> {
     let mut ret = 0;
-    let mut ip_overlapped = ip_overlapped();
+    let mut io_overlapped = io_overlapped();
     unsafe {
         if 0 == WriteFile(
             handle,
             buffer.as_ptr() as _,
             buffer.len() as _,
             &mut ret,
-            &mut ip_overlapped,
+            &mut io_overlapped,
         ) {
-            wait_ip_overlapped(handle, &ip_overlapped)
+            let e = io::Error::last_os_error();
+            if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
+                wait_io_overlapped(handle, &io_overlapped)
+            } else {
+                Err(e)
+            }
         } else {
             Ok(ret)
         }
     }
 }
-unsafe fn wait_ip_overlapped(handle: HANDLE, ip_overlapped: &OVERLAPPED) -> io::Result<u32> {
-    let e = io::Error::last_os_error();
-    if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-        let mut ret = 0;
-        if 0 == GetOverlappedResult(handle, ip_overlapped, &mut ret, 1) {
-            Err(e)
+
+pub fn wait_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Result<u32> {
+    let mut ret = 0;
+    unsafe {
+        if 0 == GetOverlappedResult(handle, io_overlapped, &mut ret, 1) {
+            Err(io::Error::last_os_error())
         } else {
             Ok(ret)
         }
-    } else {
-        Err(e)
     }
 }
 

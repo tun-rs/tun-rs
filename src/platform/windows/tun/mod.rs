@@ -1,14 +1,13 @@
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, ptr};
+
 use windows_sys::Win32::Foundation::{
     GetLastError, ERROR_BUFFER_OVERFLOW, ERROR_HANDLE_EOF, ERROR_INVALID_DATA, ERROR_NO_MORE_ITEMS,
     FALSE, WAIT_FAILED, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
-use windows_sys::Win32::System::Threading::{
-    CreateEventW, SetEvent, WaitForMultipleObjects, INFINITE,
-};
+use windows_sys::Win32::System::Threading::{SetEvent, WaitForMultipleObjects, INFINITE};
 
 use crate::platform::windows::ffi;
 use crate::platform::windows::ffi::encode_utf16;
@@ -129,11 +128,7 @@ impl TunDevice {
             Err(io::Error::new(io::ErrorKind::Other, "tunnel type too long"))?;
         }
         unsafe {
-            let shutdown_event_handle = CreateEventW(ptr::null_mut(), 0, 0, ptr::null_mut());
-            if shutdown_event_handle.is_null() {
-                Err(io::Error::last_os_error())?
-            }
-            let shutdown_event = OwnedHandle::from_raw_handle(shutdown_event_handle);
+            let shutdown_event = ffi::create_event()?;
 
             let win_tun = wintun_raw::wintun::new(wintun_path)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;

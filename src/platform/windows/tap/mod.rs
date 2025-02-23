@@ -1,9 +1,12 @@
 use crate::platform::windows::{ffi, netsh};
+use std::ops::DerefMut;
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
+use std::sync::Mutex;
 use std::{io, time};
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 use windows_sys::Win32::System::Ioctl::{FILE_ANY_ACCESS, FILE_DEVICE_UNKNOWN, METHOD_BUFFERED};
+use windows_sys::Win32::System::IO::OVERLAPPED;
 
 mod iface;
 
@@ -13,9 +16,14 @@ pub struct TapDevice {
     component_id: String,
     index: u32,
     need_delete: bool,
+    read_io_overlapped: Mutex<(Option<Box<OVERLAPPED>>, Vec<u8>)>,
+    write_io_overlapped: Mutex<Option<(Box<OVERLAPPED>, Vec<u8>)>>,
 }
+const READ_BUFFER_SIZE: usize = 14 + 65536;
 unsafe impl Send for TapDevice {}
+
 unsafe impl Sync for TapDevice {}
+
 impl Drop for TapDevice {
     fn drop(&mut self) {
         if self.need_delete {
@@ -23,12 +31,14 @@ impl Drop for TapDevice {
         }
     }
 }
+
 fn get_version(handle: HANDLE) -> io::Result<[u64; 3]> {
     let in_version: [u64; 3] = [0; 3];
     let mut out_version: [u64; 3] = [0; 3];
     ffi::device_io_control(handle, TAP_IOCTL_GET_VERSION, &in_version, &mut out_version)
         .map(|_| out_version)
 }
+
 impl TapDevice {
     pub fn index(&self) -> u32 {
         self.index
@@ -77,6 +87,8 @@ impl TapDevice {
             index,
             component_id: component_id.to_owned(),
             need_delete: true,
+            read_io_overlapped: Mutex::new((None, vec![0; READ_BUFFER_SIZE])),
+            write_io_overlapped: Mutex::new(None),
         })
     }
 
@@ -93,6 +105,8 @@ impl TapDevice {
             handle,
             component_id: component_id.to_owned(),
             need_delete: false,
+            read_io_overlapped: Mutex::new((None, vec![0; READ_BUFFER_SIZE])),
+            write_io_overlapped: Mutex::new(None),
         })
     }
 
@@ -165,17 +179,62 @@ impl TapDevice {
             &mut out_status,
         )
     }
-    pub fn try_read(&self, buf: &mut [u8]) -> io::Result<usize> {
-        ffi::try_read_file(self.handle.as_raw_handle(), buf).map(|res| res as _)
-    }
-    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
-        ffi::read_file(self.handle.as_raw_handle(), buf).map(|res| res as _)
-    }
-    pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
-        ffi::write_file(self.handle.as_raw_handle(), buf).map(|res| res as _)
+    pub fn try_read(&self, mut buf: &mut [u8]) -> io::Result<usize> {
+        let Ok(mut guard) = self.read_io_overlapped.try_lock() else {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        };
+        let (overlapped, read_buffer) = guard.deref_mut();
+        let n = if let Some(overlapped) = overlapped {
+            ffi::try_io_overlapped(self.handle.as_raw_handle(), overlapped)?
+        } else {
+            let overlapped = overlapped.insert(Box::new(ffi::io_overlapped()));
+            ffi::try_read_file(self.handle.as_raw_handle(), overlapped, read_buffer)?
+        };
+        _ = overlapped.take();
+        let n = n as usize;
+        match io::copy(&mut &read_buffer[..n], &mut buf) {
+            Ok(n) => Ok(n as usize),
+            Err(e) => Err(e),
+        }
     }
     pub fn try_write(&self, buf: &[u8]) -> io::Result<usize> {
-        ffi::try_write_file(self.handle.as_raw_handle(), buf).map(|res| res as _)
+        let Ok(mut guard) = self.write_io_overlapped.try_lock() else {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        };
+        if let Some((overlapped, _write_buffer)) = guard.deref_mut() {
+            ffi::try_io_overlapped(self.handle.as_raw_handle(), overlapped)?;
+        }
+        let (overlapped, write_buffer) =
+            guard.insert((Box::new(ffi::io_overlapped()), buf.to_vec()));
+        let rs = ffi::try_write_file(self.handle.as_raw_handle(), overlapped, write_buffer);
+        match rs {
+            Ok(len) => {
+                guard.take();
+                Ok(len as _)
+            }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(buf.len()),
+            Err(e) => Err(e),
+        }
+    }
+    pub fn read(&self, mut buf: &mut [u8]) -> io::Result<usize> {
+        let mut guard = self.read_io_overlapped.lock().unwrap();
+        let (overlapped, read_buffer) = guard.deref_mut();
+        let n = if let Some(overlapped) = overlapped.take() {
+            ffi::wait_io_overlapped(self.handle.as_raw_handle(), &overlapped)? as usize
+        } else {
+            return ffi::read_file(self.handle.as_raw_handle(), buf).map(|res| res as _);
+        };
+        match io::copy(&mut &read_buffer[..n], &mut buf) {
+            Ok(n) => Ok(n as usize),
+            Err(e) => Err(e),
+        }
+    }
+    pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
+        let mut guard = self.write_io_overlapped.lock().unwrap();
+        if let Some((overlapped, _write_buffer)) = guard.take() {
+            ffi::wait_io_overlapped(self.handle.as_raw_handle(), &overlapped)?;
+        }
+        ffi::write_file(self.handle.as_raw_handle(), buf).map(|res| res as _)
     }
 }
 
