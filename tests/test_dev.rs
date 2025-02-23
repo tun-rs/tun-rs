@@ -1,6 +1,4 @@
 #![allow(unused_imports)]
-
-use std::os::fd::IntoRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -164,6 +162,7 @@ async fn test_udp() {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_unix_fd() {
+    use std::os::fd::IntoRawFd;
     let device = unsafe { SyncDevice::from_fd(1) };
     let fd = device.into_raw_fd();
     assert_eq!(fd, 1)
