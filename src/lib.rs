@@ -9,14 +9,15 @@ let dev = DeviceBuilder::new()
             .ipv4("10.0.0.12", 24, None)
             .ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)
             .mtu(1400)
-            .build_sync().unwrap();
+            .build_sync()
+            .unwrap();
 let mut buf = [0;65535];
 loop {
     let len = dev.recv(&mut buf).unwrap();
     println!("buf= {:?}",&buf[..len]);
 }
 ```
-# Example IOS/Android:
+# Example IOS/Android/... :
 ```no_run
 #[cfg(unix)]
 {
@@ -35,7 +36,7 @@ loop {
 
 #[cfg(any(
     target_os = "windows",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd"
 ))]
@@ -52,7 +53,7 @@ pub use async_device::*;
 
 #[cfg(any(
     target_os = "windows",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd"
 ))]

@@ -1,6 +1,10 @@
 use crate::platform::unix::{Fd, Tun};
 use crate::platform::DeviceImpl;
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "freebsd"
+))]
 use libc::{AF_INET, AF_INET6, SOCK_DGRAM};
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
@@ -63,7 +67,11 @@ impl DeviceImpl {
         self.tun.shutdown()
     }
 }
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "freebsd"
+))]
 impl DeviceImpl {
     /// Retrieves the interface index for the network interface.
     ///
@@ -112,11 +120,19 @@ impl DeviceImpl {
         self.tun.set_ignore_packet_info(ign)
     }
 }
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "freebsd"
+))]
 pub(crate) unsafe fn ctl() -> io::Result<Fd> {
     Fd::new(libc::socket(AF_INET, SOCK_DGRAM, 0))
 }
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "freebsd"
+))]
 pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
     Fd::new(libc::socket(AF_INET6, SOCK_DGRAM, 0))
 }

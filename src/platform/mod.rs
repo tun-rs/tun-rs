@@ -1,12 +1,18 @@
 #[cfg(unix)]
 pub(crate) mod unix;
-
-#[cfg(target_os = "linux")]
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "windows",
+        target_os = "macos",
+        all(target_os = "linux", not(target_env = "ohos")),
+        target_os = "freebsd"
+    ))
+))]
+pub use self::unix::DeviceImpl;
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub(crate) mod linux;
-#[cfg(target_os = "linux")]
-pub use self::linux::DeviceImpl;
-
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub use self::linux::*;
 
 #[cfg(target_os = "freebsd")]
@@ -18,16 +24,6 @@ pub use self::freebsd::DeviceImpl;
 pub(crate) mod macos;
 #[cfg(target_os = "macos")]
 pub use self::macos::DeviceImpl;
-
-#[cfg(target_os = "ios")]
-pub(crate) mod ios;
-#[cfg(target_os = "ios")]
-pub use self::ios::DeviceImpl;
-
-#[cfg(target_os = "android")]
-pub(crate) mod android;
-#[cfg(target_os = "android")]
-pub use self::android::DeviceImpl;
 
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
@@ -180,7 +176,7 @@ impl IntoRawFd for SyncDevice {
 
 #[cfg(any(
     target_os = "windows",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
 ))]

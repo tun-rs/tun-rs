@@ -29,6 +29,9 @@ cross-platform.
 | FreeBSD  | ✅   | ✅   |
 | Android  | ✅   |     |
 | iOS      | ✅   |     |
+| Other*   | ✅   |     |
+
+> For other Unix-like platforms,You can use raw_fd
 
 Usage
 -----

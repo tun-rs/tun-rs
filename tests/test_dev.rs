@@ -1,13 +1,27 @@
 #![allow(unused_imports)]
+
+use std::os::fd::IntoRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use pnet_packet::ip::IpNextHeaderProtocols;
 use pnet_packet::Packet;
-
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd"
+))]
 use tun_rs::DeviceBuilder;
+use tun_rs::SyncDevice;
 
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd"
+))]
 #[cfg(not(any(feature = "async_tokio", feature = "async_std")))]
 #[test]
 fn test_udp() {
@@ -69,6 +83,12 @@ fn test_udp() {
     assert!(test_udp_v6_c.load(Ordering::SeqCst));
 }
 
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd"
+))]
 #[cfg(feature = "async_tokio")]
 #[tokio::test]
 async fn test_udp() {
@@ -139,4 +159,12 @@ async fn test_udp() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(test_udp_v4_c.load(Ordering::SeqCst));
     assert!(test_udp_v6_c.load(Ordering::SeqCst));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_fd() {
+    let device = unsafe { SyncDevice::from_fd(1) };
+    let fd = device.into_raw_fd();
+    assert_eq!(fd, 1)
 }
