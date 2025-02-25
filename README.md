@@ -7,6 +7,8 @@ Tun/Tap interfaces
 This crate allows the creation and usage of Tun/Tap interfaces(**supporting both Ipv4 and ipv6**), aiming to make this
 cross-platform.
 
+[benchmark](https://github.com/tun-rs/tun-benchmark)
+
 ## Features:
 
 1. Supporting TUN and TAP
@@ -41,10 +43,12 @@ First, add the following to your `Cargo.toml`:
 [dependencies]
 # Base sync API (no async runtime)
 tun-rs = "2"
-# For async runtime integration (choose ONE based on your runtime):
+## For async runtime integration 
+## (choose ONE based on your runtime):
 # tokio: 
 #tun-rs = { version = "2", features = ["async"] }
-# async-std, smol, and other asynchronous runtimes based on async-io:
+# async-std, smol, and other 
+# asynchronous runtimes based on async-io:
 #tun-rs = { version = "2", features = ["async_io"] }
 ```
 
