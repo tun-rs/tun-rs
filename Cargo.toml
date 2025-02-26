@@ -4,7 +4,7 @@ version = "2.0.6"
 edition = "2021"
 authors = ["xmh0511, vnt-dev"]
 license = "Apache-2.0"
-description = "A cross-platform infrastructure of Tun/Tap device creation and handling."
+description = "Cross-platform Tun/Tap library"
 repository = "https://github.com/tun-rs/tun-rs"
 keywords = ["tun", "tap", "network", "tunnel", "cross-platform"]
 
