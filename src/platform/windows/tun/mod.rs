@@ -218,14 +218,21 @@ impl SessionHandle {
     }
     fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
-            return match self.try_recv(buf) {
-                Ok(n) => Ok(n),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.wait_readable()?;
-                    continue;
-                }
-                Err(e) => Err(e),
-            };
+            for i in 0..64 {
+                return match self.try_recv(buf) {
+                    Ok(n) => Ok(n),
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        if i > 32 {
+                            std::thread::yield_now()
+                        } else {
+                            std::hint::spin_loop();
+                        }
+                        continue;
+                    }
+                    Err(e) => Err(e),
+                };
+            }
+            self.wait_readable()?;
         }
     }
     fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
