@@ -62,7 +62,7 @@ impl AsyncDevice {
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         match self.0.get_ref().recv(buf) {
-            Err(e) => if e.kind() == io::ErrorKind::WouldBlock {},
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
             rs => return Poll::Ready(rs),
         }
         match self.0.poll_readable(cx) {
@@ -115,7 +115,7 @@ impl AsyncDevice {
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         match self.0.get_ref().send(buf) {
-            Err(e) => if e.kind() == io::ErrorKind::WouldBlock {},
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
             rs => return Poll::Ready(rs),
         }
         match self.0.poll_writable(cx) {
