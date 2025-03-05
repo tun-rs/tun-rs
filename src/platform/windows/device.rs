@@ -46,9 +46,7 @@ impl DeviceImpl {
             .collect();
         let device = if layer == Layer::L3 {
             let wintun_file = config.wintun_file.as_deref().unwrap_or("wintun.dll");
-            let ring_capacity = config
-                .ring_capacity
-                .unwrap_or(crate::platform::windows::tun::MAX_RING_CAPACITY);
+            let ring_capacity = config.ring_capacity.unwrap_or(0x20_0000);
             let mut attempts = 0;
             let tun_device = loop {
                 let default_name = format!("tun{count}");
