@@ -66,11 +66,11 @@ impl AdapterHandle {
             if read_event_handle.is_null() {
                 Err(io::Error::last_os_error())?
             }
-            let read_event = OwnedHandle::from_raw_handle(read_event_handle);
+
             let session = SessionHandle {
                 adapter: self,
                 handle: session,
-                read_event,
+                read_event: read_event_handle,
             };
             Ok(session)
         }
@@ -93,7 +93,7 @@ unsafe impl Sync for AdapterHandle {}
 struct SessionHandle {
     adapter: AdapterHandle,
     handle: wintun_raw::WINTUN_SESSION_HANDLE,
-    read_event: OwnedHandle,
+    read_event: wintun_raw::HANDLE,
 }
 impl Drop for SessionHandle {
     fn drop(&mut self) {
@@ -284,7 +284,7 @@ impl SessionHandle {
         self.check_shutdown()?;
         //Wait on both the read handle and the shutdown handle so that we stop when requested
         let handles = [
-            self.read_event.as_raw_handle(),
+            self.read_event,
             self.adapter.shutdown_event.as_raw_handle(),
         ];
         let result = unsafe {
