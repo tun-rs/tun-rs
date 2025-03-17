@@ -283,10 +283,7 @@ impl SessionHandle {
     fn wait_readable(&self) -> io::Result<()> {
         self.check_shutdown()?;
         //Wait on both the read handle and the shutdown handle so that we stop when requested
-        let handles = [
-            self.read_event,
-            self.adapter.shutdown_event.as_raw_handle(),
-        ];
+        let handles = [self.read_event, self.adapter.shutdown_event.as_raw_handle()];
         let result = unsafe {
             //SAFETY: We abide by the requirements of WaitForMultipleObjects, handles is a
             //pointer to valid, aligned, stack memory
