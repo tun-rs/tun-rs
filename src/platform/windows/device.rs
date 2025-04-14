@@ -23,12 +23,12 @@ pub struct DeviceImpl {
 
 fn hash_name(input_str: &str) -> u128 {
     use std::hash::{Hash, Hasher};
-    let mut hasher = std::hash::DefaultHasher::new();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
     8765028472139845610u64.hash(&mut hasher);
     input_str.hash(&mut hasher);
     let front = hasher.finish();
 
-    let mut hasher = std::hash::DefaultHasher::new();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
     12874056902134875693u64.hash(&mut hasher);
     input_str.hash(&mut hasher);
     let back = hasher.finish();
