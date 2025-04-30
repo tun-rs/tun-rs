@@ -4,6 +4,7 @@ use std::ffi::c_void;
 
 pub const IN6_IFF_NODAD: i32 = 0x0020;
 
+#[allow(dead_code)]
 #[allow(non_camel_case_types)]
 #[repr(C)]
 #[derive(Copy, Clone)]

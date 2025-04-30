@@ -16,32 +16,58 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v4
-    - name: rustfmt
-      if: ${{ !cancelled() }}
-      run: cargo fmt --all -- --check
-    - name: check
-      if: ${{ !cancelled() }}
-      run: cargo check --verbose
-    - name: clippy
-      if: ${{ !cancelled() }}
-      run: |
-        cargo clippy --all-targets -- -D warnings
-        cargo clippy --all-targets --features async_std -- -D warnings
-        cargo clippy --all-targets --features async_tokio -- -D warnings
-    - name: Build
-      if: ${{ !cancelled() }}
-      run: |
-        cargo build --verbose --examples --tests
-        cargo build --verbose --examples --tests --features async_std
-        cargo build --verbose --examples --tests --features async_tokio
-    - name: Abort on error
-      if: ${{ failure() }}
-      run: echo "Some of jobs failed" && false
+      - uses: actions/checkout@v4
+      - name: rustfmt
+        if: ${{ !cancelled() }}
+        run: cargo fmt --all -- --check
+      - name: check
+        if: ${{ !cancelled() }}
+        run: cargo check --verbose
+      - name: clippy
+        if: ${{ !cancelled() }}
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo clippy --all-targets --features async_std -- -D warnings
+          cargo clippy --all-targets --features async_tokio -- -D warnings
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: |
+          cargo build --verbose --examples --tests
+          cargo build --verbose --examples --tests --features async_std
+          cargo build --verbose --examples --tests --features async_tokio
+      - name: Abort on error
+        if: ${{ failure() }}
+        run: echo "Some of jobs failed" && false
+      - name: Build x86_64-FreeBSD
+        uses: cross-platform-actions/action@v0.23.0
+        if: startsWith(matrix.os, 'ubuntu')
+        env:
+          TARGET: x86_64-unknown-freebsd
+        with:
+          operating_system: freebsd
+          environment_variables: TARGET
+          architecture: x86-64
+          version: 13.2
+          shell: bash
+          memory: 5G
+          cpu_count: 4
+          run: |
+            uname -a
+            echo $SHELL
+            pwd
+            ls -lah
+            whoami
+            env | sort
+            sudo pkg install -y git protobuf
+            curl --proto 'https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            source $HOME/.cargo/env
+            export CC=clang
+            export CXX=clang++
+            cargo fmt --all -- --check
+            export CARGO_TERM_COLOR=always
+            cargo clippy --all-targets -- -D warnings
 
   build_n_test_android:
-    strategy:
-      fail-fast: false
     runs-on: ubuntu-latest
 
     steps:
@@ -63,8 +89,6 @@ jobs:
       run: echo "Android build job failed" && false
 
   build_n_test_ios:
-    strategy:
-      fail-fast: false
     runs-on: macos-latest
 
     steps:
