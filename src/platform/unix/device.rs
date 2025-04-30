@@ -115,7 +115,7 @@ impl DeviceImpl {
     ///
     /// # Parameters
     /// * `ign` - If `true`, the TUN device will ignore packet information.
-    ///           If `false`, it will include packet information.
+    /// `  ` If `false`, it will include packet information.
     pub fn set_ignore_packet_info(&self, ign: bool) {
         self.tun.set_ignore_packet_info(ign)
     }
