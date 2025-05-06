@@ -140,6 +140,18 @@ impl SyncDevice {
     pub fn set_nonblocking(&self, nonblocking: bool) -> std::io::Result<()> {
         self.0.set_nonblocking(nonblocking)
     }
+
+    /// # Prerequisites
+    /// - The `IFF_MULTI_QUEUE` flag must be enabled.
+    /// - The system must support network interface multi-queue functionality.
+    ///
+    /// # Description
+    /// When multi-queue is enabled, create a new queue by duplicating an existing one.
+    #[cfg(target_os = "linux")]
+    pub fn try_clone(&self) -> std::io::Result<SyncDevice> {
+        let device_impl = self.0.try_clone()?;
+        Ok(SyncDevice(device_impl))
+    }
 }
 
 impl Deref for SyncDevice {

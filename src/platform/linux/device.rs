@@ -139,7 +139,7 @@ impl DeviceImpl {
     ///
     /// # Description
     /// When multi-queue is enabled, create a new queue by duplicating an existing one.
-    pub fn try_clone(&self) -> io::Result<DeviceImpl> {
+    pub(crate) fn try_clone(&self) -> io::Result<DeviceImpl> {
         let flags = self.flags;
         if flags & (IFF_MULTI_QUEUE as c_short) != IFF_MULTI_QUEUE as c_short {
             return Err(io::Error::new(

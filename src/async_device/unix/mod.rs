@@ -154,6 +154,12 @@ impl AsyncDevice {
 
 #[cfg(target_os = "linux")]
 impl AsyncDevice {
+    /// # Prerequisites
+    /// - The `IFF_MULTI_QUEUE` flag must be enabled.
+    /// - The system must support network interface multi-queue functionality.
+    ///
+    /// # Description
+    /// When multi-queue is enabled, create a new queue by duplicating an existing one.
     pub fn try_clone(&self) -> io::Result<Self> {
         AsyncDevice::new_dev(self.get_ref().try_clone()?)
     }
