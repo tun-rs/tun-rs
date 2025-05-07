@@ -43,12 +43,12 @@ loop {
 pub use crate::builder::*;
 pub use crate::platform::*;
 
-#[cfg_attr(docsrs, doc(cfg(any(feature = "async_std", feature = "async_tokio"))))]
-#[cfg(any(feature = "async_std", feature = "async_tokio"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "async_io", feature = "async_tokio"))))]
+#[cfg(any(feature = "async_io", feature = "async_tokio"))]
 mod async_device;
 
-#[cfg_attr(docsrs, doc(cfg(any(feature = "async_std", feature = "async_tokio"))))]
-#[cfg(any(feature = "async_std", feature = "async_tokio"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "async_io", feature = "async_tokio"))))]
+#[cfg(any(feature = "async_io", feature = "async_tokio"))]
 pub use async_device::*;
 
 #[cfg(any(

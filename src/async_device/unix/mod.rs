@@ -14,10 +14,10 @@ mod tokio;
 #[cfg(feature = "async_tokio")]
 pub use self::tokio::AsyncDevice;
 
-#[cfg(all(feature = "async_std", not(feature = "async_tokio")))]
-mod async_std;
-#[cfg(all(feature = "async_std", not(feature = "async_tokio")))]
-pub use self::async_std::AsyncDevice;
+#[cfg(all(feature = "async_io", not(feature = "async_tokio")))]
+mod async_io;
+#[cfg(all(feature = "async_io", not(feature = "async_tokio")))]
+pub use self::async_io::AsyncDevice;
 
 impl FromRawFd for AsyncDevice {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {

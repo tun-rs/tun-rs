@@ -51,7 +51,7 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "async_std")]
+#[cfg(feature = "async_io")]
 #[cfg(any(
     target_os = "windows",
     target_os = "linux",

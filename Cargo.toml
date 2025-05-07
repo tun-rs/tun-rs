@@ -79,9 +79,9 @@ async-ctrlc = "1.2.0"
 
 [features]
 async = ["async_tokio"]
-async_io = ["async_std"]
+async_std = ["async_io"]
 async_tokio = ["blocking", "tokio"]
-async_std = ["blocking", "async-io"]
+async_io = ["blocking", "async-io"]
 async_framed = ["futures", "futures-core"]
 experimental = []
 

@@ -20,7 +20,7 @@ use tun_rs::SyncDevice;
     target_os = "linux",
     target_os = "freebsd"
 ))]
-#[cfg(not(any(feature = "async_tokio", feature = "async_std")))]
+#[cfg(not(any(feature = "async_tokio", feature = "async_io")))]
 #[test]
 fn test_udp() {
     let test_msg = "test udp";

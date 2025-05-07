@@ -27,13 +27,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo clippy --all-targets -- -D warnings
-          cargo clippy --all-targets --features async_std -- -D warnings
+          cargo clippy --all-targets --features async_io -- -D warnings
           cargo clippy --all-targets --features async_tokio -- -D warnings
       - name: Build
         if: ${{ !cancelled() }}
         run: |
           cargo build --verbose --examples --tests
-          cargo build --verbose --examples --tests --features async_std
+          cargo build --verbose --examples --tests --features async_io
           cargo build --verbose --examples --tests --features async_tokio
       - name: Abort on error
         if: ${{ failure() }}

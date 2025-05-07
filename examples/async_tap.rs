@@ -1,12 +1,9 @@
 #![allow(unused_imports)]
-use async_ctrlc::CtrlC;
-use async_std::prelude::FutureExt;
 use pnet_packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet_packet::Packet;
+use std::io;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
-use std::{fmt, io};
-use tokio::sync::mpsc::Receiver;
 use tun_rs::DeviceBuilder;
 use tun_rs::Layer;
 
