@@ -45,7 +45,7 @@ async fn main() -> std::io::Result<()> {
                     break;
                 }
             }
-        };
+        }
     }
     Ok(())
 }

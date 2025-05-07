@@ -44,9 +44,9 @@ async fn main() -> std::io::Result<()> {
                 let len = len?;
                 println!("len = {len}");
                 //println!("pkt: {:?}", &buf[..len?]);
-                handle_pkt(&buf[..len], &dev).await.unwrap();
+                handle_pkt(&buf[..len], &dev).await?;
             }
-        };
+        }
     }
     Ok(())
 }
