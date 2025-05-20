@@ -18,7 +18,7 @@ libc = { version = "0.2", features = ["extra_traits"] }
 log = "0.4"
 thiserror = "2"
 blocking = { version = "1.6", optional = true }
-tokio = { version = "1", features = [
+tokio = { version = "1.45", features = [
     "net",
     "macros",
     "io-util",
