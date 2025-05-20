@@ -391,7 +391,7 @@ impl DeviceImpl {
                 .ifr_ifru
                 .ifru_mtu
                 .try_into()
-                .map_err(|e| io::Error::other(e))?;
+                .map_err(|e| io::Error::other)?;
             Ok(r)
         }
     }
