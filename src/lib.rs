@@ -73,7 +73,7 @@ pub(crate) fn run_command(command: &str, args: &[&str]) -> std::io::Result<Vec<u
             &out.stderr
         });
         let info = format!("{} failed with: \"{}\"", command, err);
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, info));
+        return Err(std::io::Error::other(info));
     }
     Ok(out.stdout)
 }

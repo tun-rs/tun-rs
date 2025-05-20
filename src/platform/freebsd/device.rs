@@ -391,7 +391,7 @@ impl DeviceImpl {
                 .ifr_ifru
                 .ifru_mtu
                 .try_into()
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                .map_err(|e| io::Error::other(e))?;
             Ok(r)
         }
     }
@@ -510,7 +510,7 @@ impl DeviceImpl {
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> std::io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let mac = mac_address_by_name(&self.name()?)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            .map_err(|e| io::Error::other(e.to_string()))?
             .ok_or(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "invalid mac address",
