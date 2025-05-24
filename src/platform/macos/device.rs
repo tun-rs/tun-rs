@@ -31,27 +31,29 @@ pub struct DeviceImpl {
 impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
-        let id = if let Some(tun_name) = config.dev_name.as_ref() {
-            if tun_name.len() > IFNAMSIZ {
-                return Err(io::Error::new(
-                    ErrorKind::InvalidInput,
-                    "device name too long",
-                ));
-            }
-
-            if !tun_name.starts_with("utun") {
-                return Err(io::Error::new(
-                    ErrorKind::InvalidInput,
-                    "device name must start with utun",
-                ));
-            }
-            tun_name[4..]
-                .parse::<u32>()
-                .map_err(|e| std::io::Error::new(ErrorKind::InvalidInput, e))?
-                + 1_u32
-        } else {
-            0_u32
-        };
+        let id = config
+            .dev_name
+            .as_ref()
+            .map(|tun_name| {
+                if tun_name.len() > IFNAMSIZ {
+                    return Err(io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "device name too long",
+                    ));
+                }
+                if !tun_name.starts_with("utun") {
+                    return Err(io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "device name must start with utun",
+                    ));
+                }
+                tun_name[4..]
+                    .parse::<u32>()
+                    .map(|v| v + 1)
+                    .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))
+            })
+            .transpose()?
+            .unwrap_or(0);
 
         let device = unsafe {
             let fd = libc::socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
@@ -113,7 +115,7 @@ impl DeviceImpl {
     }
     /// Prepare a new request.
     /// # Safety
-    unsafe fn request(&self) -> std::io::Result<libc::ifreq> {
+    unsafe fn request(&self) -> io::Result<libc::ifreq> {
         let tun_name = self.name()?;
         let mut req: libc::ifreq = mem::zeroed();
         ptr::copy_nonoverlapping(
@@ -125,7 +127,7 @@ impl DeviceImpl {
         Ok(req)
     }
     /// # Safety
-    unsafe fn request_v6(&self) -> std::io::Result<in6_ifreq> {
+    unsafe fn request_v6(&self) -> io::Result<in6_ifreq> {
         let tun_name = self.name()?;
         let mut req: in6_ifreq = mem::zeroed();
         ptr::copy_nonoverlapping(
@@ -152,11 +154,11 @@ impl DeviceImpl {
         })
     }
 
-    pub(crate) fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> std::io::Result<IpAddr> {
+    pub(crate) fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<IpAddr> {
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
         Ok(ipnet::IpNet::new(addr, prefix_len)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?
             .broadcast())
     }
 
@@ -210,7 +212,7 @@ impl DeviceImpl {
         Ok(())
     }
 
-    fn set_route(&self, old_route: Option<Route>, new_route: Route) -> std::io::Result<()> {
+    fn set_route(&self, old_route: Option<Route>, new_route: Route) -> io::Result<()> {
         let if_index = self.if_index()?;
         let mut manager = route_manager::RouteManager::new()?;
         if let Some(old_route) = old_route {
@@ -232,7 +234,7 @@ impl DeviceImpl {
     }
 
     /// Retrieves the name of the network interface.
-    pub fn name(&self) -> std::io::Result<String> {
+    pub fn name(&self) -> io::Result<String> {
         let mut tun_name = [0u8; 64];
         let mut name_len: socklen_t = 64;
 
@@ -258,7 +260,7 @@ impl DeviceImpl {
     ///
     /// If `value` is true, the interface is enabled by setting the IFF_UP and IFF_RUNNING flags.
     /// If false, the IFF_UP flag is cleared. The change is applied using a system call.
-    pub fn enabled(&self, value: bool) -> std::io::Result<()> {
+    pub fn enabled(&self, value: bool) -> io::Result<()> {
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -282,7 +284,7 @@ impl DeviceImpl {
     }
 
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
-    pub fn mtu(&self) -> std::io::Result<u16> {
+    pub fn mtu(&self) -> io::Result<u16> {
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -300,7 +302,7 @@ impl DeviceImpl {
         }
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
-    pub fn set_mtu(&self, value: u16) -> std::io::Result<()> {
+    pub fn set_mtu(&self, value: u16) -> io::Result<()> {
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
