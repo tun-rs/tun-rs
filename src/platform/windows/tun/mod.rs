@@ -132,7 +132,7 @@ impl TunDevice {
 
             let win_tun = wintun_raw::wintun::new(wintun_path)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
+            wintun_log::set_default_logger_if_unset(&win_tun);
             //SAFETY: guid is a unique integer so transmuting either all zeroes or the user's preferred
             //guid to the wintun_raw guid type is safe and will allow the windows kernel to see our GUID
 
