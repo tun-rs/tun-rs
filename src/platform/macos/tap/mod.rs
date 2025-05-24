@@ -1,4 +1,9 @@
-/* link https://github.com/zerotier/ZeroTierOne/blob/dev/osdep/MacEthernetTapAgent.c */
+/*
+link https://github.com/zerotier/ZeroTierOne/blob/dev/osdep/MacEthernetTapAgent.c
+link https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/sockio.h
+link https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_fake.c
+link https://www.zerotier.com/blog/how-zerotier-eliminated-kernel-extensions-on-macos/
+ */
 use crate::platform::macos::sys::siocifcreate;
 use crate::platform::unix::Fd;
 use libc::{ifreq, IFNAMSIZ};
