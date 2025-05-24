@@ -20,8 +20,6 @@ use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mut
 struct Route {
     addr: IpAddr,
     netmask: IpAddr,
-    #[allow(dead_code)]
-    dest: IpAddr,
 }
 
 /// A TUN device using the TUN macOS driver.
@@ -148,13 +146,9 @@ impl DeviceImpl {
         let addr = addr.first()?;
         let addr_ = addr.address;
         let netmask = addr.netmask?;
-        let dest = addr
-            .associated_address
-            .unwrap_or(self.calc_dest_addr(addr_, netmask).ok()?);
         Some(Route {
             addr: addr_,
             netmask,
-            dest,
         })
     }
 
@@ -167,7 +161,7 @@ impl DeviceImpl {
     }
 
     /// Set the IPv4 alias of the device.
-    fn set_alias(&self, addr: Ipv4Addr, dest: Ipv4Addr, mask: Ipv4Addr) -> std::io::Result<()> {
+    fn set_alias(&self, addr: Ipv4Addr, dest: Ipv4Addr, mask: Ipv4Addr) -> io::Result<()> {
         let _guard = self.alias_lock.lock().unwrap();
         let old_route = self.current_route();
         let tun_name = self.name()?;
@@ -188,7 +182,6 @@ impl DeviceImpl {
             let new_route = Route {
                 addr: addr.into(),
                 netmask: mask.into(),
-                dest: dest.into(),
             };
             if let Err(e) = self.set_route(old_route, new_route) {
                 log::warn!("{e:?}");
@@ -197,160 +190,46 @@ impl DeviceImpl {
         }
     }
 
-    fn remove_route(&self, route: Route) -> std::io::Result<()> {
-        let if_name = self.name()?;
-        let prefix_len = ipnet::ip_mask_to_prefix(route.netmask)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-        let network = ipnet::IpNet::new(route.addr, prefix_len)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
-            .network();
-        // command: route -n delete -net 10.0.0.0/24 10.0.0.1
-        let args = [
-            "-n",
-            "delete",
-            if route.addr.is_ipv4() {
-                "-net"
-            } else {
-                "-inet6"
-            },
-            &format!("{}/{}", network, prefix_len),
-            "-iface",
-            &if_name,
-        ];
-        if crate::run_command("route", &args).is_err() {
-            log::error!("route {}", args.join(" "));
-        } else {
-            log::info!("route {}", args.join(" "));
-        }
+    fn remove_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        let if_index = self.if_index()?;
+        let prefix_len = ipnet::ip_mask_to_prefix(netmask)
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+        let mut manager = route_manager::RouteManager::new()?;
+        let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
+        manager.delete(&route)?;
         Ok(())
     }
 
-    fn add_route(&self, route: Route) -> std::io::Result<()> {
-        let if_name = self.name()?;
-        // command: route -n add -net 10.0.0.9/24 10.0.0.1
-        let prefix_len = ipnet::ip_mask_to_prefix(route.netmask)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-        let args = [
-            "-n",
-            "add",
-            if route.addr.is_ipv4() {
-                "-net"
-            } else {
-                "-inet6"
-            },
-            &format!("{}/{}", route.addr, prefix_len),
-            "-iface",
-            &if_name,
-        ];
-        crate::run_command("route", &args)?;
-        log::info!("route {}", args.join(" "));
+    fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        let if_index = self.if_index()?;
+        let prefix_len = ipnet::ip_mask_to_prefix(netmask)
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+        let mut manager = route_manager::RouteManager::new()?;
+        let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
+        manager.add(&route)?;
         Ok(())
     }
 
     fn set_route(&self, old_route: Option<Route>, new_route: Route) -> std::io::Result<()> {
-        let if_name = self.name()?;
-        if let Some(v) = old_route {
-            let prefix_len = ipnet::ip_mask_to_prefix(v.netmask)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-            let network = ipnet::IpNet::new(v.addr, prefix_len)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
-                .network();
-            // command: route -n delete -net 10.0.0.0/24 10.0.0.1
-            let args = [
-                "-n",
-                "delete",
-                if v.addr.is_ipv4() { "-net" } else { "-inet6" },
-                &format!("{}/{}", network, prefix_len),
-                "-iface",
-                &if_name,
-            ];
-            if crate::run_command("route", &args).is_err() {
-                log::error!("route {}", args.join(" "));
-            } else {
-                log::info!("route {}", args.join(" "));
+        let if_index = self.if_index()?;
+        let mut manager = route_manager::RouteManager::new()?;
+        if let Some(old_route) = old_route {
+            let prefix_len = ipnet::ip_mask_to_prefix(old_route.netmask)
+                .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+            let route =
+                route_manager::Route::new(old_route.addr, prefix_len).with_if_index(if_index);
+            let result = manager.delete(&route);
+            if let Err(e) = result {
+                log::warn!("route {route:?} {e:?}");
             }
         }
 
-        // command: route -n add -net 10.0.0.9/24 10.0.0.1
         let prefix_len = ipnet::ip_mask_to_prefix(new_route.netmask)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-        let args = [
-            "-n",
-            "add",
-            if new_route.addr.is_ipv4() {
-                "-net"
-            } else {
-                "-inet6"
-            },
-            &format!("{}/{}", new_route.addr, prefix_len),
-            "-iface",
-            &if_name,
-        ];
-        crate::run_command("route", &args)?;
-        log::info!("route {}", args.join(" "));
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+        let route = route_manager::Route::new(new_route.addr, prefix_len).with_if_index(if_index);
+        manager.add(&route)?;
         Ok(())
     }
-
-    // fn set_address(&self, value: IpAddr) -> Result<()> {
-    //     let IpAddr::V4(value) = value else {
-    //         unimplemented!("do not support IPv6 yet")
-    //     };
-    //     let ctl = self.ctl.as_ref().ok_or(Error::InvalidConfig)?;
-    //     unsafe {
-    //         let mut req = self.request()?;
-    //         ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_addr, OVERWRITE_SIZE);
-    //         if let Err(err) = siocsifaddr(ctl.as_raw_fd(), &req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         let route = { *self.route.lock().unwrap() };
-    //         if let Some(mut route) = route {
-    //             route.addr = value;
-    //             self.set_route(route)?;
-    //         }
-    //         Ok(())
-    //     }
-    // }
-    // fn set_netmask(&self, value: IpAddr) -> Result<()> {
-    //     let IpAddr::V4(value) = value else {
-    //         unimplemented!("do not support IPv6 yet")
-    //     };
-    //     let ctl = self.ctl.as_ref().ok_or(Error::InvalidConfig)?;
-    //     unsafe {
-    //         let mut req = self.request()?;
-    //         // Note: Here should be `ifru_netmask`, but it is not defined in `ifreq`.
-    //         ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_addr, OVERWRITE_SIZE);
-    //         if let Err(err) = siocsifnetmask(ctl.as_raw_fd(), &req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         let route = { *self.route.lock().unwrap() };
-    //         if let Some(mut route) = route {
-    //             route.netmask = value;
-    //             self.set_route(route)?;
-    //         }
-    //         Ok(())
-    //     }
-    // }
-
-    // fn set_destination<A: IntoAddress>(&self, value: A) -> Result<()> {
-    //     let value = value.into_address()?;
-    //     let IpAddr::V4(value) = value else {
-    //         unimplemented!("do not support IPv6 yet")
-    //     };
-    //     let ctl = self.ctl.as_ref().ok_or(Error::InvalidConfig)?;
-    //     unsafe {
-    //         let mut req = self.request()?;
-    //         ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_dstaddr, OVERWRITE_SIZE);
-    //         if let Err(err) = siocsifdstaddr(ctl.as_raw_fd(), &req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         let route = { *self.route.lock().unwrap() };
-    //         if let Some(mut route) = route {
-    //             route.dest = value;
-    //             self.set_route(route)?;
-    //         }
-    //         Ok(())
-    //     }
-    // }
 
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> std::io::Result<String> {
@@ -402,35 +281,6 @@ impl DeviceImpl {
         }
     }
 
-    // /// Question on macOS
-    // fn broadcast(&self) -> Result<IpAddr> {
-    //     unsafe {
-    //         let ctl = ctl()?;
-    //         let mut req = self.request()?;
-    //         if let Err(err) = siocgifbrdaddr(ctl.as_raw_fd(), &mut req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         let sa = sockaddr_union::from(req.ifr_ifru.ifru_broadaddr);
-    //         Ok(std::net::SocketAddr::try_from(sa)?.ip())
-    //     }
-    // }
-
-    // /// Question on macOS
-    // fn set_broadcast<A: IntoAddress>(&self, value: A) -> Result<()> {
-    //     let value = value.into_address()?;
-    //     let IpAddr::V4(value) = value else {
-    //         unimplemented!("do not support IPv6 yet")
-    //     };
-    //     unsafe {
-    //         let ctl = ctl()?;
-    //         let mut req = self.request()?;
-    //         ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_broadaddr, OVERWRITE_SIZE);
-    //         if let Err(err) = siocsifbrdaddr(ctl.as_raw_fd(), &req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         Ok(())
-    //     }
-    // }
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> std::io::Result<u16> {
         unsafe {
@@ -505,21 +355,14 @@ impl DeviceImpl {
                 }
             }
             if let Ok(addrs) = crate::platform::get_if_addrs_by_name(self.name()?) {
-                addrs.iter().filter(|v| v.address == addr).for_each(|v| {
+                for v in addrs.iter().filter(|v| v.address == addr) {
                     let Some(netmask) = v.netmask else {
-                        return;
+                        continue;
                     };
-                    let Some(dest) = v.associated_address else {
-                        return;
-                    };
-                    if let Err(e) = self.remove_route(Route {
-                        addr,
-                        netmask,
-                        dest,
-                    }) {
-                        log::warn!("{e:?}");
+                    if let Err(e) = self.remove_route(addr, netmask) {
+                        log::warn!("remove_route {addr}-{netmask},{e}")
                     }
-                })
+                }
             }
             Ok(())
         }
@@ -550,14 +393,8 @@ impl DeviceImpl {
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
-            let Ok(dest) = self.calc_dest_addr(addr.into(), mask) else {
-                return Ok(());
-            };
-            if let Err(e) = self.add_route(Route {
-                addr: addr.into(),
-                netmask: mask,
-                dest,
-            }) {
+
+            if let Err(e) = self.add_route(addr.into(), mask) {
                 log::warn!("{e:?}");
             }
         }

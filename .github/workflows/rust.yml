@@ -63,7 +63,7 @@ jobs:
             ls -lah
             whoami
             env | sort
-            sudo pkg install -y git protobuf
+            sudo pkg install -y git protobuf llvm15
             curl --proto 'https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             source $HOME/.cargo/env
             export CC=clang
@@ -71,6 +71,9 @@ jobs:
             export CARGO_TERM_COLOR=always
             find ./
             cargo clippy --all-targets -- -D warnings
+            cargo build --verbose --examples --tests
+            cargo build --verbose --examples --tests --features async_io
+            cargo build --verbose --examples --tests --features async_tokio
 
   build_n_test_android:
     runs-on: ubuntu-latest

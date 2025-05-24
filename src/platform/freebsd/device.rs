@@ -17,14 +17,6 @@ use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
 use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
-#[derive(Clone, Copy, Debug)]
-struct Route {
-    addr: IpAddr,
-    netmask: IpAddr,
-    #[allow(dead_code)]
-    dest: IpAddr,
-}
-
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     pub(crate) tun: Tun,
@@ -116,18 +108,6 @@ impl DeviceImpl {
             alias_lock: Mutex::new(()),
         }
     }
-    // fn current_route(&self) -> Option<Route> {
-    //     let addr = self.address().ok()?;
-    //     let netmask = self.netmask().ok()?;
-    //     let dest = self
-    //         .destination()
-    //         .unwrap_or(self.calc_dest_addr(addr, netmask).ok()?);
-    //     Some(Route {
-    //         addr,
-    //         netmask,
-    //         dest,
-    //     })
-    // }
 
     fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> std::io::Result<IpAddr> {
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
@@ -183,12 +163,7 @@ impl DeviceImpl {
                 }
             }
 
-            let new_route = Route {
-                addr,
-                netmask: mask,
-                dest,
-            };
-            if let Err(e) = self.add_route(new_route) {
+            if let Err(e) = self.add_route(addr, mask) {
                 log::warn!("{e:?}");
             }
 
@@ -222,63 +197,15 @@ impl DeviceImpl {
         Ok(req)
     }
 
-    fn add_route(&self, route: Route) -> std::io::Result<()> {
-        let if_name = self.name()?;
-        let prefix_len = ipnet::ip_mask_to_prefix(route.netmask)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-        let args = [
-            "-n",
-            "add",
-            if route.addr.is_ipv4() {
-                "-net"
-            } else {
-                "-inet6"
-            },
-            &format!("{}/{}", route.addr, prefix_len),
-            "-iface",
-            &if_name,
-        ];
-        crate::run_command("route", &args)?;
-        log::info!("route {}", args.join(" "));
+    fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        let if_index = self.if_index()?;
+        let prefix_len = ipnet::ip_mask_to_prefix(netmask)
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+        let mut manager = route_manager::RouteManager::new()?;
+        let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
+        manager.add(&route)?;
         Ok(())
     }
-
-    // fn set_address(&self, value: IpAddr) -> Result<()> {
-    //     unsafe {
-    //         let req = self.request();
-    //         if let Err(err) = siocdifaddr(self.ctl.as_raw_fd(), &req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         let previous = self.current_route().ok_or(Error::InvalidConfig)?;
-    //         self.set_alias(value, previous.dest, previous.netmask)?;
-    //     }
-    //     Ok(())
-    // }
-
-    // fn set_netmask(&self, value: IpAddr) -> Result<()> {
-    //     unsafe {
-    //         let req = self.request();
-    //         if let Err(err) = siocdifaddr(self.ctl.as_raw_fd(), &req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         let previous = self.current_route().ok_or(Error::InvalidConfig)?;
-    //         self.set_alias(previous.addr, previous.dest, value)?;
-    //     }
-    //     Ok(())
-    // }
-
-    // fn set_destination<A: IntoAddress>(&self, value: A) -> Result<()> {
-    //     let value = value.into_address()?;
-    //     unsafe {
-    //         let req = self.request();
-    //         if let Err(err) = siocdifaddr(self.ctl.as_raw_fd(), &req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         let previous = self.current_route().ok_or(Error::InvalidConfig)?;
-    //         self.set_alias(previous.addr, value, previous.netmask)?;
-    //     }
-    //     Ok(())
-    // }
 
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> std::io::Result<String> {
@@ -352,32 +279,6 @@ impl DeviceImpl {
         }
     }
 
-    // fn broadcast(&self) -> Result<IpAddr> {
-    //     unsafe {
-    //         let mut req = self.request()?;
-    //         if let Err(err) = siocgifbrdaddr(ctl()?.as_raw_fd(), &mut req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         let sa = sockaddr_union::from(req.ifr_ifru.ifru_broadaddr);
-    //         Ok(std::net::SocketAddr::try_from(sa)?.ip())
-    //     }
-    // }
-
-    // fn set_broadcast<A: IntoAddress>(&self, value: A) -> Result<()> {
-    //     let value = value.into_address()?;
-    //     let IpAddr::V4(_) = value else {
-    //         unimplemented!("do not support IPv6 yet")
-    //     };
-    //     unsafe {
-    //         let ctl = ctl()?;
-    //         let mut req = self.request()?;
-    //         req.ifr_ifru.ifru_broadaddr = unix::sockaddr_union::from((value, 0)).addr;
-    //         if let Err(err) = siocsifbrdaddr(ctl.as_raw_fd(), &req) {
-    //             return Err(io::Error::from(err).into());
-    //         }
-    //         Ok(())
-    //     }
-    // }
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> std::io::Result<u16> {
         unsafe {
@@ -469,14 +370,7 @@ impl DeviceImpl {
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
-            let Ok(dest) = self.calc_dest_addr(addr.into(), mask) else {
-                return Ok(());
-            };
-            if let Err(e) = self.add_route(Route {
-                addr: addr.into(),
-                netmask: mask,
-                dest,
-            }) {
+            if let Err(e) = self.add_route(addr.into(), mask) {
                 log::warn!("{e:?}");
             }
         }
