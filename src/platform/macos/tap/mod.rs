@@ -6,11 +6,14 @@ link https://www.zerotier.com/blog/how-zerotier-eliminated-kernel-extensions-on-
  */
 use crate::platform::macos::sys::siocifcreate;
 use crate::platform::unix::Fd;
+use bytes::BytesMut;
 use libc::{ifreq, IFNAMSIZ};
+use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
 use std::os::fd::{AsRawFd, RawFd};
+use std::sync::Mutex;
 
 const FETH: &str = "feth";
 const BUFFER_LEN: usize = 131072;
@@ -33,6 +36,7 @@ pub struct Tap {
     s_ndrv_fd: Fd,
     dev_feth: Feth,
     peer_feth: Feth,
+    buffer: Mutex<VecDeque<BytesMut>>,
 }
 struct Feth {
     name: String,
@@ -125,6 +129,7 @@ impl Tap {
                 s_ndrv_fd,
                 dev_feth,
                 peer_feth,
+                buffer: Default::default(),
             })
         }
     }
@@ -152,13 +157,45 @@ impl Tap {
         self.s_ndrv_fd.writev(bufs)
     }
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut sizes = [0; 1];
-        let n = self.recv_multiple(&mut [buf], &mut sizes)?;
-        if n == 0 {
-            Ok(0)
-        } else {
-            Ok(sizes[0])
+        let mut guard = self.buffer.lock().unwrap();
+        if guard.is_empty() {
+            self.recv_to_buffer(&mut guard)?;
         }
+
+        let Some(buffer) = guard.pop_front() else {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "recv buffer is empty",
+            ));
+        };
+        if buf.len() < buffer.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "buffer too small",
+            ));
+        }
+        buf[..buffer.len()].copy_from_slice(&buffer);
+        Ok(buffer.len())
+    }
+    fn recv_to_buffer(&self, bufs: &mut VecDeque<BytesMut>) -> io::Result<()> {
+        let mut buffer = [0; BUFFER_LEN];
+        let len = self.s_bpf_fd.read(&mut buffer)?;
+        if len > 0 {
+            let mut p = 0;
+            unsafe {
+                while p < len {
+                    let hdr = buffer.as_ptr().add(p) as *const libc::bpf_hdr;
+                    let bh_caplen = (*hdr).bh_caplen as usize;
+                    let bh_hdrlen = (*hdr).bh_hdrlen as usize;
+                    if bh_caplen > 0 && p + bh_hdrlen + bh_caplen <= len {
+                        let mut buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
+                        bufs.push_back(buf.into());
+                    }
+                    p += ((*hdr).bh_hdrlen as usize + bh_caplen + 3) & !3;
+                }
+            }
+        }
+        Ok(())
     }
     pub fn recv_multiple<B: AsRef<[u8]> + AsMut<[u8]>>(
         &self,
@@ -199,34 +236,37 @@ impl Tap {
         Ok(num)
     }
     pub fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
-        let mut buffer = vec![0; BUFFER_LEN];
-        let mut sizes = [0; 1];
-        let n = self.recv_multiple(&mut [&mut buffer], &mut sizes)?;
-        if n == 0 {
-            Ok(0)
-        } else {
-            let len: usize = bufs.iter().map(|v| v.len()).sum();
-            let mut pos = 0;
-            let buf = &buffer[..sizes[0]];
-            if len < buf.len() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "buffer too small",
-                ));
-            }
-            for b in bufs {
-                let n = b.len().min(buf.len() - pos);
-                if n == 0 {
-                    break;
-                }
-                b[..n].copy_from_slice(&buf[pos..pos + n]);
-                pos += n;
-                if pos == buf.len() {
-                    break;
-                }
-            }
-            Ok(pos)
+        let mut guard = self.buffer.lock().unwrap();
+        if guard.is_empty() {
+            self.recv_to_buffer(&mut guard)?;
         }
+
+        let Some(buf) = guard.pop_front() else {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "recv buffer is empty",
+            ));
+        };
+        let len: usize = bufs.iter().map(|v| v.len()).sum();
+        if len < buf.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "buffer too small",
+            ));
+        }
+        let mut pos = 0;
+        for b in bufs {
+            let n = b.len().min(buf.len() - pos);
+            if n == 0 {
+                break;
+            }
+            b[..n].copy_from_slice(&buf[pos..pos + n]);
+            pos += n;
+            if pos == buf.len() {
+                break;
+            }
+        }
+        Ok(pos)
     }
 }
 impl AsRawFd for Tap {
