@@ -9,8 +9,11 @@ use crate::platform::unix::Fd;
 use libc::{ifreq, IFNAMSIZ};
 use std::ffi::{CStr, CString};
 use std::io;
+use std::io::{IoSlice, IoSliceMut};
 use std::os::fd::{AsRawFd, RawFd};
+
 const FETH: &str = "feth";
+const BUFFER_LEN: usize = 131072;
 pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<Vec<u8>> {
     let out = std::process::Command::new(command).args(args).output()?;
     if !out.status.success() {
@@ -84,7 +87,7 @@ impl Tap {
                 return Err(io::Error::last_os_error());
             }
             let s_bpf_fd = open_bpf()?;
-            let mut buffer_len = 131072;
+            let mut buffer_len = BUFFER_LEN;
             let rs = libc::ioctl(s_bpf_fd.inner, libc::BIOCSBLEN, &mut buffer_len);
             if rs != 0 {
                 return Err(io::Error::last_os_error());
@@ -133,6 +136,102 @@ impl Tap {
     }
     pub fn name(&self) -> &String {
         &self.dev_feth.name
+    }
+    pub fn is_nonblocking(&self) -> io::Result<bool> {
+        self.s_bpf_fd.is_nonblocking()
+    }
+    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        self.s_bpf_fd.set_nonblocking(nonblocking)?;
+        self.s_ndrv_fd.set_nonblocking(nonblocking)?;
+        Ok(())
+    }
+    pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
+        self.s_ndrv_fd.write(buf)
+    }
+    pub fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+        self.s_ndrv_fd.writev(bufs)
+    }
+    pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        let mut sizes = [0; 1];
+        let n = self.recv_multiple(&mut [buf], &mut sizes)?;
+        if n == 0 {
+            Ok(0)
+        } else {
+            Ok(sizes[0])
+        }
+    }
+    pub fn recv_multiple<B: AsRef<[u8]> + AsMut<[u8]>>(
+        &self,
+        bufs: &mut [B],
+        sizes: &mut [usize],
+    ) -> io::Result<usize> {
+        let mut buffer = [0; BUFFER_LEN];
+        let len = self.s_bpf_fd.read(&mut buffer)?;
+        let mut num = 0;
+        if len > 0 {
+            let mut p = 0;
+            unsafe {
+                while p < len {
+                    let hdr = buffer.as_ptr().add(p) as *const libc::bpf_hdr;
+                    let bh_caplen = (*hdr).bh_caplen as usize;
+                    let bh_hdrlen = (*hdr).bh_hdrlen as usize;
+                    if bh_caplen > 0 && p + bh_hdrlen + bh_caplen <= len {
+                        let mut buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
+                        if let Some(dst) = bufs.get_mut(num) {
+                            let dst = dst.as_mut();
+                            if dst.len() < buf.len() {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "buffer too small",
+                                ));
+                            }
+                            dst[..buf.len()].copy_from_slice(buf);
+                            sizes[num] = buf.len();
+                            num += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    p += ((*hdr).bh_hdrlen as usize + bh_caplen + 3) & !3;
+                }
+            }
+        }
+        Ok(num)
+    }
+    pub fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
+        let mut buffer = vec![0; BUFFER_LEN];
+        let mut sizes = [0; 1];
+        let n = self.recv_multiple(&mut [&mut buffer], &mut sizes)?;
+        if n == 0 {
+            Ok(0)
+        } else {
+            let len: usize = bufs.iter().map(|v| v.len()).sum();
+            let mut pos = 0;
+            let buf = &buffer[..sizes[0]];
+            if len < buf.len() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "buffer too small",
+                ));
+            }
+            for b in bufs {
+                let n = b.len().min(buf.len() - pos);
+                if n == 0 {
+                    break;
+                }
+                b[..n].copy_from_slice(&buf[pos..pos + n]);
+                pos += n;
+                if pos == buf.len() {
+                    break;
+                }
+            }
+            Ok(pos)
+        }
+    }
+}
+impl AsRawFd for Tap {
+    fn as_raw_fd(&self) -> RawFd {
+        self.s_bpf_fd.as_raw_fd()
     }
 }
 
