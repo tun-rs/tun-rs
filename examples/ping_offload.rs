@@ -5,13 +5,13 @@ use std::net::Ipv4Addr;
 #[allow(unused_imports)]
 use std::sync::Arc;
 #[allow(unused_imports)]
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use tun_rs::{AsyncDevice, DeviceBuilder, SyncDevice};
 #[allow(unused_imports)]
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use tun_rs::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
 mod protocol_handle;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
@@ -57,7 +57,7 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos")),))]
 fn main() -> std::io::Result<()> {
     unimplemented!()
 }

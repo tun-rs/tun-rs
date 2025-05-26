@@ -1,7 +1,7 @@
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::platform::offload::{handle_gro, VirtioNetHdr, VIRTIO_NET_HDR_LEN};
 use crate::platform::DeviceImpl;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::platform::GROTable;
 use crate::SyncDevice;
 use std::io;
@@ -152,7 +152,7 @@ impl AsyncDevice {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 impl AsyncDevice {
     /// # Prerequisites
     /// - The `IFF_MULTI_QUEUE` flag must be enabled.

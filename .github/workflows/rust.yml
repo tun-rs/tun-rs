@@ -105,7 +105,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo install --locked cargo-lipo
-          rustup target add x86_64-apple-ios
+          rustup target add x86_64-apple-ios  aarch64-apple-ios
       - name: clippy
         if: ${{ !cancelled() }}
         run: cargo clippy  --features="async_tokio" --target x86_64-apple-ios -- -D warnings
@@ -160,15 +160,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo fmt --all -- --check
-          ohrs cargo --disable-target -- clippy --target ${{matrix.target}} --all-features --features="async_tokio" -- -D warnings
+          ohrs cargo --disable-target -- clippy --target ${{matrix.target}} --features="async_tokio" -- -D warnings
       - name: Build
         if: ${{ !cancelled() }}
         run: |
-          ohrs cargo --disable-target -- rustc --target ${{matrix.target}} --verbose --all-features --features="async_tokio" --lib --crate-type=cdylib
+          ohrs cargo --disable-target -- rustc --target ${{matrix.target}} --verbose --features="async_tokio" --lib --crate-type=cdylib
       - name: Abort on error
         if: ${{ failure() }}
         run: echo "OpenHarmony build job failed" && false
-        
+
   semver:
     name: Check semver
     strategy:

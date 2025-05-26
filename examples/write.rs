@@ -5,7 +5,7 @@ use std::sync::{mpsc::Receiver, Arc};
 #[allow(unused_imports)]
 #[cfg(any(
     target_os = "windows",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
 ))]
@@ -27,13 +27,18 @@ fn main() -> std::io::Result<()> {
     handle.join().unwrap();
     Ok(())
 }
-#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "android",))]
+#[cfg(any(
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "android",
+    all(target_os = "linux", target_env = "ohos")
+))]
 fn main_entry(_quit: Receiver<()>) -> std::io::Result<()> {
     unimplemented!()
 }
 #[cfg(any(
     target_os = "windows",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
 ))]

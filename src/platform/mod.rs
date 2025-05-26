@@ -147,7 +147,7 @@ impl SyncDevice {
     ///
     /// # Description
     /// When multi-queue is enabled, create a new queue by duplicating an existing one.
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     pub fn try_clone(&self) -> std::io::Result<SyncDevice> {
         let device_impl = self.0.try_clone()?;
         Ok(SyncDevice(device_impl))

@@ -4,14 +4,26 @@ use pnet_packet::Packet;
 use std::io;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd",))]
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+))]
 use tun_rs::DeviceBuilder;
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd",))]
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+))]
 use tun_rs::Layer;
 
 mod protocol_handle;
 
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd",))]
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+))]
 #[tokio::main]
 async fn main() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
@@ -61,6 +73,7 @@ async fn main() -> io::Result<()> {
 }
 
 #[cfg(any(
+    all(target_os = "linux", target_env = "ohos"),
     target_os = "ios",
     target_os = "tvos",
     target_os = "android",
