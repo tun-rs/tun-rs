@@ -243,10 +243,10 @@ impl DeviceImpl {
             }
             let mut req = self.request()?;
             let tun_name = CString::new(value)?;
-            let mut tun_name: Vec<i8> = tun_name
+            let mut tun_name: Vec<c_char> = tun_name
                 .into_bytes_with_nul()
                 .into_iter()
-                .map(|c| c as i8)
+                .map(|c| c as _)
                 .collect::<_>();
             req.ifr_ifru.ifru_data = tun_name.as_mut_ptr();
             if let Err(err) = siocsifname(ctl()?.as_raw_fd(), &req) {
