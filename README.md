@@ -23,15 +23,17 @@ cross-platform.
 
 ## Supported Platforms
 
-| Platform | TUN | TAP |
-|----------|-----|-----|
-| Windows  | ✅   | ✅   |
-| Linux    | ✅   | ✅   |
-| macOS    | ✅   | ⬜   |
-| FreeBSD  | ✅   | ✅   |
-| Android  | ✅   |     |
-| iOS      | ✅   |     |
-| Other*   | ✅   |     |
+| Platform    | TUN | TAP |
+|-------------|-----|-----|
+| Windows     | ✅   | ✅   |
+| Linux       | ✅   | ✅   |
+| macOS       | ✅   | ⬜   |
+| FreeBSD     | ✅   | ✅   |
+| Android     | ✅   |     |
+| iOS         | ✅   |     |
+| tvOS        | ✅   |     |
+| OpenHarmony | ✅   |     |
+| Other*      | ✅   |     |
 
 > For other Unix-like platforms,You can use raw_fd
 
