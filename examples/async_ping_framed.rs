@@ -1,10 +1,18 @@
+#[allow(unused_imports)]
 use bytes::BytesMut;
+#[allow(unused_imports)]
 use futures::{SinkExt, StreamExt};
 #[allow(unused_imports)]
 use std::net::Ipv4Addr;
 #[allow(unused_imports)]
 use std::sync::Arc;
 use tun_rs::async_framed::{BytesCodec, DeviceFramed};
+#[cfg(any(
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "freebsd",
+))]
 #[allow(unused_imports)]
 use tun_rs::DeviceBuilder;
 #[allow(unused_imports)]
@@ -50,7 +58,8 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "ios", target_os = "android",))]
+#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "android",))]
+
 fn main() -> std::io::Result<()> {
     unimplemented!()
 }

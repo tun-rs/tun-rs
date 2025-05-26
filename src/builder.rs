@@ -37,7 +37,13 @@ pub(crate) struct DeviceConfig {
     #[cfg(windows)]
     pub ring_capacity: Option<u32>,
     /// switch of Enable/Disable packet information for network driver
-    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "tvos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos",
+        target_os = "linux"
+    ))]
     pub packet_information: Option<bool>,
     /// Enable/Disable TUN offloads.
     /// After enabling, use `recv_multiple`/`send_multiple` for data transmission.
@@ -77,7 +83,12 @@ pub struct DeviceBuilder {
     #[cfg(windows)]
     metric: Option<u16>,
     /// switch of Enable/Disable packet information for network driver
-    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos",
+        target_os = "linux"
+    ))]
     packet_information: Option<bool>,
     #[cfg(target_os = "linux")]
     tx_queue_len: Option<u32>,
@@ -235,7 +246,12 @@ impl DeviceBuilder {
     /// on iOS, macOS, and Linux.
     ///
     /// This option is disabled by default (`false`).
-    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos",
+        target_os = "linux"
+    ))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
         self.packet_information = Some(packet_information);
         self
@@ -256,7 +272,12 @@ impl DeviceBuilder {
             wintun_file: self.wintun_file.take(),
             #[cfg(windows)]
             ring_capacity: self.ring_capacity.take(),
-            #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux"))]
+            #[cfg(any(
+                target_os = "ios",
+                target_os = "tvos",
+                target_os = "macos",
+                target_os = "linux"
+            ))]
             packet_information: self.packet_information.take(),
             #[cfg(target_os = "linux")]
             offload: self.offload.take(),

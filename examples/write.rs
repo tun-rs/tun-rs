@@ -3,8 +3,15 @@ use std::net::Ipv4Addr;
 #[allow(unused_imports)]
 use std::sync::{mpsc::Receiver, Arc};
 #[allow(unused_imports)]
-use tun_rs::{DeviceBuilder, SyncDevice};
-
+#[cfg(any(
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "freebsd",
+))]
+use tun_rs::DeviceBuilder;
+#[allow(unused_imports)]
+use tun_rs::SyncDevice;
 mod protocol_handle;
 fn main() -> std::io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
@@ -20,7 +27,7 @@ fn main() -> std::io::Result<()> {
     handle.join().unwrap();
     Ok(())
 }
-#[cfg(any(target_os = "ios", target_os = "android",))]
+#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "android",))]
 fn main_entry(_quit: Receiver<()>) -> std::io::Result<()> {
     unimplemented!()
 }

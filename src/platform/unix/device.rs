@@ -94,7 +94,7 @@ impl DeviceImpl {
             .collect())
     }
 }
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 impl DeviceImpl {
     /// Returns whether the TUN device is set to ignore packet information (PI).
     ///

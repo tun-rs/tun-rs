@@ -29,8 +29,8 @@ fn main() -> Result<(), std::io::Error> {
     handle.join().unwrap();
     Ok(())
 }
-#[cfg(any(target_os = "ios", target_os = "android",))]
-fn main_entry(_quit: Receiver<()>) -> Result<(), BoxError> {
+#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "android",))]
+fn main_entry(_quit: Receiver<()>) -> Result<(), std::io::Error> {
     unimplemented!()
 }
 #[cfg(any(

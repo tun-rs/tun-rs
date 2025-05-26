@@ -4,7 +4,9 @@ use pnet_packet::Packet;
 use std::io;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd",))]
 use tun_rs::DeviceBuilder;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd",))]
 use tun_rs::Layer;
 
 mod protocol_handle;
@@ -58,7 +60,12 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "macos"))]
+#[cfg(any(
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "android",
+    target_os = "macos"
+))]
 fn main() -> io::Result<()> {
     unimplemented!()
 }

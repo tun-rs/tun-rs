@@ -3,6 +3,12 @@ use std::net::Ipv4Addr;
 #[allow(unused_imports)]
 use std::sync::Arc;
 #[allow(unused_imports)]
+#[cfg(any(
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "freebsd",
+))]
 use tun_rs::DeviceBuilder;
 #[allow(unused_imports)]
 use tun_rs::{AsyncDevice, SyncDevice};
@@ -83,7 +89,7 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "ios", target_os = "android",))]
+#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "android",))]
 fn main() -> std::io::Result<()> {
     unimplemented!()
 }

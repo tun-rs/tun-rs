@@ -87,11 +87,11 @@ jobs:
           rustup target add x86_64-linux-android
       - name: clippy
         if: ${{ !cancelled() }}
-        run: cargo ndk -t x86_64 clippy --features="async tokio/rt-multi-thread" -- -D warnings
+        run: cargo ndk -t x86_64 clippy --features="async_tokio" -- -D warnings
       - name: Build
         if: ${{ !cancelled() }}
         run: |
-          cargo ndk -t x86_64 rustc --verbose  --features="async tokio/rt-multi-thread" --lib --crate-type=cdylib
+          cargo ndk -t x86_64 rustc --verbose  --features="async_tokio" --lib --crate-type=cdylib
       - name: Abort on error
         if: ${{ failure() }}
         run: echo "Android build job failed" && false
@@ -105,18 +105,70 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo install --locked cargo-lipo
-          rustup target add x86_64-apple-ios aarch64-apple-ios
+          rustup target add x86_64-apple-ios
       - name: clippy
         if: ${{ !cancelled() }}
-        run: cargo clippy --target x86_64-apple-ios --features="async tokio/rt-multi-thread" -- -D warnings
+        run: cargo clippy  --features="async_tokio" --target x86_64-apple-ios -- -D warnings
       - name: Build
         if: ${{ !cancelled() }}
         run: |
-          cargo lipo --verbose  --features="async tokio/rt-multi-thread"
+          cargo lipo --verbose  --features="async_tokio"
       - name: Abort on error
         if: ${{ failure() }}
         run: echo "iOs build job failed" && false
+  build_n_test_tvos:
+    strategy:
+      matrix:
+        target: [aarch64-apple-tvos, aarch64-apple-tvos-sim, x86_64-apple-tvos]
+      fail-fast: false
+    runs-on: macos-latest
 
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rust-src
+      - name: clippy
+        if: ${{ !cancelled() }}
+        run: cargo +nightly clippy -Zbuild-std --target ${{matrix.target}} --all-features --features="async_tokio" -- -D warnings
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: |
+          cargo +nightly build -Zbuild-std --verbose --target ${{matrix.target}} --all-features --features="async_tokio"
+      - name: Abort on error
+        if: ${{ failure() }}
+        run: echo "tvOS build job failed" && false
+  build_n_test_openharmony:
+    strategy:
+      matrix:
+        target: [aarch64-unknown-linux-ohos, armv7-unknown-linux-ohos, x86_64-unknown-linux-ohos]
+      fail-fast: false
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: openharmony-rs/setup-ohos-sdk@v0.2.1
+        id: setup-ohos
+        with:
+          version: "5.0.1"
+      - name: Install ohrs and rust compiler for ohos target
+        if: ${{ !cancelled() }}
+        run: |
+          cargo install --locked ohrs
+          rustup target add ${{ matrix.target }}
+      - name: fmt & clippy
+        if: ${{ !cancelled() }}
+        run: |
+          cargo fmt --all -- --check
+          ohrs cargo --disable-target -- clippy --target ${{matrix.target}} --all-features --features="async_tokio" -- -D warnings
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: |
+          ohrs cargo --disable-target -- rustc --target ${{matrix.target}} --verbose --all-features --features="async_tokio" --lib --crate-type=cdylib
+      - name: Abort on error
+        if: ${{ failure() }}
+        run: echo "OpenHarmony build job failed" && false
+        
   semver:
     name: Check semver
     strategy:

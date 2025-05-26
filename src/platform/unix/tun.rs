@@ -1,13 +1,13 @@
 use crate::platform::unix::Fd;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 use crate::PACKET_INFORMATION_LENGTH as PIL;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Infer the protocol based on the first nibble in the packet buffer.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 pub(crate) fn is_ipv6(buf: &[u8]) -> std::io::Result<bool> {
     use std::io::{Error, ErrorKind::InvalidData};
     if buf.is_empty() {
@@ -19,16 +19,16 @@ pub(crate) fn is_ipv6(buf: &[u8]) -> std::io::Result<bool> {
         p => Err(Error::new(InvalidData, format!("IP version {}", p))),
     }
 }
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 pub(crate) fn generate_packet_information(_ipv6: bool) -> [u8; PIL] {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     const TUN_PROTO_IP6: [u8; PIL] = (libc::ETH_P_IPV6 as u32).to_be_bytes();
     #[cfg(any(target_os = "linux", target_os = "android"))]
     const TUN_PROTO_IP4: [u8; PIL] = (libc::ETH_P_IP as u32).to_be_bytes();
 
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     const TUN_PROTO_IP6: [u8; PIL] = (libc::AF_INET6 as u32).to_be_bytes();
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     const TUN_PROTO_IP4: [u8; PIL] = (libc::AF_INET as u32).to_be_bytes();
 
     // FIXME: Currently, the FreeBSD we test (FreeBSD-14.0-RELEASE) seems to have no PI. Here just a dummy.
@@ -46,7 +46,7 @@ pub(crate) fn generate_packet_information(_ipv6: bool) -> [u8; PIL] {
 
 pub struct Tun {
     pub(crate) fd: Fd,
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     ignore_packet_information: AtomicBool,
 }
 
@@ -54,7 +54,7 @@ impl Tun {
     pub(crate) fn new(fd: Fd) -> Self {
         Self {
             fd,
-            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
             ignore_packet_information: AtomicBool::new(true),
         }
     }
@@ -64,12 +64,12 @@ impl Tun {
     pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
         self.fd.set_nonblocking(nonblocking)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
     #[inline]
     pub(crate) fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.fd.write(buf)
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     pub(crate) fn send(&self, buf: &[u8]) -> io::Result<usize> {
         if self.ignore_packet_info() {
             let ipv6 = is_ipv6(buf)?;
@@ -81,12 +81,12 @@ impl Tun {
         }
         self.fd.write(buf)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
     #[inline]
     pub(crate) fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.fd.writev(bufs)
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     #[inline]
     pub(crate) fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         if self.ignore_packet_info() {
@@ -109,12 +109,12 @@ impl Tun {
             self.fd.writev(bufs)
         }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
     #[inline]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.fd.read(buf)
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         if self.ignore_packet_info() {
             let mut head = [0u8; PIL];
@@ -125,12 +125,12 @@ impl Tun {
             self.fd.read(buf)
         }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
     #[inline]
     pub(crate) fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         self.fd.readv(bufs)
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     pub(crate) fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         if self.ignore_packet_info() {
             if crate::platform::unix::fd::max_iov() - 1 < bufs.len() {
@@ -154,12 +154,12 @@ impl Tun {
             self.fd.readv(bufs)
         }
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     #[inline]
     pub(crate) fn ignore_packet_info(&self) -> bool {
         self.ignore_packet_information.load(Ordering::Relaxed)
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     pub(crate) fn set_ignore_packet_info(&self, ign: bool) {
         self.ignore_packet_information.store(ign, Ordering::Relaxed);
     }
