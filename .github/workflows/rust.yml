@@ -130,11 +130,11 @@ jobs:
           components: clippy, rust-src
       - name: clippy
         if: ${{ !cancelled() }}
-        run: cargo +nightly clippy -Zbuild-std --target ${{matrix.target}} --all-features --features="async_tokio" -- -D warnings
+        run: cargo +nightly clippy -Zbuild-std --target ${{matrix.target}} --features="async_tokio" -- -D warnings
       - name: Build
         if: ${{ !cancelled() }}
         run: |
-          cargo +nightly build -Zbuild-std --verbose --target ${{matrix.target}} --all-features --features="async_tokio"
+          cargo +nightly build -Zbuild-std --verbose --target ${{matrix.target}} --features="async_tokio"
       - name: Abort on error
         if: ${{ failure() }}
         run: echo "tvOS build job failed" && false
