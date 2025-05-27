@@ -1,6 +1,6 @@
 use crate::builder::DeviceConfig;
 use crate::platform::macos::sys::{
-    ctl_info, ctliocginfo, in6_ifreq, siocgiflladdr, siocsiflladdr, IN6_IFF_NODAD,
+    ctl_info, ctliocginfo, in6_ifreq, siocgiflladdr, siocsiflladdr, siocsifmtu, IN6_IFF_NODAD,
     UTUN_CONTROL_NAME,
 };
 use crate::platform::macos::tap::Tap;
@@ -192,6 +192,23 @@ impl TunTap {
             Ok(req)
         }
     }
+    pub fn request_peer(&self) -> Option<libc::ifreq> {
+        let name = match &self {
+            TunTap::Tun(_) => {
+                return None;
+            }
+            TunTap::Tap(tap) => tap.peer_name(),
+        };
+        unsafe {
+            let mut req: libc::ifreq = mem::zeroed();
+            ptr::copy_nonoverlapping(
+                name.as_ptr() as *const c_char,
+                req.ifr_name.as_mut_ptr(),
+                name.len(),
+            );
+            Some(req)
+        }
+    }
     pub fn request_v6(&self) -> io::Result<in6_ifreq> {
         let tun_name = self.name()?;
         unsafe {
@@ -252,6 +269,25 @@ impl TunTap {
         match &self {
             TunTap::Tun(tun) => tun.set_ignore_packet_info(ign),
             TunTap::Tap(_) => {}
+        }
+    }
+    pub fn set_mtu(&self, value: u16) -> io::Result<()> {
+        unsafe {
+            let ctl = ctl()?;
+            let mut req = self.request()?;
+            req.ifr_ifru.ifru_mtu = value as i32;
+
+            if let Err(err) = siocsifmtu(ctl.as_raw_fd(), &req) {
+                return Err(io::Error::from(err));
+            }
+            if let Some(mut req) = self.request_peer() {
+                req.ifr_ifru.ifru_mtu = value as i32;
+
+                if let Err(err) = siocsifmtu(ctl.as_raw_fd(), &req) {
+                    return Err(io::Error::from(err));
+                }
+            }
+            Ok(())
         }
     }
     #[cfg(feature = "experimental")]

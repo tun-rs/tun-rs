@@ -184,6 +184,9 @@ impl Tap {
     pub fn name(&self) -> &String {
         &self.dev_feth.name
     }
+    pub fn peer_name(&self) -> &String {
+        &self.peer_feth.name
+    }
     pub fn is_nonblocking(&self) -> io::Result<bool> {
         self.s_bpf_fd.is_nonblocking()
     }

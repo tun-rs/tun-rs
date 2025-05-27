@@ -197,16 +197,7 @@ impl DeviceImpl {
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
-        unsafe {
-            let ctl = ctl()?;
-            let mut req = self.request()?;
-            req.ifr_ifru.ifru_mtu = value as i32;
-
-            if let Err(err) = siocsifmtu(ctl.as_raw_fd(), &req) {
-                return Err(io::Error::from(err));
-            }
-            Ok(())
-        }
+        self.tun.set_mtu(value)
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
