@@ -137,7 +137,6 @@ impl TunTap {
             TunTap::Tap(tap) => Ok(tap.name().to_string()),
         }
     }
-    #[allow(dead_code)]
     pub(crate) fn is_tun(&self) -> bool {
         match &self {
             TunTap::Tun(_) => true,

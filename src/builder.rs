@@ -32,8 +32,10 @@ pub(crate) struct DeviceConfig {
     pub dev_name: Option<String>,
     /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
     #[cfg(target_os = "macos")]
-    #[allow(dead_code)]
     pub peer_feth: Option<String>,
+    /// Automatically add a route; if it is Layer::L2, a route is never added automatically.
+    #[cfg(target_os = "macos")]
+    pub auto_route: Option<bool>,
     /// Specifies whether the interface operates at L2 or L3.
     #[allow(dead_code)]
     pub layer: Option<Layer>,
@@ -71,6 +73,8 @@ pub struct DeviceBuilder {
     dev_name: Option<String>,
     #[cfg(target_os = "macos")]
     peer_feth: Option<String>,
+    #[cfg(target_os = "macos")]
+    auto_route: Option<bool>,
     enabled: Option<bool>,
     mtu: Option<u16>,
     #[cfg(windows)]
@@ -258,6 +262,13 @@ impl DeviceBuilder {
         self.peer_feth = Some(peer_feth.into());
         self
     }
+    /// Automatically add a route;
+    /// On macOS, if it is Layer::L2, a route is never added automatically.
+    #[cfg(target_os = "macos")]
+    pub fn auto_route(mut self, auto_route: bool) -> Self {
+        self.auto_route = Some(auto_route);
+        self
+    }
     /// Enables or disables the device.
     /// Defaults to enabled.
     pub fn enable(mut self, enable: bool) -> Self {
@@ -269,6 +280,8 @@ impl DeviceBuilder {
             dev_name: self.dev_name.take(),
             #[cfg(target_os = "macos")]
             peer_feth: self.peer_feth.take(),
+            #[cfg(target_os = "macos")]
+            auto_route: self.auto_route,
             layer: self.layer.take(),
             #[cfg(windows)]
             device_guid: self.device_guid.take(),

@@ -14,6 +14,7 @@ use getifaddrs::{self, Interface};
 use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
 #[derive(Clone, Copy, Debug)]
@@ -24,6 +25,7 @@ struct Route {
 
 /// A TUN device using the TUN macOS driver.
 pub struct DeviceImpl {
+    auto_route: AtomicBool,
     pub(crate) tun: TunTap,
     alias_lock: Mutex<()>,
 }
@@ -31,15 +33,23 @@ pub struct DeviceImpl {
 impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
+        let auto_route = config.auto_route;
         let tun_tap = TunTap::new(config)?;
+        let auto_route = if tun_tap.is_tun() {
+            auto_route.unwrap_or(true)
+        } else {
+            false
+        };
         let device_impl = DeviceImpl {
             tun: tun_tap,
+            auto_route: AtomicBool::new(auto_route),
             alias_lock: Mutex::new(()),
         };
         Ok(device_impl)
     }
     pub(crate) fn from_tun(tun: Tun) -> Self {
         Self {
+            auto_route: AtomicBool::new(true),
             tun: TunTap::Tun(tun),
             alias_lock: Mutex::new(()),
         }
@@ -104,8 +114,22 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
+    /// System behavior:
+    /// On macOS, adding an IP to a feth interface will automatically add a route,
+    /// while adding an IP to a utun interface will not.
+    ///
+    /// When auto_route=true, the program will add a route as needed,
+    /// so that utun behaves the same as other network interfaces with respect to routing.
+    pub fn set_auto_route(&self, auto_route: bool) {
+        self.auto_route.store(auto_route, Ordering::Relaxed);
+    }
+    pub fn auto_route(&self) -> bool {
+        self.auto_route.load(Ordering::Relaxed)
+    }
     fn remove_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        if !self.auto_route() {
+            return Ok(());
+        }
         let if_index = self.if_index()?;
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
@@ -116,6 +140,9 @@ impl DeviceImpl {
     }
 
     fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        if !self.auto_route() {
+            return Ok(());
+        }
         let if_index = self.if_index()?;
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
@@ -126,6 +153,9 @@ impl DeviceImpl {
     }
 
     fn set_route(&self, old_route: Option<Route>, new_route: Route) -> io::Result<()> {
+        if !self.auto_route() {
+            return Ok(());
+        }
         let if_index = self.if_index()?;
         let mut manager = route_manager::RouteManager::new()?;
         if let Some(old_route) = old_route {
