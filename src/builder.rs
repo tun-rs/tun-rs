@@ -9,8 +9,14 @@ use crate::platform::{DeviceImpl, SyncDevice};
 /// - **L2**: Data Link Layer (available on Windows, Linux, and FreeBSD; used for TAP interfaces).
 /// - **L3**: Network Layer (default for TUN interfaces).
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum Layer {
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "macos"
+    ))]
     L2,
     #[default]
     L3,
@@ -24,6 +30,10 @@ pub enum Layer {
 pub(crate) struct DeviceConfig {
     /// The name of the device/interface.
     pub dev_name: Option<String>,
+    /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
+    #[cfg(target_os = "macos")]
+    #[allow(dead_code)]
+    pub peer_feth: Option<String>,
     /// Specifies whether the interface operates at L2 or L3.
     #[allow(dead_code)]
     pub layer: Option<Layer>,
@@ -59,6 +69,8 @@ type IPV4 = (
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,
+    #[cfg(target_os = "macos")]
+    peer_feth: Option<String>,
     enabled: Option<bool>,
     mtu: Option<u16>,
     #[cfg(windows)]
@@ -240,6 +252,12 @@ impl DeviceBuilder {
         self.packet_information = Some(packet_information);
         self
     }
+    /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
+    #[cfg(target_os = "macos")]
+    pub fn peer_feth<S: Into<String>>(mut self, peer_feth: S) -> Self {
+        self.peer_feth = Some(peer_feth.into());
+        self
+    }
     /// Enables or disables the device.
     /// Defaults to enabled.
     pub fn enable(mut self, enable: bool) -> Self {
@@ -249,6 +267,8 @@ impl DeviceBuilder {
     pub(crate) fn build_config(&mut self) -> DeviceConfig {
         DeviceConfig {
             dev_name: self.dev_name.take(),
+            #[cfg(target_os = "macos")]
+            peer_feth: self.peer_feth.take(),
             layer: self.layer.take(),
             #[cfg(windows)]
             device_guid: self.device_guid.take(),
@@ -291,7 +311,9 @@ impl DeviceBuilder {
             let prefix = prefix?;
             let address = address?;
             let destination = destination.transpose()?;
-            device.set_network_address(address, prefix, destination)?;
+            device
+                .set_network_address(address, prefix, destination)
+                .unwrap();
         }
         if let Some(ipv6) = self.ipv6 {
             for (address, prefix) in ipv6 {

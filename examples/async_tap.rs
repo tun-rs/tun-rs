@@ -8,10 +8,26 @@ use tun_rs::DeviceBuilder;
 use tun_rs::Layer;
 
 mod protocol_handle;
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd",))]
+#[cfg(any(
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "macos"
+))]
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    main0().await?;
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    Ok(())
+}
+#[cfg(any(
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "macos"
+))]
+async fn main0() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
     let (tx, mut quit) = tokio::sync::mpsc::channel::<()>(1);
 
@@ -21,12 +37,14 @@ async fn main() -> io::Result<()> {
     .await;
     let dev = Arc::new(
         DeviceBuilder::new()
-            .name("tap0")
+            // .name("feth0")
+            // .peer_feth("feth1")
             .ipv4(Ipv4Addr::from([10, 0, 0, 9]), 24, None)
             .layer(Layer::L2)
-            .mtu(1500)
+            .mtu(1400)
             .build_async()?,
     );
+    println!("Waiting for all interfaces...");
     let mut buf = vec![0; 14 + 65536];
     loop {
         tokio::select! {
@@ -58,7 +76,7 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "ios", target_os = "android", target_os = "macos"))]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 fn main() -> io::Result<()> {
     unimplemented!()
 }

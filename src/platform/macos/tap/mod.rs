@@ -1,9 +1,37 @@
 /*
-link https://github.com/zerotier/ZeroTierOne/blob/dev/osdep/MacEthernetTapAgent.c
 link https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/sockio.h
 link https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_fake.c
 link https://www.zerotier.com/blog/how-zerotier-eliminated-kernel-extensions-on-macos/
  */
+/*
+* link https://github.com/zerotier/ZeroTierOne/blob/dev/osdep/MacEthernetTapAgent.c
+*
+* This creates a pair of feth devices with the lower numbered device
+* being the virtual interface and the other being the device
+* used to actually read and write packets. The latter gets no IP config
+* and is only used for I/O. The behavior of feth is similar to the
+* veth pairs that exist on Linux.
+*
+* The feth device has only existed since MacOS Sierra, but that's fairly
+* long ago in Mac terms.
+*
+* I/O with feth must be done using two different sockets. The BPF socket
+* is used to receive packets, while an AF_NDRV (low-level network driver
+* access) socket must be used to inject. AF_NDRV can't read IP frames
+* since BSD doesn't forward packets out the NDRV tap if they've already
+* been handled, and while BPF can inject its MTU for injected packets
+* is limited to 2048.
+*
+* All this stuff is basically undocumented. A lot of tracing through
+* the Darwin/XNU kernel source was required to figure out how to make
+* this actually work.
+﻿
+*
+* See also:
+*
+* https://apple.stackexchange.com/questions/337715/fake-ethernet-interfaces-feth-if-fake-anyone-ever-seen-this
+*
+*/
 use crate::platform::macos::sys::siocifcreate;
 use crate::platform::unix::Fd;
 use bytes::BytesMut;
@@ -12,12 +40,12 @@ use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsRawFd, IntoRawFd, RawFd};
 use std::sync::Mutex;
 
 const FETH: &str = "feth";
 const BUFFER_LEN: usize = 131072;
-pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<Vec<u8>> {
+pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<()> {
     let out = std::process::Command::new(command).args(args).output()?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(if out.stderr.is_empty() {
@@ -28,46 +56,60 @@ pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<Vec<u8>> {
         let info = format!("{} failed with: \"{}\"", command, err);
         return Err(io::Error::other(info));
     }
-    Ok(out.stdout)
+    Ok(())
 }
 
 pub struct Tap {
     s_bpf_fd: Fd,
     s_ndrv_fd: Fd,
     dev_feth: Feth,
+    #[allow(dead_code)]
     peer_feth: Feth,
     buffer: Mutex<VecDeque<BytesMut>>,
 }
 struct Feth {
+    is_drop: bool,
     name: String,
 }
 impl Drop for Feth {
     fn drop(&mut self) {
-        _ = run_command("ifconfig", &[&self.name, "destroy"]);
+        if self.is_drop {
+            _ = run_command("ifconfig", &[&self.name, "destroy"]);
+            self.is_drop = false;
+        }
+    }
+}
+impl IntoRawFd for Tap {
+    fn into_raw_fd(mut self) -> RawFd {
+        self.peer_feth.is_drop = false;
+        self.dev_feth.is_drop = false;
+        self.s_bpf_fd.into_raw_fd()
     }
 }
 impl Tap {
-    pub fn new(name: Option<String>) -> io::Result<Tap> {
+    pub fn new(name: Option<String>, peer_feth: Option<String>) -> io::Result<Tap> {
         unsafe {
             let s_ndrv_fd = libc::socket(libc::AF_NDRV, libc::SOCK_RAW, 0);
             let s_ndrv_fd = Fd::new(s_ndrv_fd)?;
-            let mut ifr = if let Some(name) = name {
-                new_ifreq(&name)?
-            } else {
-                new_ifreq(FETH)?
-            };
+            let mut ifr = new_ifreq(name.as_ref())?;
             siocifcreate(s_ndrv_fd.inner, &mut ifr)?;
             let dev_name = CStr::from_ptr(ifr.ifr_name.as_ptr())
                 .to_string_lossy()
                 .into_owned();
-            let dev_feth = Feth { name: dev_name };
+            let dev_feth = Feth {
+                is_drop: true,
+                name: dev_name,
+            };
             std::thread::sleep(std::time::Duration::from_millis(1));
-            let mut peer_ifr = new_ifreq(FETH)?;
+            let mut peer_ifr = new_ifreq(peer_feth.as_ref())?;
             siocifcreate(s_ndrv_fd.inner, &mut peer_ifr)?;
             let peer_name = CStr::from_ptr(peer_ifr.ifr_name.as_ptr())
                 .to_string_lossy()
                 .into_owned();
-            let peer_feth = Feth { name: peer_name };
+            let peer_feth = Feth {
+                is_drop: true,
+                name: peer_name,
+            };
             std::thread::sleep(std::time::Duration::from_millis(1));
             run_command("ifconfig", &[&peer_feth.name, "peer", &dev_feth.name])?;
             let mut nd: libc::sockaddr_ndrv = std::mem::zeroed();
@@ -116,11 +158,11 @@ impl Tap {
             if rs != 0 {
                 return Err(io::Error::last_os_error());
             }
-            let rs = unsafe { libc::ioctl(s_bpf_fd.inner, libc::BIOCSHDRCMPLT, &mut enable) };
+            let rs = libc::ioctl(s_bpf_fd.inner, libc::BIOCSHDRCMPLT, &mut enable);
             if rs != 0 {
                 return Err(io::Error::last_os_error());
             }
-            let rs = unsafe { libc::ioctl(s_bpf_fd.inner, libc::BIOCPROMISC as u64, &mut enable) };
+            let rs = libc::ioctl(s_bpf_fd.inner, libc::BIOCPROMISC as u64, &mut enable);
             if rs != 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -133,12 +175,12 @@ impl Tap {
             })
         }
     }
-    pub fn as_s_ndrv_fd(&self) -> RawFd {
-        self.s_ndrv_fd.as_raw_fd()
-    }
-    pub fn as_s_bpf_fd(&self) -> RawFd {
-        self.s_bpf_fd.as_raw_fd()
-    }
+    // pub fn as_s_ndrv_fd(&self) -> RawFd {
+    //     self.s_ndrv_fd.as_raw_fd()
+    // }
+    // pub fn as_s_bpf_fd(&self) -> RawFd {
+    //     self.s_bpf_fd.as_raw_fd()
+    // }
     pub fn name(&self) -> &String {
         &self.dev_feth.name
     }
@@ -188,7 +230,7 @@ impl Tap {
                     let bh_caplen = (*hdr).bh_caplen as usize;
                     let bh_hdrlen = (*hdr).bh_hdrlen as usize;
                     if bh_caplen > 0 && p + bh_hdrlen + bh_caplen <= len {
-                        let mut buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
+                        let buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
                         bufs.push_back(buf.into());
                     }
                     p += ((*hdr).bh_hdrlen as usize + bh_caplen + 3) & !3;
@@ -197,6 +239,7 @@ impl Tap {
         }
         Ok(())
     }
+    #[allow(dead_code)]
     pub fn recv_multiple<B: AsRef<[u8]> + AsMut<[u8]>>(
         &self,
         bufs: &mut [B],
@@ -213,7 +256,7 @@ impl Tap {
                     let bh_caplen = (*hdr).bh_caplen as usize;
                     let bh_hdrlen = (*hdr).bh_hdrlen as usize;
                     if bh_caplen > 0 && p + bh_hdrlen + bh_caplen <= len {
-                        let mut buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
+                        let buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
                         if let Some(dst) = bufs.get_mut(num) {
                             let dst = dst.as_mut();
                             if dst.len() < buf.len() {
@@ -268,6 +311,10 @@ impl Tap {
         }
         Ok(pos)
     }
+    #[cfg(feature = "experimental")]
+    pub(crate) fn shutdown(&self) -> io::Result<()> {
+        self.s_bpf_fd.shutdown()
+    }
 }
 impl AsRawFd for Tap {
     fn as_raw_fd(&self) -> RawFd {
@@ -297,7 +344,14 @@ fn open_bpf() -> io::Result<Fd> {
         "No available /dev/bpf",
     ))
 }
-fn new_ifreq(name: &str) -> io::Result<ifreq> {
+fn new_ifreq(name: Option<&String>) -> io::Result<ifreq> {
+    if let Some(name) = name {
+        new_ifreq_str(name.as_str())
+    } else {
+        new_ifreq_str(FETH)
+    }
+}
+fn new_ifreq_str(name: &str) -> io::Result<ifreq> {
     let bytes = name.as_bytes();
     if bytes.len() >= IFNAMSIZ {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "name too long"));
