@@ -41,6 +41,9 @@ pub(crate) struct DeviceConfig {
     /// Default to false
     #[cfg(target_os = "macos")]
     pub exclusive: Option<bool>,
+    /// If true, the feth device will be kept after the program exits; if false (default), the device will be destroyed automatically.
+    #[cfg(target_os = "macos")]
+    pub persist: Option<bool>,
     /// Specifies whether the interface operates at L2 or L3.
     #[allow(dead_code)]
     pub layer: Option<Layer>,
@@ -82,6 +85,8 @@ pub struct DeviceBuilder {
     auto_route: Option<bool>,
     #[cfg(target_os = "macos")]
     exclusive: Option<bool>,
+    #[cfg(target_os = "macos")]
+    persist: Option<bool>,
     enabled: Option<bool>,
     mtu: Option<u16>,
     #[cfg(windows)]
@@ -277,11 +282,17 @@ impl DeviceBuilder {
         self
     }
     /// If true, an error will be returned if a device with the specified name already exists.
-    /// If false, the existing device with the given name will be used.
-    /// Default to false
+    /// If false (default), the existing device with the given name will be used.
     #[cfg(target_os = "macos")]
     pub fn exclusive(mut self, exclusive: bool) -> Self {
         self.exclusive = Some(exclusive);
+        self
+    }
+    /// If true, the feth device will be kept after the program exits;
+    /// if false (default), the device will be destroyed automatically.
+    #[cfg(target_os = "macos")]
+    pub fn persist(mut self, persist: bool) -> Self {
+        self.persist = Some(persist);
         self
     }
     /// Enables or disables the device.
@@ -299,6 +310,8 @@ impl DeviceBuilder {
             auto_route: self.auto_route,
             #[cfg(target_os = "macos")]
             exclusive: self.exclusive,
+            #[cfg(target_os = "macos")]
+            persist: self.persist,
             layer: self.layer.take(),
             #[cfg(windows)]
             device_guid: self.device_guid.take(),

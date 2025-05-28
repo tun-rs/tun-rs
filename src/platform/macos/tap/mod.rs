@@ -104,7 +104,7 @@ impl Tap {
                 .to_string_lossy()
                 .into_owned();
             let dev_feth = Feth {
-                is_drop: true,
+                is_drop: !config.persist.unwrap_or(false),
                 name: dev_name,
             };
             std::thread::sleep(std::time::Duration::from_millis(1));
@@ -118,7 +118,7 @@ impl Tap {
                 .to_string_lossy()
                 .into_owned();
             let peer_feth = Feth {
-                is_drop: true,
+                is_drop: !config.persist.unwrap_or(false),
                 name: peer_name,
             };
             std::thread::sleep(std::time::Duration::from_millis(1));
