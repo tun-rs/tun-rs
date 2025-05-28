@@ -36,6 +36,11 @@ pub(crate) struct DeviceConfig {
     /// Automatically add a route; if it is Layer::L2, a route is never added automatically.
     #[cfg(target_os = "macos")]
     pub auto_route: Option<bool>,
+    /// If true, an error will be returned if a device with the specified name already exists.
+    /// If false, the existing device with the given name will be used.
+    /// Default to false
+    #[cfg(target_os = "macos")]
+    pub exclusive: Option<bool>,
     /// Specifies whether the interface operates at L2 or L3.
     #[allow(dead_code)]
     pub layer: Option<Layer>,
@@ -75,6 +80,8 @@ pub struct DeviceBuilder {
     peer_feth: Option<String>,
     #[cfg(target_os = "macos")]
     auto_route: Option<bool>,
+    #[cfg(target_os = "macos")]
+    exclusive: Option<bool>,
     enabled: Option<bool>,
     mtu: Option<u16>,
     #[cfg(windows)]
@@ -269,6 +276,14 @@ impl DeviceBuilder {
         self.auto_route = Some(auto_route);
         self
     }
+    /// If true, an error will be returned if a device with the specified name already exists.
+    /// If false, the existing device with the given name will be used.
+    /// Default to false
+    #[cfg(target_os = "macos")]
+    pub fn exclusive(mut self, exclusive: bool) -> Self {
+        self.exclusive = Some(exclusive);
+        self
+    }
     /// Enables or disables the device.
     /// Defaults to enabled.
     pub fn enable(mut self, enable: bool) -> Self {
@@ -282,6 +297,8 @@ impl DeviceBuilder {
             peer_feth: self.peer_feth.take(),
             #[cfg(target_os = "macos")]
             auto_route: self.auto_route,
+            #[cfg(target_os = "macos")]
+            exclusive: self.exclusive,
             layer: self.layer.take(),
             #[cfg(windows)]
             device_guid: self.device_guid.take(),

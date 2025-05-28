@@ -26,12 +26,11 @@ impl TunTap {
     pub fn new(config: DeviceConfig) -> io::Result<Self> {
         let layer = config.layer.unwrap_or(Layer::L3);
         let packet_information = config.packet_information.unwrap_or(false);
-        let dev_name = config.dev_name;
-        let peer_feth = config.peer_feth;
         match layer {
-            Layer::L2 => Ok(TunTap::Tap(Tap::new(dev_name, peer_feth)?)),
+            Layer::L2 => Ok(TunTap::Tap(Tap::new(&config)?)),
             Layer::L3 => {
-                let id = dev_name
+                let id = config
+                    .dev_name
                     .as_ref()
                     .map(|tun_name| {
                         if tun_name.len() > IFNAMSIZ {
@@ -275,13 +274,12 @@ impl TunTap {
             let ctl = ctl()?;
             let mut req = self.request()?;
             req.ifr_ifru.ifru_mtu = value as i32;
-
             if let Err(err) = siocsifmtu(ctl.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
+            // peer feth
             if let Some(mut req) = self.request_peer() {
                 req.ifr_ifru.ifru_mtu = value as i32;
-
                 if let Err(err) = siocsifmtu(ctl.as_raw_fd(), &req) {
                     return Err(io::Error::from(err));
                 }

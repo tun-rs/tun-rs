@@ -32,10 +32,12 @@ link https://www.zerotier.com/blog/how-zerotier-eliminated-kernel-extensions-on-
 * https://apple.stackexchange.com/questions/337715/fake-ethernet-interfaces-feth-if-fake-anyone-ever-seen-this
 *
 */
+use crate::builder::DeviceConfig;
 use crate::platform::macos::sys::siocifcreate;
 use crate::platform::unix::Fd;
 use bytes::BytesMut;
 use libc::{ifreq, IFNAMSIZ};
+use nix::errno::Errno;
 use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 use std::io;
@@ -87,12 +89,17 @@ impl IntoRawFd for Tap {
     }
 }
 impl Tap {
-    pub fn new(name: Option<String>, peer_feth: Option<String>) -> io::Result<Tap> {
+    pub fn new(config: &DeviceConfig) -> io::Result<Tap> {
         unsafe {
             let s_ndrv_fd = libc::socket(libc::AF_NDRV, libc::SOCK_RAW, 0);
             let s_ndrv_fd = Fd::new(s_ndrv_fd)?;
-            let mut ifr = new_ifreq(name.as_ref())?;
-            siocifcreate(s_ndrv_fd.inner, &mut ifr)?;
+            let mut ifr = new_ifreq(config.dev_name.as_ref())?;
+            if let Err(e) = siocifcreate(s_ndrv_fd.inner, &mut ifr) {
+                if e != Errno::EEXIST || config.exclusive.unwrap_or(false) {
+                    Err(e)?;
+                }
+            }
+
             let dev_name = CStr::from_ptr(ifr.ifr_name.as_ptr())
                 .to_string_lossy()
                 .into_owned();
@@ -101,8 +108,12 @@ impl Tap {
                 name: dev_name,
             };
             std::thread::sleep(std::time::Duration::from_millis(1));
-            let mut peer_ifr = new_ifreq(peer_feth.as_ref())?;
-            siocifcreate(s_ndrv_fd.inner, &mut peer_ifr)?;
+            let mut peer_ifr = new_ifreq(config.peer_feth.as_ref())?;
+            if let Err(e) = siocifcreate(s_ndrv_fd.inner, &mut peer_ifr) {
+                if e != Errno::EEXIST || config.exclusive.unwrap_or(false) {
+                    return Err(e.into());
+                }
+            }
             let peer_name = CStr::from_ptr(peer_ifr.ifr_name.as_ptr())
                 .to_string_lossy()
                 .into_owned();
