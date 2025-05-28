@@ -159,13 +159,8 @@ impl Tap {
             if rs != 0 {
                 return Err(io::Error::last_os_error());
             }
-            let mut ifr: ifreq = std::mem::zeroed();
-            std::ptr::copy_nonoverlapping(
-                peer_feth.name.as_ptr(),
-                ifr.ifr_name.as_mut_ptr() as *mut u8,
-                IFNAMSIZ,
-            );
-            let rs = libc::ioctl(s_bpf_fd.inner, libc::BIOCSETIF, &mut ifr);
+
+            let rs = libc::ioctl(s_bpf_fd.inner, libc::BIOCSETIF, &mut peer_ifr);
             if rs != 0 {
                 return Err(io::Error::last_os_error());
             }
