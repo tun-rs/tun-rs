@@ -1,8 +1,8 @@
+use getifaddrs::Interface;
 use std::collections::HashSet;
 use std::io;
 use std::net::IpAddr;
-
-use getifaddrs::Interface;
+use std::os::windows::io::RawHandle;
 
 use crate::builder::DeviceConfig;
 use crate::platform::windows::netsh;
@@ -109,7 +109,13 @@ impl DeviceImpl {
         };
         Ok(device)
     }
-
+    #[allow(dead_code)]
+    pub(crate) fn wait_readable(&self, interrupted_event: RawHandle) -> io::Result<()> {
+        match &self.driver {
+            Driver::Tap(tap) => tap.wait_readable(interrupted_event),
+            Driver::Tun(tun) => tun.wait_readable(interrupted_event),
+        }
+    }
     /// Recv a packet from tun device
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         match &self.driver {

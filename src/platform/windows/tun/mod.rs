@@ -1,13 +1,13 @@
-use std::os::windows::io::{AsRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, ptr};
 
 use windows_sys::Win32::Foundation::{
     GetLastError, ERROR_BUFFER_OVERFLOW, ERROR_HANDLE_EOF, ERROR_INVALID_DATA, ERROR_NO_MORE_ITEMS,
-    FALSE, WAIT_FAILED, WAIT_OBJECT_0,
+    WAIT_FAILED, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
-use windows_sys::Win32::System::Threading::{SetEvent, WaitForMultipleObjects, INFINITE};
+use windows_sys::Win32::System::Threading::{WaitForMultipleObjects, INFINITE};
 
 use crate::platform::windows::ffi;
 use crate::platform::windows::ffi::encode_utf16;
@@ -77,12 +77,7 @@ impl AdapterHandle {
     }
     fn shutdown(&self) -> io::Result<()> {
         self.shutdown_state.store(true, Ordering::SeqCst);
-        unsafe {
-            if FALSE == SetEvent(self.shutdown_event.as_raw_handle()) {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        Ok(())
+        ffi::set_event(self.shutdown_event.as_raw_handle())
     }
     fn is_shutdown(&self) -> bool {
         self.shutdown_state.load(Ordering::SeqCst)
@@ -180,6 +175,9 @@ impl TunDevice {
     }
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.session.send(buf)
+    }
+    pub(crate) fn wait_readable(&self, interrupted_event: RawHandle) -> io::Result<()> {
+        self.session.wait_readable_interrupted(interrupted_event)
     }
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.session.recv(buf)
@@ -279,6 +277,37 @@ impl SessionHandle {
         unsafe { ptr::copy_nonoverlapping(ptr, buf.as_mut_ptr(), size) };
         unsafe { win_tun.WintunReleaseReceivePacket(handle, ptr) };
         Ok(size)
+    }
+    pub(crate) fn wait_readable_interrupted(&self, interrupted_event: RawHandle) -> io::Result<()> {
+        self.check_shutdown()?;
+        //Wait on both the read handle and the shutdown handle so that we stop when requested
+        let handles = [
+            self.read_event,
+            interrupted_event,
+            self.adapter.shutdown_event.as_raw_handle(),
+        ];
+        let result = unsafe {
+            //SAFETY: We abide by the requirements of WaitForMultipleObjects, handles is a
+            //pointer to valid, aligned, stack memory
+            WaitForMultipleObjects(3, &handles as _, 0, INFINITE)
+        };
+        match result {
+            WAIT_FAILED => Err(io::Error::last_os_error()),
+            _ => {
+                if result == WAIT_OBJECT_0 {
+                    //We have data!
+                    Ok(())
+                } else if result == WAIT_OBJECT_0 + 1 {
+                    Err(io::Error::from(io::ErrorKind::Interrupted))
+                } else {
+                    //Shutdown event triggered
+                    Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("Shutdown event triggered {}", io::Error::last_os_error()),
+                    ))
+                }
+            }
+        }
     }
     fn wait_readable(&self) -> io::Result<()> {
         self.check_shutdown()?;

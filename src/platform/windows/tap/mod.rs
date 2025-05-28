@@ -1,6 +1,7 @@
 use crate::platform::windows::{ffi, netsh};
+use bytes::BytesMut;
 use std::ops::DerefMut;
-use std::os::windows::io::{AsRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
 use std::sync::Mutex;
 use std::{io, time};
 use windows_sys::Win32::Foundation::HANDLE;
@@ -16,13 +17,36 @@ pub struct TapDevice {
     component_id: String,
     index: u32,
     need_delete: bool,
-    read_io_overlapped: Mutex<(Option<Box<OVERLAPPED>>, Vec<u8>)>,
+    read_io_overlapped: Mutex<(Option<OwnedOVERLAPPED>, BytesMut, Option<usize>)>,
     write_io_overlapped: Mutex<Option<(Box<OVERLAPPED>, Vec<u8>)>>,
 }
 const READ_BUFFER_SIZE: usize = 14 + 65536;
 unsafe impl Send for TapDevice {}
 
 unsafe impl Sync for TapDevice {}
+
+pub struct OwnedOVERLAPPED {
+    #[allow(dead_code)]
+    event_handle: OwnedHandle,
+    overlapped: Box<OVERLAPPED>,
+}
+impl OwnedOVERLAPPED {
+    pub fn new() -> io::Result<OwnedOVERLAPPED> {
+        let event_handle = ffi::create_event()?;
+        let mut overlapped = Box::new(ffi::io_overlapped());
+        overlapped.hEvent = event_handle.as_raw_handle();
+        Ok(Self {
+            event_handle,
+            overlapped,
+        })
+    }
+    pub fn as_overlapped(&self) -> &OVERLAPPED {
+        &self.overlapped
+    }
+    pub fn as_mut_overlapped(&mut self) -> &mut OVERLAPPED {
+        &mut self.overlapped
+    }
+}
 
 impl Drop for TapDevice {
     fn drop(&mut self) {
@@ -87,7 +111,7 @@ impl TapDevice {
             index,
             component_id: component_id.to_owned(),
             need_delete: true,
-            read_io_overlapped: Mutex::new((None, vec![0; READ_BUFFER_SIZE])),
+            read_io_overlapped: Mutex::new((None, BytesMut::zeroed(READ_BUFFER_SIZE), None)),
             write_io_overlapped: Mutex::new(None),
         })
     }
@@ -105,7 +129,7 @@ impl TapDevice {
             handle,
             component_id: component_id.to_owned(),
             need_delete: false,
-            read_io_overlapped: Mutex::new((None, vec![0; READ_BUFFER_SIZE])),
+            read_io_overlapped: Mutex::new((None, BytesMut::zeroed(READ_BUFFER_SIZE), None)),
             write_io_overlapped: Mutex::new(None),
         })
     }
@@ -179,20 +203,51 @@ impl TapDevice {
             &mut out_status,
         )
     }
+    pub fn wait_readable(&self, interrupted_event: RawHandle) -> io::Result<()> {
+        let mut guard = self.read_io_overlapped.lock().unwrap();
+        let (overlapped, read_buffer, len) = guard.deref_mut();
+        let n = if let Some(mut overlapped) = overlapped.take() {
+            ffi::wait_io_overlapped_interrupted(
+                self.handle.as_raw_handle(),
+                overlapped.as_mut_overlapped(),
+                interrupted_event,
+            )?
+        } else {
+            ffi::read_file(
+                self.handle.as_raw_handle(),
+                read_buffer,
+                Some(interrupted_event),
+            )?
+        };
+        _ = len.replace(n as usize);
+        Ok(())
+    }
+
     pub fn try_read(&self, mut buf: &mut [u8]) -> io::Result<usize> {
         let Ok(mut guard) = self.read_io_overlapped.try_lock() else {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         };
-        let (overlapped, read_buffer) = guard.deref_mut();
-        let n = if let Some(overlapped) = overlapped {
-            ffi::try_io_overlapped(self.handle.as_raw_handle(), overlapped)?
+        let (overlapped, read_buffer, len) = guard.deref_mut();
+        let len = if let Some(len) = len.take() {
+            len
+        } else if let Some(overlapped) = overlapped {
+            let n = ffi::try_io_overlapped(
+                self.handle.as_raw_handle(),
+                overlapped.as_mut_overlapped(),
+            )?;
+            n as usize
         } else {
-            let overlapped = overlapped.insert(Box::new(ffi::io_overlapped()));
-            ffi::try_read_file(self.handle.as_raw_handle(), overlapped, read_buffer)?
+            let overlapped = overlapped.insert(OwnedOVERLAPPED::new()?);
+            let n = ffi::try_read_file(
+                self.handle.as_raw_handle(),
+                overlapped.as_mut_overlapped(),
+                read_buffer,
+            )?;
+            n as usize
         };
         _ = overlapped.take();
-        let n = n as usize;
-        match io::copy(&mut &read_buffer[..n], &mut buf) {
+        let result = io::copy(&mut &read_buffer[..len], &mut buf);
+        match result {
             Ok(n) => Ok(n as usize),
             Err(e) => Err(e),
         }
@@ -218,13 +273,16 @@ impl TapDevice {
     }
     pub fn read(&self, mut buf: &mut [u8]) -> io::Result<usize> {
         let mut guard = self.read_io_overlapped.lock().unwrap();
-        let (overlapped, read_buffer) = guard.deref_mut();
-        let n = if let Some(overlapped) = overlapped.take() {
-            ffi::wait_io_overlapped(self.handle.as_raw_handle(), &overlapped)? as usize
+        let (overlapped, read_buffer, len) = guard.deref_mut();
+        let len = if let Some(len) = len.take() {
+            len
+        } else if let Some(overlapped) = overlapped.take() {
+            ffi::wait_io_overlapped(self.handle.as_raw_handle(), overlapped.as_overlapped())?
+                as usize
         } else {
-            return ffi::read_file(self.handle.as_raw_handle(), buf).map(|res| res as _);
+            return ffi::read_file(self.handle.as_raw_handle(), buf, None).map(|res| res as _);
         };
-        match io::copy(&mut &read_buffer[..n], &mut buf) {
+        match io::copy(&mut &read_buffer[..len], &mut buf) {
             Ok(n) => Ok(n as usize),
             Err(e) => Err(e),
         }

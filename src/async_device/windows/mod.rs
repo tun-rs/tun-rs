@@ -1,12 +1,14 @@
+use crate::platform::windows::ffi;
+use crate::platform::DeviceImpl;
+use crate::SyncDevice;
 use std::future::Future;
 use std::io;
 use std::ops::Deref;
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-
-use crate::platform::DeviceImpl;
-use crate::SyncDevice;
 
 /// An async Tun/Tap device wrapper around a Tun/Tap device.
 ///
@@ -156,24 +158,33 @@ impl AsyncDevice {
     }
 
     /// Recv a packet from the device
-    pub async fn recv(&self, mut buf: &mut [u8]) -> io::Result<usize> {
+    pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         match self.try_recv(buf) {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             rs => return rs,
         }
-        let device = self.inner.clone();
-        let size = buf.len();
-        let (packet, n) = blocking::unblock(move || {
-            let mut in_buf = vec![0; size];
-            let n = device.recv(&mut in_buf)?;
-            Ok::<(Vec<u8>, usize), io::Error>((in_buf, n))
-        })
-        .await?;
-        let mut packet: &[u8] = &packet[..n];
-
-        match io::copy(&mut packet, &mut buf) {
-            Ok(n) => Ok(n as usize),
-            Err(e) => Err(e),
+        let mut trigger = ScopedEventTrigger::new()?;
+        loop {
+            let device = self.inner.clone();
+            let task_trigger = trigger.task_trigger();
+            blocking::unblock(move || {
+                let result = device.wait_readable(task_trigger.handle().as_raw_handle());
+                drop(device);
+                task_trigger.completed();
+                result
+            })
+            .await?;
+            match self.inner.try_recv(buf) {
+                Ok(len) => {
+                    trigger.forget();
+                    return Ok(len);
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                Err(e) => {
+                    trigger.forget();
+                    return Err(e);
+                }
+            }
         }
     }
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
@@ -192,5 +203,60 @@ impl AsyncDevice {
     }
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.try_send(buf)
+    }
+}
+
+pub(crate) struct ScopedEventTrigger {
+    event: Arc<OwnedHandle>,
+    armed: bool,
+    completed: Arc<AtomicBool>,
+    completed_event: Arc<OwnedHandle>,
+}
+
+pub(crate) struct TaskTrigger {
+    event: Arc<OwnedHandle>,
+    completed: Arc<AtomicBool>,
+    completed_event: Arc<OwnedHandle>,
+}
+impl TaskTrigger {
+    pub fn completed(&self) {
+        self.completed.store(true, Ordering::Relaxed);
+        let _ = ffi::set_event(self.completed_event.as_raw_handle());
+    }
+    pub fn handle(&self) -> &OwnedHandle {
+        &self.event
+    }
+}
+impl ScopedEventTrigger {
+    pub fn new() -> io::Result<Self> {
+        Ok(Self {
+            event: Arc::new(ffi::create_event()?),
+            armed: true,
+            completed: Arc::new(AtomicBool::new(false)),
+            completed_event: Arc::new(ffi::create_event()?),
+        })
+    }
+
+    pub fn task_trigger(&self) -> TaskTrigger {
+        TaskTrigger {
+            event: self.event.clone(),
+            completed: self.completed.clone(),
+            completed_event: self.completed_event.clone(),
+        }
+    }
+
+    pub fn forget(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ScopedEventTrigger {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = ffi::set_event(self.event.as_raw_handle());
+            if !self.completed.load(Ordering::Relaxed) {
+                _ = ffi::wait_for_single_object(self.completed_event.as_raw_handle(), 10);
+            }
+        }
     }
 }

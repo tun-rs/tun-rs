@@ -1,4 +1,4 @@
-use std::os::windows::io::{FromRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::{io, mem, ptr};
 
 use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, NO_ERROR};
@@ -6,6 +6,9 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
     GetIpInterfaceTable, MIB_IPINTERFACE_ROW, MIB_IPINTERFACE_TABLE,
 };
 use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
+use windows_sys::Win32::System::Threading::{
+    ResetEvent, SetEvent, WaitForMultipleObjects, INFINITE,
+};
 use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
 use windows_sys::{
     core::GUID,
@@ -110,10 +113,36 @@ pub fn luid_to_alias(luid: &NET_LUID_LH) -> io::Result<String> {
         _err => Err(io::Error::last_os_error()),
     }
 }
-
+#[allow(dead_code)]
+pub fn reset_event(handle: RawHandle) -> io::Result<()> {
+    unsafe {
+        if FALSE == ResetEvent(handle) {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+#[allow(dead_code)]
+pub fn wait_for_single_object(handle: RawHandle, timeout: u32) -> io::Result<()> {
+    unsafe {
+        if 0 == WaitForSingleObject(handle, timeout) {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+}
+pub fn set_event(handle: RawHandle) -> io::Result<()> {
+    unsafe {
+        if FALSE == SetEvent(handle) {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
 pub fn create_event() -> io::Result<OwnedHandle> {
     unsafe {
-        let read_event_handle = CreateEventW(ptr::null_mut(), 0, 0, ptr::null_mut());
+        let read_event_handle = CreateEventW(ptr::null_mut(), 1, 0, ptr::null_mut());
         if read_event_handle.is_null() {
             Err(io::Error::last_os_error())?
         }
@@ -222,12 +251,26 @@ pub fn try_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Resu
         }
     }
 }
+#[allow(dead_code)]
+pub fn cancel_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Result<u32> {
+    unsafe {
+        windows_sys::Win32::System::IO::CancelIoEx(handle, io_overlapped);
+        wait_io_overlapped(handle, io_overlapped)
+    }
+}
 
-pub fn read_file(handle: HANDLE, buffer: &mut [u8]) -> io::Result<u32> {
+pub fn read_file(
+    handle: HANDLE,
+    buffer: &mut [u8],
+    interrupted_event: Option<RawHandle>,
+) -> io::Result<u32> {
     let mut ret = 0;
     //https://www.cnblogs.com/linyilong3/archive/2012/05/03/2480451.html
     unsafe {
         let mut io_overlapped = io_overlapped();
+        let io_event = create_event()?;
+        io_overlapped.hEvent = io_event.as_raw_handle();
+
         if 0 == ReadFile(
             handle,
             buffer.as_mut_ptr() as _,
@@ -237,7 +280,11 @@ pub fn read_file(handle: HANDLE, buffer: &mut [u8]) -> io::Result<u32> {
         ) {
             let e = io::Error::last_os_error();
             if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                wait_io_overlapped(handle, &io_overlapped)
+                if let Some(interrupted_event) = interrupted_event {
+                    wait_io_overlapped_interrupted(handle, &io_overlapped, interrupted_event)
+                } else {
+                    wait_io_overlapped(handle, &io_overlapped)
+                }
             } else {
                 Err(e)
             }
@@ -277,6 +324,33 @@ pub fn wait_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Res
             Err(io::Error::last_os_error())
         } else {
             Ok(ret)
+        }
+    }
+}
+pub fn wait_io_overlapped_interrupted(
+    handle: HANDLE,
+    io_overlapped: &OVERLAPPED,
+    interrupted_event: RawHandle,
+) -> io::Result<u32> {
+    let handles = [io_overlapped.hEvent, interrupted_event];
+    unsafe {
+        let wait_ret = WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE);
+        match wait_ret {
+            windows_sys::Win32::Foundation::WAIT_OBJECT_0 => {
+                let mut transferred = 0u32;
+                let ok = GetOverlappedResult(handle, io_overlapped, &mut transferred, 0);
+                if ok != 0 {
+                    Ok(transferred)
+                } else {
+                    Err(io::Error::last_os_error())
+                }
+            }
+            windows_sys::Win32::Foundation::WAIT_ABANDONED
+            | windows_sys::Win32::Foundation::WAIT_FAILED => Err(io::Error::last_os_error()),
+            windows_sys::Win32::Foundation::WAIT_TIMEOUT => {
+                Err(io::Error::new(io::ErrorKind::TimedOut, "timed out"))
+            }
+            _ => Err(io::Error::from(io::ErrorKind::Interrupted)),
         }
     }
 }
