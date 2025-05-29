@@ -1,4 +1,4 @@
-use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, ptr};
 
@@ -172,9 +172,16 @@ impl TunDevice {
         ffi::luid_to_alias(&self.luid)
     }
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.session.send(buf)
+        self.session.send(buf, None)
     }
-    pub(crate) fn wait_readable(&self, cancel_event: RawHandle) -> io::Result<()> {
+    pub(crate) fn send_cancelable(
+        &self,
+        buf: &[u8],
+        cancel_event: &OwnedHandle,
+    ) -> io::Result<usize> {
+        self.session.send(buf, Some(cancel_event))
+    }
+    pub(crate) fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
         self.session.wait_readable_cancelable(cancel_event)
     }
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
@@ -195,7 +202,7 @@ impl TunDevice {
 }
 
 impl SessionHandle {
-    fn send(&self, buf: &[u8]) -> io::Result<usize> {
+    fn send(&self, buf: &[u8], cancel_event: Option<&OwnedHandle>) -> io::Result<usize> {
         let mut count = 0;
         loop {
             return match self.try_send(buf) {
@@ -205,7 +212,13 @@ impl SessionHandle {
                     if count > 50 {
                         return Err(io::Error::from(io::ErrorKind::TimedOut));
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    if let Some(cancel_event) = cancel_event {
+                        if ffi::wait_for_single_object(cancel_event.as_raw_handle(), 1).is_ok() {
+                            return Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"));
+                        }
+                    } else {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
                     continue;
                 }
                 Err(e) => Err(e),
@@ -276,12 +289,12 @@ impl SessionHandle {
         unsafe { win_tun.WintunReleaseReceivePacket(handle, ptr) };
         Ok(size)
     }
-    pub(crate) fn wait_readable_cancelable(&self, cancel_event: RawHandle) -> io::Result<()> {
+    pub(crate) fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
         self.check_shutdown()?;
         //Wait on both the read handle and the shutdown handle so that we stop when requested
         let handles = [
             self.read_event,
-            cancel_event,
+            cancel_event.as_raw_handle(),
             self.adapter.shutdown_event.as_raw_handle(),
         ];
         let result = unsafe {

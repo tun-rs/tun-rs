@@ -176,7 +176,7 @@ impl AsyncDevice {
         let (cancel_guard, exit_guard) = canceller.guard(device);
         blocking::unblock(move || {
             exit_guard.call(|device, cancel_event_handle| {
-                device.wait_readable(cancel_event_handle.as_raw_handle())
+                device.wait_readable_cancelable(cancel_event_handle)
             })
         })
         .await?;
@@ -199,6 +199,10 @@ impl AsyncDevice {
     }
 
     /// Send a packet to the device
+    ///
+    /// # Cancel safety
+    /// This method is not cancellation safe.
+    /// After cancellation, it is uncertain whether the data has been written or not.
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
         match self.inner.try_send(buf) {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
@@ -209,7 +213,9 @@ impl AsyncDevice {
         let mut canceller = Canceller::new_cancelable()?;
         let (cancel_guard, exit_guard) = canceller.guard(device);
         let result = blocking::unblock(move || {
-            exit_guard.call(|device, _cancel_event_handle| device.send(&buf))
+            exit_guard.call(|device, cancel_event_handle| {
+                device.send_cancelable(&buf, cancel_event_handle)
+            })
         })
         .await;
         std::mem::forget(cancel_guard);

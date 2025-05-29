@@ -2,7 +2,7 @@ use getifaddrs::Interface;
 use std::collections::HashSet;
 use std::io;
 use std::net::IpAddr;
-use std::os::windows::io::RawHandle;
+use std::os::windows::io::OwnedHandle;
 
 use crate::builder::DeviceConfig;
 use crate::platform::windows::netsh;
@@ -109,10 +109,10 @@ impl DeviceImpl {
         Ok(device)
     }
     #[allow(dead_code)]
-    pub(crate) fn wait_readable(&self, cancel_event: RawHandle) -> io::Result<()> {
+    pub(crate) fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
         match &self.driver {
-            Driver::Tap(tap) => tap.wait_readable(cancel_event),
-            Driver::Tun(tun) => tun.wait_readable(cancel_event),
+            Driver::Tap(tap) => tap.wait_readable_cancelable(cancel_event),
+            Driver::Tun(tun) => tun.wait_readable_cancelable(cancel_event),
         }
     }
     /// Recv a packet from tun device
@@ -134,6 +134,16 @@ impl DeviceImpl {
         match &self.driver {
             Driver::Tap(tap) => tap.write(buf),
             Driver::Tun(tun) => tun.send(buf),
+        }
+    }
+    pub(crate) fn send_cancelable(
+        &self,
+        buf: &[u8],
+        cancel_event: &OwnedHandle,
+    ) -> io::Result<usize> {
+        match &self.driver {
+            Driver::Tap(tap) => tap.write_cancelable(buf, cancel_event),
+            Driver::Tun(tun) => tun.send_cancelable(buf, cancel_event),
         }
     }
     pub(crate) fn try_send(&self, buf: &[u8]) -> io::Result<usize> {

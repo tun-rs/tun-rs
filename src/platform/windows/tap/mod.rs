@@ -1,7 +1,7 @@
 use crate::platform::windows::{ffi, netsh};
 use bytes::BytesMut;
 use std::ops::DerefMut;
-use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::sync::Mutex;
 use std::{io, time};
 use windows_sys::Win32::Foundation::HANDLE;
@@ -18,7 +18,7 @@ pub struct TapDevice {
     index: u32,
     need_delete: bool,
     read_io_overlapped: Mutex<(Option<OwnedOVERLAPPED>, BytesMut, Option<usize>)>,
-    write_io_overlapped: Mutex<Option<(Box<OVERLAPPED>, Vec<u8>)>>,
+    write_io_overlapped: Mutex<Option<(OwnedOVERLAPPED, Vec<u8>)>>,
 }
 const READ_BUFFER_SIZE: usize = 14 + 65536;
 unsafe impl Send for TapDevice {}
@@ -203,17 +203,21 @@ impl TapDevice {
             &mut out_status,
         )
     }
-    pub fn wait_readable(&self, cancel_event: RawHandle) -> io::Result<()> {
+    pub fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
         let mut guard = self.read_io_overlapped.lock().unwrap();
         let (overlapped, read_buffer, len) = guard.deref_mut();
         let n = if let Some(mut overlapped) = overlapped.take() {
             ffi::wait_io_overlapped_cancelable(
                 self.handle.as_raw_handle(),
                 overlapped.as_mut_overlapped(),
-                cancel_event,
+                cancel_event.as_raw_handle(),
             )?
         } else {
-            ffi::read_file(self.handle.as_raw_handle(), read_buffer, Some(cancel_event))?
+            ffi::read_file(
+                self.handle.as_raw_handle(),
+                read_buffer,
+                Some(cancel_event.as_raw_handle()),
+            )?
         };
         _ = len.replace(n as usize);
         Ok(())
@@ -253,11 +257,14 @@ impl TapDevice {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         };
         if let Some((overlapped, _write_buffer)) = guard.deref_mut() {
-            ffi::try_io_overlapped(self.handle.as_raw_handle(), overlapped)?;
+            ffi::try_io_overlapped(self.handle.as_raw_handle(), overlapped.as_overlapped())?;
         }
-        let (overlapped, write_buffer) =
-            guard.insert((Box::new(ffi::io_overlapped()), buf.to_vec()));
-        let rs = ffi::try_write_file(self.handle.as_raw_handle(), overlapped, write_buffer);
+        let (overlapped, write_buffer) = guard.insert((OwnedOVERLAPPED::new()?, buf.to_vec()));
+        let rs = ffi::try_write_file(
+            self.handle.as_raw_handle(),
+            overlapped.as_mut_overlapped(),
+            write_buffer,
+        );
         match rs {
             Ok(len) => {
                 guard.take();
@@ -286,9 +293,25 @@ impl TapDevice {
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
         let mut guard = self.write_io_overlapped.lock().unwrap();
         if let Some((overlapped, _write_buffer)) = guard.take() {
-            ffi::wait_io_overlapped(self.handle.as_raw_handle(), &overlapped)?;
+            ffi::wait_io_overlapped(self.handle.as_raw_handle(), overlapped.as_overlapped())?;
         }
-        ffi::write_file(self.handle.as_raw_handle(), buf).map(|res| res as _)
+        ffi::write_file(self.handle.as_raw_handle(), buf, None).map(|res| res as _)
+    }
+    pub fn write_cancelable(&self, buf: &[u8], cancel_event: &OwnedHandle) -> io::Result<usize> {
+        let mut guard = self.write_io_overlapped.lock().unwrap();
+        if let Some((overlapped, _write_buffer)) = guard.take() {
+            ffi::wait_io_overlapped_cancelable(
+                self.handle.as_raw_handle(),
+                overlapped.as_overlapped(),
+                cancel_event.as_raw_handle(),
+            )?;
+        }
+        ffi::write_file(
+            self.handle.as_raw_handle(),
+            buf,
+            Some(cancel_event.as_raw_handle()),
+        )
+        .map(|res| res as _)
     }
 }
 

@@ -294,9 +294,15 @@ pub fn read_file(
     }
 }
 
-pub fn write_file(handle: HANDLE, buffer: &[u8]) -> io::Result<u32> {
+pub fn write_file(
+    handle: HANDLE,
+    buffer: &[u8],
+    cancel_event: Option<RawHandle>,
+) -> io::Result<u32> {
     let mut ret = 0;
     let mut io_overlapped = io_overlapped();
+    let io_event = create_event()?;
+    io_overlapped.hEvent = io_event.as_raw_handle();
     unsafe {
         if 0 == WriteFile(
             handle,
@@ -307,7 +313,11 @@ pub fn write_file(handle: HANDLE, buffer: &[u8]) -> io::Result<u32> {
         ) {
             let e = io::Error::last_os_error();
             if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                wait_io_overlapped(handle, &io_overlapped)
+                if let Some(cancel_event) = cancel_event {
+                    wait_io_overlapped_cancelable(handle, &io_overlapped, cancel_event)
+                } else {
+                    wait_io_overlapped(handle, &io_overlapped)
+                }
             } else {
                 Err(e)
             }
