@@ -171,17 +171,17 @@ impl AsyncDevice {
     /// consumed by an attempt to read that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn readable(&self) -> io::Result<()> {
-        let mut cancel_guard = CancelGuard::new()?;
+        let (canceller, cancel_event_handle) = Canceller::new_cancelable()?;
         let device = self.inner.clone();
-        let (exit_guard, cancel_event) = cancel_guard.canceller()?;
+        let (drop_guard, exit_guard) = canceller.guard();
         blocking::unblock(move || {
             let _exit_guard = exit_guard;
-            let result = device.wait_readable(cancel_event.as_raw_handle());
+            let result = device.wait_readable(cancel_event_handle.as_raw_handle());
             drop(device);
             result
         })
         .await?;
-        cancel_guard.disable();
+        std::mem::forget(drop_guard);
         Ok(())
     }
 
@@ -207,8 +207,8 @@ impl AsyncDevice {
         }
         let buf = buf.to_vec();
         let device = self.inner.clone();
-        let cancel_guard = CancelGuard::new()?;
-        let exit_guard = cancel_guard.exit_guard();
+        let cancel_guard = Canceller::new()?;
+        let (drop_guard, exit_guard) = cancel_guard.guard();
         let result = blocking::unblock(move || {
             let _exit_guard = exit_guard;
             let result = device.send(&buf);
@@ -216,7 +216,7 @@ impl AsyncDevice {
             result
         })
         .await;
-        cancel_guard.disable();
+        std::mem::forget(drop_guard);
         result
     }
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
@@ -235,46 +235,61 @@ impl Drop for ExitGuard {
     }
 }
 
-struct CancelGuard {
-    exit_event: Arc<OwnedHandle>,
-    cancel_event: Option<Arc<OwnedHandle>>,
+struct Canceller {
+    exit_event_handle: Arc<OwnedHandle>,
+    cancel_event_handle: Option<Arc<OwnedHandle>>,
     is_finished: Arc<AtomicBool>,
-    is_enable: bool,
 }
 
-impl CancelGuard {
+impl Canceller {
     fn new() -> io::Result<Self> {
         Ok(Self {
-            exit_event: Arc::new(ffi::create_event()?),
-            cancel_event: None,
+            exit_event_handle: Arc::new(ffi::create_event()?),
+            cancel_event_handle: None,
             is_finished: Arc::new(AtomicBool::new(false)),
-            is_enable: true,
         })
     }
-    fn canceller(&mut self) -> io::Result<(ExitGuard, Arc<OwnedHandle>)> {
-        let cancel_event = Arc::new(ffi::create_event()?);
-        self.cancel_event = Some(cancel_event.clone());
-        Ok((self.exit_guard(), cancel_event))
-    }
-    fn exit_guard(&self) -> ExitGuard {
-        ExitGuard {
-            exit_event: self.exit_event.clone(),
-            is_finished: self.is_finished.clone(),
-        }
+
+    fn new_cancelable() -> io::Result<(Self, Arc<OwnedHandle>)> {
+        let event = Arc::new(ffi::create_event()?);
+        Ok((
+            Self {
+                exit_event_handle: Arc::new(ffi::create_event()?),
+                cancel_event_handle: Some(event.clone()),
+                is_finished: Arc::new(AtomicBool::new(false)),
+            },
+            event,
+        ))
     }
 
-    fn disable(mut self) {
-        self.is_enable = false;
+    fn guard(&self) -> (DropGuard<'_>, ExitGuard) {
+        (
+            DropGuard {
+                exit_event_handle: &self.exit_event_handle,
+                cancel_event_handle: &self.cancel_event_handle,
+                is_finished: &self.is_finished,
+            },
+            ExitGuard {
+                exit_event: self.exit_event_handle.clone(),
+                is_finished: self.is_finished.clone(),
+            },
+        )
     }
 }
 
-impl Drop for CancelGuard {
+struct DropGuard<'a> {
+    exit_event_handle: &'a Arc<OwnedHandle>,
+    cancel_event_handle: &'a Option<Arc<OwnedHandle>>,
+    is_finished: &'a Arc<AtomicBool>,
+}
+
+impl Drop for DropGuard<'_> {
     fn drop(&mut self) {
-        if let Some(cancel_event) = self.cancel_event.as_ref() {
+        if let Some(cancel_event) = self.cancel_event_handle {
             _ = ffi::set_event(cancel_event.as_raw_handle());
         }
-        if self.is_enable && !self.is_finished.load(Ordering::Relaxed) {
-            _ = ffi::wait_for_single_object(self.exit_event.as_raw_handle(), 10);
+        if !self.is_finished.load(Ordering::Relaxed) {
+            _ = ffi::wait_for_single_object(self.exit_event_handle.as_raw_handle(), 10);
         }
     }
 }
