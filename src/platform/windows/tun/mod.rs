@@ -109,24 +109,22 @@ impl TunDevice {
     ) -> std::io::Result<Self> {
         let range = MIN_RING_CAPACITY..=MAX_RING_CAPACITY;
         if !range.contains(&ring_capacity) {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("ring capacity {ring_capacity} not in [{MIN_RING_CAPACITY},{MAX_RING_CAPACITY}]"),
-            ))?;
+            Err(io::Error::other(format!(
+                "ring capacity {ring_capacity} not in [{MIN_RING_CAPACITY},{MAX_RING_CAPACITY}]"
+            )))?;
         }
         let name_utf16 = encode_utf16(name);
         let tunnel_type_utf16 = encode_utf16(tunnel_type);
         if name_utf16.len() > MAX_POOL {
-            Err(io::Error::new(io::ErrorKind::Other, "name too long"))?;
+            Err(io::Error::other("name too long"))?;
         }
         if tunnel_type_utf16.len() > MAX_POOL {
-            Err(io::Error::new(io::ErrorKind::Other, "tunnel type too long"))?;
+            Err(io::Error::other("tunnel type too long"))?;
         }
         unsafe {
             let shutdown_event = ffi::create_event()?;
 
-            let win_tun = wintun_raw::wintun::new(wintun_path)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let win_tun = wintun_raw::wintun::new(wintun_path).map_err(io::Error::other)?;
             wintun_log::set_default_logger_if_unset(&win_tun);
             //SAFETY: guid is a unique integer so transmuting either all zeroes or the user's preferred
             //guid to the wintun_raw guid type is safe and will allow the windows kernel to see our GUID
@@ -301,10 +299,10 @@ impl SessionHandle {
                     Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"))
                 } else {
                     //Shutdown event triggered
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Shutdown event triggered {}", io::Error::last_os_error()),
-                    ))
+                    Err(io::Error::other(format!(
+                        "Shutdown event triggered {}",
+                        io::Error::last_os_error()
+                    )))
                 }
             }
         }
@@ -326,10 +324,10 @@ impl SessionHandle {
                     Ok(())
                 } else {
                     //Shutdown event triggered
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Shutdown event triggered {}", io::Error::last_os_error()),
-                    ))
+                    Err(io::Error::other(format!(
+                        "Shutdown event triggered {}",
+                        io::Error::last_os_error()
+                    )))
                 }
             }
         }

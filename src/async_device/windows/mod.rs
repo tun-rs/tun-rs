@@ -4,7 +4,7 @@ use crate::SyncDevice;
 use std::future::Future;
 use std::io;
 use std::ops::Deref;
-use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -175,7 +175,7 @@ impl AsyncDevice {
         let device = self.inner.clone();
         let (exit_guard, cancel_event) = cancel_guard.canceller()?;
         blocking::unblock(move || {
-            let exit_guard = exit_guard;
+            let _exit_guard = exit_guard;
             let result = device.wait_readable(cancel_event.as_raw_handle());
             drop(device);
             result
@@ -210,7 +210,7 @@ impl AsyncDevice {
         let cancel_guard = CancelGuard::new()?;
         let exit_notify = cancel_guard.exit_guard();
         let result = blocking::unblock(move || {
-            let exit_guard = exit_notify;
+            let _exit_guard = exit_notify;
             let result = device.send(&buf);
             drop(device);
             result

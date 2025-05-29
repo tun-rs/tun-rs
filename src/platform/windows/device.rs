@@ -57,10 +57,9 @@ impl DeviceImpl {
                     if config.dev_name.is_none() {
                         continue;
                     }
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("The network adapter [{name}] already exists."),
-                    ))?
+                    Err(io::Error::other(format!(
+                        "The network adapter [{name}] already exists."
+                    )))?
                 }
                 let guid = config.device_guid.unwrap_or_else(|| hash_name(name));
                 match TunDevice::create(wintun_file, name, name, guid, ring_capacity) {
