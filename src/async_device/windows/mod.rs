@@ -171,17 +171,16 @@ impl AsyncDevice {
     /// consumed by an attempt to read that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn readable(&self) -> io::Result<()> {
-        let (mut canceller, cancel_event_handle) = Canceller::new_cancelable()?;
+        let mut canceller = Canceller::new_cancelable()?;
         let device = self.inner.clone();
-        let (drop_guard, exit_guard) = canceller.guard();
+        let (cancel_guard, exit_guard) = canceller.guard(device);
         blocking::unblock(move || {
-            //When control flow leaves a drop scope all variables associated to that scope are dropped in reverse order of declaration (for variables) or creation (for temporaries).
-            let _exit_guard = exit_guard;
-            let device = device;
-            device.wait_readable(cancel_event_handle.as_raw_handle())
+            exit_guard.call(|device, cancel_event_handle| {
+                device.wait_readable(cancel_event_handle.as_raw_handle())
+            })
         })
         .await?;
-        std::mem::forget(drop_guard);
+        std::mem::forget(cancel_guard);
         Ok(())
     }
 
@@ -207,16 +206,13 @@ impl AsyncDevice {
         }
         let buf = buf.to_vec();
         let device = self.inner.clone();
-        let (mut canceller, _cancel_event_handle) = Canceller::new_cancelable()?;
-        let (drop_guard, exit_guard) = canceller.guard();
+        let mut canceller = Canceller::new_cancelable()?;
+        let (cancel_guard, exit_guard) = canceller.guard(device);
         let result = blocking::unblock(move || {
-            //When control flow leaves a drop scope all variables associated to that scope are dropped in reverse order of declaration (for variables) or creation (for temporaries).
-            let _exit_guard = exit_guard;
-            let device = device;
-            device.send(&buf)
+            exit_guard.call(|device, _cancel_event_handle| device.send(&buf))
         })
         .await;
-        std::mem::forget(drop_guard);
+        std::mem::forget(cancel_guard);
         result
     }
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
@@ -224,62 +220,73 @@ impl AsyncDevice {
     }
 }
 
-struct ExitGuard {
+struct ExitSignalGuard {
+    device: Option<Arc<DeviceImpl>>,
+    cancel_event_handle: Arc<OwnedHandle>,
     is_finished: Arc<AtomicBool>,
     exit_event: Arc<OwnedHandle>,
 }
-impl Drop for ExitGuard {
+impl Drop for ExitSignalGuard {
     fn drop(&mut self) {
+        drop(self.device.take());
         self.is_finished.store(true, Ordering::Relaxed);
         _ = ffi::set_event(self.exit_event.as_raw_handle());
+    }
+}
+impl ExitSignalGuard {
+    pub fn call<R>(
+        &self,
+        mut op: impl FnMut(&DeviceImpl, &OwnedHandle) -> io::Result<R>,
+    ) -> io::Result<R> {
+        if let Some(device) = &self.device {
+            op(device, &self.cancel_event_handle)
+        } else {
+            unreachable!()
+        }
     }
 }
 
 struct Canceller {
     exit_event_handle: Arc<OwnedHandle>,
-    cancel_event_handle: Option<Arc<OwnedHandle>>,
+    cancel_event_handle: Arc<OwnedHandle>,
     is_finished: Arc<AtomicBool>,
 }
 
 impl Canceller {
-    fn new_cancelable() -> io::Result<(Self, Arc<OwnedHandle>)> {
-        let event = Arc::new(ffi::create_event()?);
-        Ok((
-            Self {
-                exit_event_handle: Arc::new(ffi::create_event()?),
-                cancel_event_handle: Some(event.clone()),
-                is_finished: Arc::new(AtomicBool::new(false)),
-            },
-            event,
-        ))
+    fn new_cancelable() -> io::Result<Self> {
+        Ok(Self {
+            exit_event_handle: Arc::new(ffi::create_event()?),
+            cancel_event_handle: Arc::new(ffi::create_event()?),
+            is_finished: Arc::new(AtomicBool::new(false)),
+        })
     }
 
-    fn guard(&mut self) -> (DropGuard<'_>, ExitGuard) {
+    fn guard(&mut self, device_impl: Arc<DeviceImpl>) -> (CancelWaitGuard<'_>, ExitSignalGuard) {
         (
-            DropGuard {
+            CancelWaitGuard {
                 exit_event_handle: &self.exit_event_handle,
                 cancel_event_handle: &self.cancel_event_handle,
                 is_finished: &self.is_finished,
             },
-            ExitGuard {
+            ExitSignalGuard {
+                device: Some(device_impl),
                 exit_event: self.exit_event_handle.clone(),
                 is_finished: self.is_finished.clone(),
+                cancel_event_handle: self.cancel_event_handle.clone(),
             },
         )
     }
 }
 
-struct DropGuard<'a> {
+struct CancelWaitGuard<'a> {
     exit_event_handle: &'a Arc<OwnedHandle>,
-    cancel_event_handle: &'a Option<Arc<OwnedHandle>>,
+    cancel_event_handle: &'a Arc<OwnedHandle>,
     is_finished: &'a Arc<AtomicBool>,
 }
 
-impl Drop for DropGuard<'_> {
+impl Drop for CancelWaitGuard<'_> {
     fn drop(&mut self) {
-        if let Some(cancel_event) = self.cancel_event_handle {
-            _ = ffi::set_event(cancel_event.as_raw_handle());
-        }
+        _ = ffi::set_event(self.cancel_event_handle.as_raw_handle());
         if !self.is_finished.load(Ordering::Relaxed) {
             _ = ffi::wait_for_single_object(self.exit_event_handle.as_raw_handle(), 10);
         }
