@@ -171,17 +171,17 @@ impl AsyncDevice {
     /// consumed by an attempt to read that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn readable(&self) -> io::Result<()> {
-        let mut trigger = ScopedEventTrigger::new()?;
+        let mut event_scope = EventScope::new()?;
         let device = self.inner.clone();
-        let task_trigger = trigger.task_trigger();
+        let event_waiter = event_scope.waiter();
         blocking::unblock(move || {
-            let result = device.wait_readable(task_trigger.handle().as_raw_handle());
+            let result = device.wait_readable(event_waiter.handle().as_raw_handle());
             drop(device);
-            task_trigger.completed();
+            event_waiter.complete();
             result
         })
         .await?;
-        trigger.forget();
+        event_scope.forget();
         Ok(())
     }
 
@@ -207,64 +207,111 @@ impl AsyncDevice {
         }
         let buf = buf.to_vec();
         let device = self.inner.clone();
-        blocking::unblock(move || device.send(&buf)).await
+        let mut scope_completion = ScopeCompletion::new()?;
+        let waiter_completion = scope_completion.waiter();
+        let result = blocking::unblock(move || {
+            let result = device.send(&buf);
+            drop(device);
+            waiter_completion.complete();
+            result
+        })
+        .await;
+        scope_completion.forget();
+        result
     }
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.try_send(buf)
     }
 }
 
-pub(crate) struct ScopedEventTrigger {
+pub(crate) struct EventScope {
     event: Arc<OwnedHandle>,
-    armed: bool,
-    completed: Arc<AtomicBool>,
-    completed_event: Arc<OwnedHandle>,
+    completion: ScopeCompletion,
 }
 
-pub(crate) struct TaskTrigger {
+pub(crate) struct EventWaiter {
     event: Arc<OwnedHandle>,
-    completed: Arc<AtomicBool>,
-    completed_event: Arc<OwnedHandle>,
+    completion: WaiterCompletion,
 }
-impl TaskTrigger {
-    pub fn completed(&self) {
-        self.completed.store(true, Ordering::Relaxed);
-        let _ = ffi::set_event(self.completed_event.as_raw_handle());
+
+impl EventWaiter {
+    pub fn complete(&self) {
+        self.completion.complete();
     }
     pub fn handle(&self) -> &OwnedHandle {
         &self.event
     }
 }
-impl ScopedEventTrigger {
+
+impl EventScope {
     pub fn new() -> io::Result<Self> {
         Ok(Self {
             event: Arc::new(ffi::create_event()?),
+            completion: ScopeCompletion::new()?,
+        })
+    }
+
+    pub fn waiter(&self) -> EventWaiter {
+        EventWaiter {
+            event: self.event.clone(),
+            completion: self.completion.waiter(),
+        }
+    }
+
+    pub fn forget(&mut self) {
+        self.completion.forget();
+    }
+}
+
+impl Drop for EventScope {
+    fn drop(&mut self) {
+        if self.completion.armed {
+            let _ = ffi::set_event(self.event.as_raw_handle());
+        }
+    }
+}
+
+struct ScopeCompletion {
+    armed: bool,
+    completed: Arc<AtomicBool>,
+    completed_event: Arc<OwnedHandle>,
+}
+
+impl ScopeCompletion {
+    pub fn new() -> io::Result<Self> {
+        Ok(Self {
             armed: true,
             completed: Arc::new(AtomicBool::new(false)),
             completed_event: Arc::new(ffi::create_event()?),
         })
     }
-
-    pub fn task_trigger(&self) -> TaskTrigger {
-        TaskTrigger {
-            event: self.event.clone(),
+    pub fn forget(&mut self) {
+        self.armed = false;
+    }
+    pub fn waiter(&self) -> WaiterCompletion {
+        WaiterCompletion {
             completed: self.completed.clone(),
             completed_event: self.completed_event.clone(),
         }
     }
+}
 
-    pub fn forget(&mut self) {
-        self.armed = false;
+struct WaiterCompletion {
+    completed: Arc<AtomicBool>,
+    completed_event: Arc<OwnedHandle>,
+}
+
+impl WaiterCompletion {
+    pub fn complete(&self) {
+        self.completed.store(true, Ordering::Relaxed);
+        let _ = ffi::set_event(self.completed_event.as_raw_handle());
     }
 }
 
-impl Drop for ScopedEventTrigger {
+impl Drop for ScopeCompletion {
     fn drop(&mut self) {
-        if self.armed {
-            let _ = ffi::set_event(self.event.as_raw_handle());
-            if !self.completed.load(Ordering::Relaxed) {
-                _ = ffi::wait_for_single_object(self.completed_event.as_raw_handle(), 10);
-            }
+        if self.armed && !self.completed.load(Ordering::Relaxed) {
+            let _ = ffi::wait_for_single_object(self.completed_event.as_raw_handle(), 10);
         }
     }
 }
