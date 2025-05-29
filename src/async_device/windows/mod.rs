@@ -208,9 +208,9 @@ impl AsyncDevice {
         let buf = buf.to_vec();
         let device = self.inner.clone();
         let cancel_guard = CancelGuard::new()?;
-        let exit_notify = cancel_guard.exit_guard();
+        let exit_guard = cancel_guard.exit_guard();
         let result = blocking::unblock(move || {
-            let _exit_guard = exit_notify;
+            let _exit_guard = exit_guard;
             let result = device.send(&buf);
             drop(device);
             result
