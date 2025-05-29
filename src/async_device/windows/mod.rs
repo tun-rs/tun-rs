@@ -171,7 +171,7 @@ impl AsyncDevice {
     /// consumed by an attempt to read that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn readable(&self) -> io::Result<()> {
-        let (canceller, cancel_event_handle) = Canceller::new_cancelable()?;
+        let (mut canceller, cancel_event_handle) = Canceller::new_cancelable()?;
         let device = self.inner.clone();
         let (drop_guard, exit_guard) = canceller.guard();
         blocking::unblock(move || {
@@ -207,8 +207,8 @@ impl AsyncDevice {
         }
         let buf = buf.to_vec();
         let device = self.inner.clone();
-        let cancel_guard = Canceller::new()?;
-        let (drop_guard, exit_guard) = cancel_guard.guard();
+        let (mut canceller, _cancel_event_handle) = Canceller::new_cancelable()?;
+        let (drop_guard, exit_guard) = canceller.guard();
         let result = blocking::unblock(move || {
             //When control flow leaves a drop scope all variables associated to that scope are dropped in reverse order of declaration (for variables) or creation (for temporaries).
             let _exit_guard = exit_guard;
@@ -242,14 +242,6 @@ struct Canceller {
 }
 
 impl Canceller {
-    fn new() -> io::Result<Self> {
-        Ok(Self {
-            exit_event_handle: Arc::new(ffi::create_event()?),
-            cancel_event_handle: None,
-            is_finished: Arc::new(AtomicBool::new(false)),
-        })
-    }
-
     fn new_cancelable() -> io::Result<(Self, Arc<OwnedHandle>)> {
         let event = Arc::new(ffi::create_event()?);
         Ok((
@@ -262,7 +254,7 @@ impl Canceller {
         ))
     }
 
-    fn guard(&self) -> (DropGuard<'_>, ExitGuard) {
+    fn guard(&mut self) -> (DropGuard<'_>, ExitGuard) {
         (
             DropGuard {
                 exit_event_handle: &self.exit_event_handle,
