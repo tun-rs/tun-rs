@@ -175,10 +175,10 @@ impl AsyncDevice {
         let device = self.inner.clone();
         let (drop_guard, exit_guard) = canceller.guard();
         blocking::unblock(move || {
+            //When control flow leaves a drop scope all variables associated to that scope are dropped in reverse order of declaration (for variables) or creation (for temporaries).
             let _exit_guard = exit_guard;
-            let result = device.wait_readable(cancel_event_handle.as_raw_handle());
-            drop(device);
-            result
+            let device = device;
+            device.wait_readable(cancel_event_handle.as_raw_handle())
         })
         .await?;
         std::mem::forget(drop_guard);
@@ -210,10 +210,10 @@ impl AsyncDevice {
         let cancel_guard = Canceller::new()?;
         let (drop_guard, exit_guard) = cancel_guard.guard();
         let result = blocking::unblock(move || {
+            //When control flow leaves a drop scope all variables associated to that scope are dropped in reverse order of declaration (for variables) or creation (for temporaries).
             let _exit_guard = exit_guard;
-            let result = device.send(&buf);
-            drop(device);
-            result
+            let device = device;
+            device.send(&buf)
         })
         .await;
         std::mem::forget(drop_guard);
