@@ -213,12 +213,11 @@ impl SessionHandle {
                         return Err(io::Error::from(io::ErrorKind::TimedOut));
                     }
                     if let Some(cancel_event) = cancel_event {
-                        if ffi::wait_for_single_object(cancel_event.as_raw_handle(), 1).is_ok() {
+                        if ffi::wait_for_single_object(cancel_event.as_raw_handle(), 0).is_ok() {
                             return Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"));
                         }
-                    } else {
-                        std::thread::sleep(std::time::Duration::from_millis(1));
                     }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
                 Err(e) => Err(e),
