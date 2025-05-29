@@ -9,7 +9,7 @@ use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
 use windows_sys::Win32::System::Threading::{
     ResetEvent, SetEvent, WaitForMultipleObjects, INFINITE,
 };
-use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
+use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::{
     core::GUID,
     Win32::{
@@ -262,7 +262,7 @@ pub fn cancel_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::R
 pub fn read_file(
     handle: HANDLE,
     buffer: &mut [u8],
-    interrupted_event: Option<RawHandle>,
+    cancel_event: Option<RawHandle>,
 ) -> io::Result<u32> {
     let mut ret = 0;
     //https://www.cnblogs.com/linyilong3/archive/2012/05/03/2480451.html
@@ -280,8 +280,8 @@ pub fn read_file(
         ) {
             let e = io::Error::last_os_error();
             if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                if let Some(interrupted_event) = interrupted_event {
-                    wait_io_overlapped_interrupted(handle, &io_overlapped, interrupted_event)
+                if let Some(cancel_event) = cancel_event {
+                    wait_io_overlapped_cancelable(handle, &io_overlapped, cancel_event)
                 } else {
                     wait_io_overlapped(handle, &io_overlapped)
                 }
@@ -327,12 +327,12 @@ pub fn wait_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Res
         }
     }
 }
-pub fn wait_io_overlapped_interrupted(
+pub fn wait_io_overlapped_cancelable(
     handle: HANDLE,
     io_overlapped: &OVERLAPPED,
-    interrupted_event: RawHandle,
+    cancel_event: RawHandle,
 ) -> io::Result<u32> {
-    let handles = [io_overlapped.hEvent, interrupted_event];
+    let handles = [io_overlapped.hEvent, cancel_event];
     unsafe {
         let wait_ret = WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE);
         match wait_ret {
@@ -345,12 +345,15 @@ pub fn wait_io_overlapped_interrupted(
                     Err(io::Error::last_os_error())
                 }
             }
-            windows_sys::Win32::Foundation::WAIT_ABANDONED
-            | windows_sys::Win32::Foundation::WAIT_FAILED => Err(io::Error::last_os_error()),
-            windows_sys::Win32::Foundation::WAIT_TIMEOUT => {
-                Err(io::Error::new(io::ErrorKind::TimedOut, "timed out"))
+            _ => {
+                if wait_ret == windows_sys::Win32::Foundation::WAIT_OBJECT_0 + 1 {
+                    _ = CancelIoEx(handle, io_overlapped);
+                    _ = WaitForSingleObject(io_overlapped.hEvent, INFINITE);
+                    Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"))
+                } else {
+                    Err(io::Error::last_os_error())
+                }
             }
-            _ => Err(io::Error::from(io::ErrorKind::Interrupted)),
         }
     }
 }

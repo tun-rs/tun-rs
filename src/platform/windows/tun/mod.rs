@@ -176,8 +176,8 @@ impl TunDevice {
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.session.send(buf)
     }
-    pub(crate) fn wait_readable(&self, interrupted_event: RawHandle) -> io::Result<()> {
-        self.session.wait_readable_interrupted(interrupted_event)
+    pub(crate) fn wait_readable(&self, cancel_event: RawHandle) -> io::Result<()> {
+        self.session.wait_readable_cancelable(cancel_event)
     }
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.session.recv(buf)
@@ -278,12 +278,12 @@ impl SessionHandle {
         unsafe { win_tun.WintunReleaseReceivePacket(handle, ptr) };
         Ok(size)
     }
-    pub(crate) fn wait_readable_interrupted(&self, interrupted_event: RawHandle) -> io::Result<()> {
+    pub(crate) fn wait_readable_cancelable(&self, cancel_event: RawHandle) -> io::Result<()> {
         self.check_shutdown()?;
         //Wait on both the read handle and the shutdown handle so that we stop when requested
         let handles = [
             self.read_event,
-            interrupted_event,
+            cancel_event,
             self.adapter.shutdown_event.as_raw_handle(),
         ];
         let result = unsafe {
@@ -298,7 +298,7 @@ impl SessionHandle {
                     //We have data!
                     Ok(())
                 } else if result == WAIT_OBJECT_0 + 1 {
-                    Err(io::Error::from(io::ErrorKind::Interrupted))
+                    Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"))
                 } else {
                     //Shutdown event triggered
                     Err(io::Error::new(

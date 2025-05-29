@@ -203,21 +203,17 @@ impl TapDevice {
             &mut out_status,
         )
     }
-    pub fn wait_readable(&self, interrupted_event: RawHandle) -> io::Result<()> {
+    pub fn wait_readable(&self, cancel_event: RawHandle) -> io::Result<()> {
         let mut guard = self.read_io_overlapped.lock().unwrap();
         let (overlapped, read_buffer, len) = guard.deref_mut();
         let n = if let Some(mut overlapped) = overlapped.take() {
-            ffi::wait_io_overlapped_interrupted(
+            ffi::wait_io_overlapped_cancelable(
                 self.handle.as_raw_handle(),
                 overlapped.as_mut_overlapped(),
-                interrupted_event,
+                cancel_event,
             )?
         } else {
-            ffi::read_file(
-                self.handle.as_raw_handle(),
-                read_buffer,
-                Some(interrupted_event),
-            )?
+            ffi::read_file(self.handle.as_raw_handle(), read_buffer, Some(cancel_event))?
         };
         _ = len.replace(n as usize);
         Ok(())

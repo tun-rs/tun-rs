@@ -110,10 +110,10 @@ impl DeviceImpl {
         Ok(device)
     }
     #[allow(dead_code)]
-    pub(crate) fn wait_readable(&self, interrupted_event: RawHandle) -> io::Result<()> {
+    pub(crate) fn wait_readable(&self, cancel_event: RawHandle) -> io::Result<()> {
         match &self.driver {
-            Driver::Tap(tap) => tap.wait_readable(interrupted_event),
-            Driver::Tun(tun) => tun.wait_readable(interrupted_event),
+            Driver::Tap(tap) => tap.wait_readable(cancel_event),
+            Driver::Tun(tun) => tun.wait_readable(cancel_event),
         }
     }
     /// Recv a packet from tun device
