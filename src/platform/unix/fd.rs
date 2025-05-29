@@ -228,11 +228,11 @@ impl EventFd {
         self.0.as_raw_fd() as _
     }
 }
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 #[cfg(feature = "experimental")]
 struct EventFd(libc::c_int, libc::c_int);
 #[cfg(feature = "experimental")]
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 impl EventFd {
     fn new() -> io::Result<Self> {
         let mut fds: [libc::c_int; 2] = [0; 2];
@@ -257,7 +257,7 @@ impl EventFd {
     }
 }
 #[cfg(feature = "experimental")]
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 impl Drop for EventFd {
     fn drop(&mut self) {
         unsafe {

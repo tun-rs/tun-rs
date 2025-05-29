@@ -4,30 +4,29 @@ use pnet_packet::Packet;
 use std::io;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+))]
 use tun_rs::DeviceBuilder;
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+))]
 use tun_rs::Layer;
 
 mod protocol_handle;
+
 #[cfg(any(
     target_os = "windows",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
     target_os = "macos"
 ))]
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    main0().await?;
-
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    Ok(())
-}
-#[cfg(any(
-    target_os = "windows",
-    target_os = "linux",
-    target_os = "freebsd",
-    target_os = "macos"
-))]
-async fn main0() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
     let (tx, mut quit) = tokio::sync::mpsc::channel::<()>(1);
 
@@ -37,14 +36,12 @@ async fn main0() -> io::Result<()> {
     .await;
     let dev = Arc::new(
         DeviceBuilder::new()
-            // .name("feth0")
-            // .peer_feth("feth1")
+            .name("tap0")
             .ipv4(Ipv4Addr::from([10, 0, 0, 9]), 24, None)
             .layer(Layer::L2)
-            .mtu(1400)
+            .mtu(1500)
             .build_async()?,
     );
-    println!("Waiting for all interfaces...");
     let mut buf = vec![0; 14 + 65536];
     loop {
         tokio::select! {
@@ -76,7 +73,12 @@ async fn main0() -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg(any(
+    all(target_os = "linux", target_env = "ohos"),
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "android",
+))]
 fn main() -> io::Result<()> {
     unimplemented!()
 }

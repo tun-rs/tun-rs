@@ -16,10 +16,10 @@ cross-platform.
 3. Supporting Synchronous and Asynchronous API
 4. Supports choosing between Tokio and async-io for asynchronous I/O operations.
 5. All platforms have consistent IP packets(macOS's 4-byte head information can be eliminated)
-6. Experimentally supporting shutdown for Synchronous version
-7. Supporting Offload (`TSO`/`GSO`) on Linux
-8. Supporting `multi-queue` on Linux
-9. Having a consistent behavior of setting up routes when creating a device
+6. Supporting Offload (`TSO`/`GSO`) on Linux
+7. Supporting `multi-queue` on Linux
+8. Having a consistent behavior of setting up routes when creating a device
+9. Supporting shutdown for Synchronous version
 10. Implement TAP mode on macOS using `feth`
 
 ## Supported Platforms

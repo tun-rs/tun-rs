@@ -1,8 +1,8 @@
+use getifaddrs::Interface;
 use std::collections::HashSet;
 use std::io;
 use std::net::IpAddr;
-
-use getifaddrs::Interface;
+use std::os::windows::io::OwnedHandle;
 
 use crate::builder::DeviceConfig;
 use crate::platform::windows::netsh;
@@ -57,10 +57,9 @@ impl DeviceImpl {
                     if config.dev_name.is_none() {
                         continue;
                     }
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("The network adapter [{name}] already exists."),
-                    ))?
+                    Err(io::Error::other(format!(
+                        "The network adapter [{name}] already exists."
+                    )))?
                 }
                 let guid = config.device_guid.unwrap_or_else(|| hash_name(name));
                 match TunDevice::create(wintun_file, name, name, guid, ring_capacity) {
@@ -109,7 +108,13 @@ impl DeviceImpl {
         };
         Ok(device)
     }
-
+    #[allow(dead_code)]
+    pub(crate) fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
+        match &self.driver {
+            Driver::Tap(tap) => tap.wait_readable_cancelable(cancel_event),
+            Driver::Tun(tun) => tun.wait_readable_cancelable(cancel_event),
+        }
+    }
     /// Recv a packet from tun device
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         match &self.driver {
@@ -129,6 +134,16 @@ impl DeviceImpl {
         match &self.driver {
             Driver::Tap(tap) => tap.write(buf),
             Driver::Tun(tun) => tun.send(buf),
+        }
+    }
+    pub(crate) fn send_cancelable(
+        &self,
+        buf: &[u8],
+        cancel_event: &OwnedHandle,
+    ) -> io::Result<usize> {
+        match &self.driver {
+            Driver::Tap(tap) => tap.write_cancelable(buf, cancel_event),
+            Driver::Tun(tun) => tun.send_cancelable(buf, cancel_event),
         }
     }
     pub(crate) fn try_send(&self, buf: &[u8]) -> io::Result<usize> {

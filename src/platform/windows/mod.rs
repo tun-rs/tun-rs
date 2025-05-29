@@ -1,5 +1,5 @@
 mod device;
-mod ffi;
+pub(crate) mod ffi;
 mod netsh;
 mod tap;
 mod tun;

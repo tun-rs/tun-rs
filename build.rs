@@ -11,7 +11,7 @@ fn build_wrapper_wintun() {
     use std::path::PathBuf;
     let header_path = "src/platform/windows/tun/wintun_functions.h";
 
-    println!("cargo:rerun-if-changed={}", header_path);
+    println!("cargo:rerun-if-changed={header_path}");
 
     let bindings = bindgen::Builder::default()
         .header(header_path)

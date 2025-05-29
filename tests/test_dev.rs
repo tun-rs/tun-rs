@@ -8,7 +8,7 @@ use pnet_packet::Packet;
 #[cfg(any(
     target_os = "windows",
     target_os = "macos",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd"
 ))]
 use tun_rs::DeviceBuilder;
@@ -17,7 +17,7 @@ use tun_rs::SyncDevice;
 #[cfg(any(
     target_os = "windows",
     target_os = "macos",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd"
 ))]
 #[cfg(not(any(feature = "async_tokio", feature = "async_io")))]
@@ -84,7 +84,7 @@ fn test_udp() {
 #[cfg(any(
     target_os = "windows",
     target_os = "macos",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd"
 ))]
 #[cfg(feature = "async_tokio")]

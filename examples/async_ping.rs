@@ -3,6 +3,12 @@ use std::net::Ipv4Addr;
 #[allow(unused_imports)]
 use std::sync::Arc;
 #[allow(unused_imports)]
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "freebsd",
+))]
 use tun_rs::DeviceBuilder;
 #[allow(unused_imports)]
 use tun_rs::{AsyncDevice, SyncDevice};
@@ -12,7 +18,7 @@ mod protocol_handle;
 #[cfg(feature = "async_tokio")]
 #[cfg(any(
     target_os = "windows",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
 ))]
@@ -54,7 +60,7 @@ async fn main() -> std::io::Result<()> {
 #[cfg(feature = "async_io")]
 #[cfg(any(
     target_os = "windows",
-    target_os = "linux",
+    all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
 ))]
@@ -83,7 +89,12 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "ios", target_os = "android",))]
+#[cfg(any(
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "android",
+    all(target_os = "linux", target_env = "ohos")
+))]
 fn main() -> std::io::Result<()> {
     unimplemented!()
 }

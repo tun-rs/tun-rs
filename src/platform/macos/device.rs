@@ -217,11 +217,7 @@ impl DeviceImpl {
                 return Err(io::Error::from(err));
             }
 
-            let r: u16 = req
-                .ifr_ifru
-                .ifru_mtu
-                .try_into()
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let r: u16 = req.ifr_ifru.ifru_mtu.try_into().map_err(io::Error::other)?;
             Ok(r)
         }
     }
