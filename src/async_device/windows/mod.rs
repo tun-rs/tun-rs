@@ -4,7 +4,7 @@ use crate::SyncDevice;
 use std::future::Future;
 use std::io;
 use std::ops::Deref;
-use std::os::windows::io::{AsRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -171,17 +171,17 @@ impl AsyncDevice {
     /// consumed by an attempt to read that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn readable(&self) -> io::Result<()> {
-        let mut event_scope = EventScope::new()?;
+        let mut cancel_guard = CancelGuard::new()?;
         let device = self.inner.clone();
-        let event_waiter = event_scope.waiter();
+        let (exit_guard, cancel_event) = cancel_guard.canceller()?;
         blocking::unblock(move || {
-            let result = device.wait_readable(event_waiter.handle().as_raw_handle());
+            let exit_guard = exit_guard;
+            let result = device.wait_readable(cancel_event.as_raw_handle());
             drop(device);
-            event_waiter.complete();
             result
         })
         .await?;
-        event_scope.forget();
+        cancel_guard.disable();
         Ok(())
     }
 
@@ -207,16 +207,16 @@ impl AsyncDevice {
         }
         let buf = buf.to_vec();
         let device = self.inner.clone();
-        let mut scope_completion = ScopeCompletion::new()?;
-        let waiter_completion = scope_completion.waiter();
+        let cancel_guard = CancelGuard::new()?;
+        let exit_notify = cancel_guard.exit_guard();
         let result = blocking::unblock(move || {
+            let exit_guard = exit_notify;
             let result = device.send(&buf);
             drop(device);
-            waiter_completion.complete();
             result
         })
         .await;
-        scope_completion.forget();
+        cancel_guard.disable();
         result
     }
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
@@ -224,94 +224,57 @@ impl AsyncDevice {
     }
 }
 
-pub(crate) struct EventScope {
-    event: Arc<OwnedHandle>,
-    completion: ScopeCompletion,
+struct ExitGuard {
+    is_finished: Arc<AtomicBool>,
+    exit_event: Arc<OwnedHandle>,
 }
-
-pub(crate) struct EventWaiter {
-    event: Arc<OwnedHandle>,
-    completion: WaiterCompletion,
-}
-
-impl EventWaiter {
-    pub fn complete(&self) {
-        self.completion.complete();
-    }
-    pub fn handle(&self) -> &OwnedHandle {
-        &self.event
+impl Drop for ExitGuard {
+    fn drop(&mut self) {
+        self.is_finished.store(true, Ordering::Relaxed);
+        _ = ffi::set_event(self.exit_event.as_raw_handle());
     }
 }
 
-impl EventScope {
-    pub fn new() -> io::Result<Self> {
+struct CancelGuard {
+    exit_event: Arc<OwnedHandle>,
+    cancel_event: Option<Arc<OwnedHandle>>,
+    is_finished: Arc<AtomicBool>,
+    is_enable: bool,
+}
+
+impl CancelGuard {
+    fn new() -> io::Result<Self> {
         Ok(Self {
-            event: Arc::new(ffi::create_event()?),
-            completion: ScopeCompletion::new()?,
+            exit_event: Arc::new(ffi::create_event()?),
+            cancel_event: None,
+            is_finished: Arc::new(AtomicBool::new(false)),
+            is_enable: true,
         })
     }
-
-    pub fn waiter(&self) -> EventWaiter {
-        EventWaiter {
-            event: self.event.clone(),
-            completion: self.completion.waiter(),
+    fn canceller(&mut self) -> io::Result<(ExitGuard, Arc<OwnedHandle>)> {
+        let cancel_event = Arc::new(ffi::create_event()?);
+        self.cancel_event = Some(cancel_event.clone());
+        Ok((self.exit_guard(), cancel_event))
+    }
+    fn exit_guard(&self) -> ExitGuard {
+        ExitGuard {
+            exit_event: self.exit_event.clone(),
+            is_finished: self.is_finished.clone(),
         }
     }
 
-    pub fn forget(&mut self) {
-        self.completion.forget();
+    fn disable(mut self) {
+        self.is_enable = false;
     }
 }
 
-impl Drop for EventScope {
+impl Drop for CancelGuard {
     fn drop(&mut self) {
-        if self.completion.armed {
-            let _ = ffi::set_event(self.event.as_raw_handle());
+        if let Some(cancel_event) = self.cancel_event.as_ref() {
+            _ = ffi::set_event(cancel_event.as_raw_handle());
         }
-    }
-}
-
-struct ScopeCompletion {
-    armed: bool,
-    completed: Arc<AtomicBool>,
-    completed_event: Arc<OwnedHandle>,
-}
-
-impl ScopeCompletion {
-    pub fn new() -> io::Result<Self> {
-        Ok(Self {
-            armed: true,
-            completed: Arc::new(AtomicBool::new(false)),
-            completed_event: Arc::new(ffi::create_event()?),
-        })
-    }
-    pub fn forget(&mut self) {
-        self.armed = false;
-    }
-    pub fn waiter(&self) -> WaiterCompletion {
-        WaiterCompletion {
-            completed: self.completed.clone(),
-            completed_event: self.completed_event.clone(),
-        }
-    }
-}
-
-struct WaiterCompletion {
-    completed: Arc<AtomicBool>,
-    completed_event: Arc<OwnedHandle>,
-}
-
-impl WaiterCompletion {
-    pub fn complete(&self) {
-        self.completed.store(true, Ordering::Relaxed);
-        let _ = ffi::set_event(self.completed_event.as_raw_handle());
-    }
-}
-
-impl Drop for ScopeCompletion {
-    fn drop(&mut self) {
-        if self.armed && !self.completed.load(Ordering::Relaxed) {
-            let _ = ffi::wait_for_single_object(self.completed_event.as_raw_handle(), 10);
+        if self.is_enable && !self.is_finished.load(Ordering::Relaxed) {
+            _ = ffi::wait_for_single_object(self.exit_event.as_raw_handle(), 10);
         }
     }
 }
