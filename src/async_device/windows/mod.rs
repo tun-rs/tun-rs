@@ -6,7 +6,6 @@ use std::io;
 use std::ops::Deref;
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -229,13 +228,11 @@ impl AsyncDevice {
 struct ExitSignalGuard {
     device: Option<Arc<DeviceImpl>>,
     cancel_event_handle: Arc<OwnedHandle>,
-    is_finished: Arc<AtomicBool>,
     exit_event: Arc<OwnedHandle>,
 }
 impl Drop for ExitSignalGuard {
     fn drop(&mut self) {
         drop(self.device.take());
-        self.is_finished.store(true, Ordering::Relaxed);
         _ = ffi::set_event(self.exit_event.as_raw_handle());
     }
 }
@@ -255,7 +252,6 @@ impl ExitSignalGuard {
 struct Canceller {
     exit_event_handle: Arc<OwnedHandle>,
     cancel_event_handle: Arc<OwnedHandle>,
-    is_finished: Arc<AtomicBool>,
 }
 
 impl Canceller {
@@ -263,7 +259,6 @@ impl Canceller {
         Ok(Self {
             exit_event_handle: Arc::new(ffi::create_event()?),
             cancel_event_handle: Arc::new(ffi::create_event()?),
-            is_finished: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -272,12 +267,10 @@ impl Canceller {
             CancelWaitGuard {
                 exit_event_handle: &self.exit_event_handle,
                 cancel_event_handle: &self.cancel_event_handle,
-                is_finished: &self.is_finished,
             },
             ExitSignalGuard {
                 device: Some(device_impl),
                 exit_event: self.exit_event_handle.clone(),
-                is_finished: self.is_finished.clone(),
                 cancel_event_handle: self.cancel_event_handle.clone(),
             },
         )
@@ -287,14 +280,11 @@ impl Canceller {
 struct CancelWaitGuard<'a> {
     exit_event_handle: &'a Arc<OwnedHandle>,
     cancel_event_handle: &'a Arc<OwnedHandle>,
-    is_finished: &'a Arc<AtomicBool>,
 }
 
 impl Drop for CancelWaitGuard<'_> {
     fn drop(&mut self) {
         _ = ffi::set_event(self.cancel_event_handle.as_raw_handle());
-        if !self.is_finished.load(Ordering::Relaxed) {
-            _ = ffi::wait_for_single_object(self.exit_event_handle.as_raw_handle(), 10);
-        }
+        _ = ffi::wait_for_single_object(self.exit_event_handle.as_raw_handle(), 10);
     }
 }
