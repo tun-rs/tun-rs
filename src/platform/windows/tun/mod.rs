@@ -4,10 +4,10 @@ use std::{io, ptr};
 
 use windows_sys::Win32::Foundation::{
     GetLastError, ERROR_BUFFER_OVERFLOW, ERROR_HANDLE_EOF, ERROR_INVALID_DATA, ERROR_NO_MORE_ITEMS,
-    FALSE, WAIT_FAILED, WAIT_OBJECT_0,
+    WAIT_FAILED, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
-use windows_sys::Win32::System::Threading::{SetEvent, WaitForMultipleObjects, INFINITE};
+use windows_sys::Win32::System::Threading::{WaitForMultipleObjects, INFINITE};
 
 use crate::platform::windows::ffi;
 use crate::platform::windows::ffi::encode_utf16;
@@ -77,12 +77,7 @@ impl AdapterHandle {
     }
     fn shutdown(&self) -> io::Result<()> {
         self.shutdown_state.store(true, Ordering::SeqCst);
-        unsafe {
-            if FALSE == SetEvent(self.shutdown_event.as_raw_handle()) {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        Ok(())
+        ffi::set_event(self.shutdown_event.as_raw_handle())
     }
     fn is_shutdown(&self) -> bool {
         self.shutdown_state.load(Ordering::SeqCst)
@@ -114,24 +109,22 @@ impl TunDevice {
     ) -> std::io::Result<Self> {
         let range = MIN_RING_CAPACITY..=MAX_RING_CAPACITY;
         if !range.contains(&ring_capacity) {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("ring capacity {ring_capacity} not in [{MIN_RING_CAPACITY},{MAX_RING_CAPACITY}]"),
-            ))?;
+            Err(io::Error::other(format!(
+                "ring capacity {ring_capacity} not in [{MIN_RING_CAPACITY},{MAX_RING_CAPACITY}]"
+            )))?;
         }
         let name_utf16 = encode_utf16(name);
         let tunnel_type_utf16 = encode_utf16(tunnel_type);
         if name_utf16.len() > MAX_POOL {
-            Err(io::Error::new(io::ErrorKind::Other, "name too long"))?;
+            Err(io::Error::other("name too long"))?;
         }
         if tunnel_type_utf16.len() > MAX_POOL {
-            Err(io::Error::new(io::ErrorKind::Other, "tunnel type too long"))?;
+            Err(io::Error::other("tunnel type too long"))?;
         }
         unsafe {
             let shutdown_event = ffi::create_event()?;
 
-            let win_tun = wintun_raw::wintun::new(wintun_path)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let win_tun = wintun_raw::wintun::new(wintun_path).map_err(io::Error::other)?;
             wintun_log::set_default_logger_if_unset(&win_tun);
             //SAFETY: guid is a unique integer so transmuting either all zeroes or the user's preferred
             //guid to the wintun_raw guid type is safe and will allow the windows kernel to see our GUID
@@ -179,7 +172,17 @@ impl TunDevice {
         ffi::luid_to_alias(&self.luid)
     }
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.session.send(buf)
+        self.session.send(buf, None)
+    }
+    pub(crate) fn send_cancelable(
+        &self,
+        buf: &[u8],
+        cancel_event: &OwnedHandle,
+    ) -> io::Result<usize> {
+        self.session.send(buf, Some(cancel_event))
+    }
+    pub(crate) fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
+        self.session.wait_readable_cancelable(cancel_event)
     }
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.session.recv(buf)
@@ -199,7 +202,7 @@ impl TunDevice {
 }
 
 impl SessionHandle {
-    fn send(&self, buf: &[u8]) -> io::Result<usize> {
+    fn send(&self, buf: &[u8], cancel_event: Option<&OwnedHandle>) -> io::Result<usize> {
         let mut count = 0;
         loop {
             return match self.try_send(buf) {
@@ -208,6 +211,11 @@ impl SessionHandle {
                     count += 1;
                     if count > 50 {
                         return Err(io::Error::from(io::ErrorKind::TimedOut));
+                    }
+                    if let Some(cancel_event) = cancel_event {
+                        if ffi::wait_for_single_object(cancel_event.as_raw_handle(), 0).is_ok() {
+                            return Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"));
+                        }
                     }
                     std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
@@ -280,6 +288,37 @@ impl SessionHandle {
         unsafe { win_tun.WintunReleaseReceivePacket(handle, ptr) };
         Ok(size)
     }
+    pub(crate) fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
+        self.check_shutdown()?;
+        //Wait on both the read handle and the shutdown handle so that we stop when requested
+        let handles = [
+            self.read_event,
+            cancel_event.as_raw_handle(),
+            self.adapter.shutdown_event.as_raw_handle(),
+        ];
+        let result = unsafe {
+            //SAFETY: We abide by the requirements of WaitForMultipleObjects, handles is a
+            //pointer to valid, aligned, stack memory
+            WaitForMultipleObjects(3, &handles as _, 0, INFINITE)
+        };
+        match result {
+            WAIT_FAILED => Err(io::Error::last_os_error()),
+            _ => {
+                if result == WAIT_OBJECT_0 {
+                    //We have data!
+                    Ok(())
+                } else if result == WAIT_OBJECT_0 + 1 {
+                    Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"))
+                } else {
+                    //Shutdown event triggered
+                    Err(io::Error::other(format!(
+                        "Shutdown event triggered {}",
+                        io::Error::last_os_error()
+                    )))
+                }
+            }
+        }
+    }
     fn wait_readable(&self) -> io::Result<()> {
         self.check_shutdown()?;
         //Wait on both the read handle and the shutdown handle so that we stop when requested
@@ -297,10 +336,10 @@ impl SessionHandle {
                     Ok(())
                 } else {
                     //Shutdown event triggered
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Shutdown event triggered {}", io::Error::last_os_error()),
-                    ))
+                    Err(io::Error::other(format!(
+                        "Shutdown event triggered {}",
+                        io::Error::last_os_error()
+                    )))
                 }
             }
         }

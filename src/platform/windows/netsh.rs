@@ -47,10 +47,11 @@ fn output(cmd: &str, out: Output) -> io::Result<()> {
         } else {
             String::new()
         };
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("cmd=\"{}\",out=\"{}\"", cmd, msg.trim()),
-        ));
+        return Err(io::Error::other(format!(
+            "cmd=\"{}\",out=\"{}\"",
+            cmd,
+            msg.trim()
+        )));
     }
     Ok(())
 }

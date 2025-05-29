@@ -36,7 +36,7 @@ async fn main() -> io::Result<()> {
     let dev = Arc::new(
         DeviceBuilder::new()
             .name("tap0")
-            .ipv4(Ipv4Addr::from([10, 0, 0, 9]), 24, None)
+            .ipv4(Ipv4Addr::from([10, 0, 0, 119]), 24, None)
             .layer(Layer::L2)
             .mtu(1500)
             .build_async()?,

@@ -1,12 +1,13 @@
+use crate::platform::windows::ffi;
+use crate::platform::DeviceImpl;
+use crate::SyncDevice;
 use std::future::Future;
 use std::io;
 use std::ops::Deref;
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-
-use crate::platform::DeviceImpl;
-use crate::SyncDevice;
 
 /// An async Tun/Tap device wrapper around a Tun/Tap device.
 ///
@@ -154,26 +155,42 @@ impl AsyncDevice {
             };
         }
     }
-
-    /// Recv a packet from the device
-    pub async fn recv(&self, mut buf: &mut [u8]) -> io::Result<usize> {
-        match self.try_recv(buf) {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return rs,
-        }
+    /// Waits for the device to become readable.
+    ///
+    /// This function is usually paired with `try_recv()`.
+    ///
+    /// The function may complete without the device being readable. This is a
+    /// false-positive and attempting a `try_recv()` will return with
+    /// `io::ErrorKind::WouldBlock`.
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. Once a readiness event occurs, the method
+    /// will continue to return immediately until the readiness event is
+    /// consumed by an attempt to read that fails with `WouldBlock` or
+    /// `Poll::Pending`.
+    pub async fn readable(&self) -> io::Result<()> {
+        let mut canceller = Canceller::new_cancelable()?;
         let device = self.inner.clone();
-        let size = buf.len();
-        let (packet, n) = blocking::unblock(move || {
-            let mut in_buf = vec![0; size];
-            let n = device.recv(&mut in_buf)?;
-            Ok::<(Vec<u8>, usize), io::Error>((in_buf, n))
+        let (cancel_guard, exit_guard) = canceller.guard(device);
+        blocking::unblock(move || {
+            exit_guard.call(|device, cancel_event_handle| {
+                device.wait_readable_cancelable(cancel_event_handle)
+            })
         })
         .await?;
-        let mut packet: &[u8] = &packet[..n];
+        std::mem::forget(cancel_guard);
+        Ok(())
+    }
 
-        match io::copy(&mut packet, &mut buf) {
-            Ok(n) => Ok(n as usize),
-            Err(e) => Err(e),
+    /// Recv a packet from the device
+    pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            match self.try_recv(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return rs,
+            }
+            self.readable().await?;
         }
     }
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
@@ -181,6 +198,10 @@ impl AsyncDevice {
     }
 
     /// Send a packet to the device
+    ///
+    /// # Cancel safety
+    /// This method is not cancellation safe.
+    /// After cancellation, it is uncertain whether the data has been written or not.
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
         match self.inner.try_send(buf) {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
@@ -188,9 +209,82 @@ impl AsyncDevice {
         }
         let buf = buf.to_vec();
         let device = self.inner.clone();
-        blocking::unblock(move || device.send(&buf)).await
+        let mut canceller = Canceller::new_cancelable()?;
+        let (cancel_guard, exit_guard) = canceller.guard(device);
+        let result = blocking::unblock(move || {
+            exit_guard.call(|device, cancel_event_handle| {
+                device.send_cancelable(&buf, cancel_event_handle)
+            })
+        })
+        .await;
+        std::mem::forget(cancel_guard);
+        result
     }
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.try_send(buf)
+    }
+}
+
+struct ExitSignalGuard {
+    device: Option<Arc<DeviceImpl>>,
+    cancel_event_handle: Arc<OwnedHandle>,
+    exit_event: Arc<OwnedHandle>,
+}
+impl Drop for ExitSignalGuard {
+    fn drop(&mut self) {
+        drop(self.device.take());
+        _ = ffi::set_event(self.exit_event.as_raw_handle());
+    }
+}
+impl ExitSignalGuard {
+    pub fn call<R>(
+        &self,
+        mut op: impl FnMut(&DeviceImpl, &OwnedHandle) -> io::Result<R>,
+    ) -> io::Result<R> {
+        if let Some(device) = &self.device {
+            op(device, &self.cancel_event_handle)
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+struct Canceller {
+    exit_event_handle: Arc<OwnedHandle>,
+    cancel_event_handle: Arc<OwnedHandle>,
+}
+
+impl Canceller {
+    fn new_cancelable() -> io::Result<Self> {
+        Ok(Self {
+            exit_event_handle: Arc::new(ffi::create_event()?),
+            cancel_event_handle: Arc::new(ffi::create_event()?),
+        })
+    }
+
+    fn guard(&mut self, device_impl: Arc<DeviceImpl>) -> (CancelWaitGuard<'_>, ExitSignalGuard) {
+        (
+            CancelWaitGuard {
+                exit_event_handle: &self.exit_event_handle,
+                cancel_event_handle: &self.cancel_event_handle,
+            },
+            ExitSignalGuard {
+                device: Some(device_impl),
+                exit_event: self.exit_event_handle.clone(),
+                cancel_event_handle: self.cancel_event_handle.clone(),
+            },
+        )
+    }
+}
+
+struct CancelWaitGuard<'a> {
+    exit_event_handle: &'a Arc<OwnedHandle>,
+    cancel_event_handle: &'a Arc<OwnedHandle>,
+}
+
+impl Drop for CancelWaitGuard<'_> {
+    fn drop(&mut self) {
+        _ = ffi::set_event(self.cancel_event_handle.as_raw_handle());
+        _ = ffi::wait_for_single_object(self.exit_event_handle.as_raw_handle(), 10);
     }
 }
