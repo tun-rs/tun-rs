@@ -156,35 +156,43 @@ impl AsyncDevice {
             };
         }
     }
+    /// Waits for the device to become readable.
+    ///
+    /// This function is usually paired with `try_recv()`.
+    ///
+    /// The function may complete without the device being readable. This is a
+    /// false-positive and attempting a `try_recv()` will return with
+    /// `io::ErrorKind::WouldBlock`.
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is cancel safe. Once a readiness event occurs, the method
+    /// will continue to return immediately until the readiness event is
+    /// consumed by an attempt to read that fails with `WouldBlock` or
+    /// `Poll::Pending`.
+    pub async fn readable(&self) -> io::Result<()> {
+        let mut trigger = ScopedEventTrigger::new()?;
+        let device = self.inner.clone();
+        let task_trigger = trigger.task_trigger();
+        blocking::unblock(move || {
+            let result = device.wait_readable(task_trigger.handle().as_raw_handle());
+            drop(device);
+            task_trigger.completed();
+            result
+        })
+        .await?;
+        trigger.forget();
+        Ok(())
+    }
 
     /// Recv a packet from the device
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        match self.try_recv(buf) {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return rs,
-        }
-        let mut trigger = ScopedEventTrigger::new()?;
         loop {
-            let device = self.inner.clone();
-            let task_trigger = trigger.task_trigger();
-            blocking::unblock(move || {
-                let result = device.wait_readable(task_trigger.handle().as_raw_handle());
-                drop(device);
-                task_trigger.completed();
-                result
-            })
-            .await?;
-            match self.inner.try_recv(buf) {
-                Ok(len) => {
-                    trigger.forget();
-                    return Ok(len);
-                }
+            match self.try_recv(buf) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                Err(e) => {
-                    trigger.forget();
-                    return Err(e);
-                }
+                rs => return rs,
             }
+            self.readable().await?;
         }
     }
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
