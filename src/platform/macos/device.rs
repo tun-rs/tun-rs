@@ -118,9 +118,9 @@ impl DeviceImpl {
     /// On macOS, adding an IP to a feth interface will automatically add a route,
     /// while adding an IP to a utun interface will not.
     ///
-    /// If true, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
-    /// If false (default), routes will be added or removed automatically to provide consistent routing behavior across all platforms.
-    /// Set this to true to obtain the platform's default routing behavior.
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
+    /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
         self.associate_route
             .store(associate_route, Ordering::Relaxed);
@@ -129,7 +129,7 @@ impl DeviceImpl {
         self.associate_route.load(Ordering::Relaxed)
     }
     fn remove_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
-        if self.associate_route() {
+        if !self.associate_route() {
             return Ok(());
         }
         let if_index = self.if_index()?;
@@ -142,7 +142,7 @@ impl DeviceImpl {
     }
 
     fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
-        if self.associate_route() {
+        if !self.associate_route() {
             return Ok(());
         }
         let if_index = self.if_index()?;
@@ -155,7 +155,7 @@ impl DeviceImpl {
     }
 
     fn set_route(&self, old_route: Option<Route>, new_route: Route) -> io::Result<()> {
-        if self.associate_route() {
+        if !self.associate_route() {
             return Ok(());
         }
         let if_index = self.if_index()?;
