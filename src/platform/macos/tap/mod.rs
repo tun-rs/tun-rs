@@ -95,8 +95,8 @@ impl Tap {
             let s_ndrv_fd = Fd::new(s_ndrv_fd)?;
             let mut ifr = new_ifreq(config.dev_name.as_ref())?;
             if let Err(e) = siocifcreate(s_ndrv_fd.inner, &mut ifr) {
-                if e != Errno::EEXIST || config.reuse_dev.unwrap_or(false) {
-                    Err(e)?;
+                if e != Errno::EEXIST || (e == Errno::EEXIST && !config.reuse_dev.unwrap_or(true)) {
+                    return Err(e.into());
                 }
             }
 
@@ -110,7 +110,7 @@ impl Tap {
             std::thread::sleep(std::time::Duration::from_millis(1));
             let mut peer_ifr = new_ifreq(config.peer_feth.as_ref())?;
             if let Err(e) = siocifcreate(s_ndrv_fd.inner, &mut peer_ifr) {
-                if e != Errno::EEXIST || config.reuse_dev.unwrap_or(false) {
+                if e != Errno::EEXIST || (e == Errno::EEXIST && !config.reuse_dev.unwrap_or(true)) {
                     return Err(e.into());
                 }
             }
