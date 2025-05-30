@@ -33,15 +33,17 @@ pub(crate) struct DeviceConfig {
     /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
     #[cfg(target_os = "macos")]
     pub peer_feth: Option<String>,
-    /// Automatically add a route; if it is Layer::L2, a route is never added automatically.
+    /// If true, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// If false (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// Set this to true to obtain the platform's default routing behavior.
     #[cfg(target_os = "macos")]
-    pub auto_route: Option<bool>,
+    pub associate_route: Option<bool>,
     /// If true, an error will be returned if a device with the specified name already exists.
-    /// If false, the existing device with the given name will be used.
-    /// Default to false
+    /// If false (default), the existing device with the given name will be used.
     #[cfg(target_os = "macos")]
     pub exclusive: Option<bool>,
-    /// If true, the feth device will be kept after the program exits; if false (default), the device will be destroyed automatically.
+    /// If true, the feth device will be kept after the program exits;
+    /// if false (default), the device will be destroyed automatically.
     #[cfg(target_os = "macos")]
     pub persist: Option<bool>,
     /// Specifies whether the interface operates at L2 or L3.
@@ -88,7 +90,7 @@ pub struct DeviceBuilder {
     #[cfg(target_os = "macos")]
     peer_feth: Option<String>,
     #[cfg(target_os = "macos")]
-    auto_route: Option<bool>,
+    associate_route: Option<bool>,
     #[cfg(target_os = "macos")]
     exclusive: Option<bool>,
     #[cfg(target_os = "macos")]
@@ -290,11 +292,12 @@ impl DeviceBuilder {
         self.peer_feth = Some(peer_feth.into());
         self
     }
-    /// Automatically add a route;
-    /// On macOS, if it is Layer::L2, a route is never added automatically.
+    /// If true, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// If false (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// Set this to true to obtain the platform's default routing behavior.
     #[cfg(target_os = "macos")]
-    pub fn auto_route(mut self, auto_route: bool) -> Self {
-        self.auto_route = Some(auto_route);
+    pub fn associate_route(mut self, associate_route: bool) -> Self {
+        self.associate_route = Some(associate_route);
         self
     }
     /// If true, an error will be returned if a device with the specified name already exists.
@@ -323,7 +326,7 @@ impl DeviceBuilder {
             #[cfg(target_os = "macos")]
             peer_feth: self.peer_feth.take(),
             #[cfg(target_os = "macos")]
-            auto_route: self.auto_route,
+            associate_route: self.associate_route,
             #[cfg(target_os = "macos")]
             exclusive: self.exclusive,
             #[cfg(target_os = "macos")]

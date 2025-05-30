@@ -25,7 +25,7 @@ struct Route {
 
 /// A TUN device using the TUN macOS driver.
 pub struct DeviceImpl {
-    auto_route: AtomicBool,
+    associate_route: AtomicBool,
     pub(crate) tun: TunTap,
     alias_lock: Mutex<()>,
 }
@@ -33,23 +33,23 @@ pub struct DeviceImpl {
 impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
-        let auto_route = config.auto_route;
+        let associate_route = config.associate_route;
         let tun_tap = TunTap::new(config)?;
-        let auto_route = if tun_tap.is_tun() {
-            auto_route.unwrap_or(true)
+        let associate_route = if tun_tap.is_tun() {
+            associate_route.unwrap_or(false)
         } else {
             false
         };
         let device_impl = DeviceImpl {
             tun: tun_tap,
-            auto_route: AtomicBool::new(auto_route),
+            associate_route: AtomicBool::new(associate_route),
             alias_lock: Mutex::new(()),
         };
         Ok(device_impl)
     }
     pub(crate) fn from_tun(tun: Tun) -> Self {
         Self {
-            auto_route: AtomicBool::new(true),
+            associate_route: AtomicBool::new(false),
             tun: TunTap::Tun(tun),
             alias_lock: Mutex::new(()),
         }
@@ -118,16 +118,18 @@ impl DeviceImpl {
     /// On macOS, adding an IP to a feth interface will automatically add a route,
     /// while adding an IP to a utun interface will not.
     ///
-    /// When auto_route=true, the program will add a route as needed,
-    /// so that utun behaves the same as other network interfaces with respect to routing.
-    pub fn set_auto_route(&self, auto_route: bool) {
-        self.auto_route.store(auto_route, Ordering::Relaxed);
+    /// If true, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// If false (default), routes will be added or removed automatically to provide consistent routing behavior across all platforms.
+    /// Set this to true to obtain the platform's default routing behavior.
+    pub fn set_associate_route(&self, associate_route: bool) {
+        self.associate_route
+            .store(associate_route, Ordering::Relaxed);
     }
-    pub fn auto_route(&self) -> bool {
-        self.auto_route.load(Ordering::Relaxed)
+    pub fn associate_route(&self) -> bool {
+        self.associate_route.load(Ordering::Relaxed)
     }
     fn remove_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
-        if !self.auto_route() {
+        if self.associate_route() {
             return Ok(());
         }
         let if_index = self.if_index()?;
@@ -140,7 +142,7 @@ impl DeviceImpl {
     }
 
     fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
-        if !self.auto_route() {
+        if self.associate_route() {
             return Ok(());
         }
         let if_index = self.if_index()?;
@@ -153,7 +155,7 @@ impl DeviceImpl {
     }
 
     fn set_route(&self, old_route: Option<Route>, new_route: Route) -> io::Result<()> {
-        if !self.auto_route() {
+        if self.associate_route() {
             return Ok(());
         }
         let if_index = self.if_index()?;
