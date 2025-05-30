@@ -36,7 +36,7 @@ impl DeviceImpl {
         let associate_route = config.associate_route;
         let tun_tap = TunTap::new(config)?;
         let associate_route = if tun_tap.is_tun() {
-            associate_route.unwrap_or(false)
+            associate_route.unwrap_or(true)
         } else {
             false
         };
@@ -49,7 +49,7 @@ impl DeviceImpl {
     }
     pub(crate) fn from_tun(tun: Tun) -> Self {
         Self {
-            associate_route: AtomicBool::new(false),
+            associate_route: AtomicBool::new(true),
             tun: TunTap::Tun(tun),
             alias_lock: Mutex::new(()),
         }
