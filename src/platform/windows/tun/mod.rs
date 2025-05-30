@@ -174,6 +174,8 @@ impl TunDevice {
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.session.send(buf, None)
     }
+
+    #[cfg(any(feature = "async_tokio", feature = "async_io"))]
     pub(crate) fn send_cancelable(
         &self,
         buf: &[u8],
