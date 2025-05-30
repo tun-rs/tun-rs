@@ -92,7 +92,7 @@ pub struct DeviceBuilder {
     #[cfg(target_os = "macos")]
     associate_route: Option<bool>,
     #[cfg(target_os = "macos")]
-    exclusive: Option<bool>,
+    reuse_dev: Option<bool>,
     #[cfg(target_os = "macos")]
     persist: Option<bool>,
     enabled: Option<bool>,
@@ -304,7 +304,7 @@ impl DeviceBuilder {
     /// If false (default), the existing device with the given name will be used.
     #[cfg(target_os = "macos")]
     pub fn exclusive(mut self, exclusive: bool) -> Self {
-        self.exclusive = Some(exclusive);
+        self.reuse_dev = Some(exclusive);
         self
     }
     /// If true, the feth device will be kept after the program exits;
@@ -328,7 +328,7 @@ impl DeviceBuilder {
             #[cfg(target_os = "macos")]
             associate_route: self.associate_route,
             #[cfg(target_os = "macos")]
-            exclusive: self.exclusive,
+            reuse_dev: self.reuse_dev,
             #[cfg(target_os = "macos")]
             persist: self.persist,
             layer: self.layer.take(),
