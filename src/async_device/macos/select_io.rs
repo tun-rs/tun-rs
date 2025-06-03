@@ -1,4 +1,5 @@
 use crate::DeviceImpl;
+use std::cmp::Ordering;
 use std::future::Future;
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
@@ -146,12 +147,11 @@ impl EventFd {
                 &mut tv,
             )
         };
-        if res < 0 {
-            return Err(io::Error::last_os_error());
-        } else if res == 0 {
-            return Err(io::Error::from(io::ErrorKind::TimedOut));
+        match res.cmp(&0) {
+            Ordering::Less => Err(io::Error::last_os_error()),
+            Ordering::Equal => Err(io::Error::from(io::ErrorKind::TimedOut)),
+            Ordering::Greater => Ok(()),
         }
-        Ok(())
     }
     fn as_event_fd(&self) -> libc::c_int {
         self.0
