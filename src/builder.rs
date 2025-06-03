@@ -33,13 +33,13 @@ pub(crate) struct DeviceConfig {
     /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
     #[cfg(target_os = "macos")]
     pub peer_feth: Option<String>,
-    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to be false to obtain the platform's default routing behavior.
     #[cfg(target_os = "macos")]
     pub associate_route: Option<bool>,
-    /// If false, an error will be returned if a device with the specified name already exists.
     /// If true (default), the existing device with the given name will be used if possible.
+    /// If false, an error will be returned if a device with the specified name already exists.
     #[cfg(target_os = "macos")]
     pub reuse_dev: Option<bool>,
     /// If true, the feth device will be kept after the program exits;
@@ -286,27 +286,30 @@ impl DeviceBuilder {
         self.packet_information = Some(packet_information);
         self
     }
-    /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
+    /// Available with Layer::L2;
+    /// creates a pair of feth devices, with peer_feth as the IO interface name.
     #[cfg(target_os = "macos")]
     pub fn peer_feth<S: Into<String>>(mut self, peer_feth: S) -> Self {
         self.peer_feth = Some(peer_feth.into());
         self
     }
-    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to false to obtain the platform's default routing behavior.
     #[cfg(target_os = "macos")]
     pub fn associate_route(mut self, associate_route: bool) -> Self {
         self.associate_route = Some(associate_route);
         self
     }
-    /// If false, an error will be returned if a device with the specified name already exists.
+    /// Only effective in TAP mode.
     /// If true (default), the existing device with the given name will be used if possible.
+    /// If false, an error will be returned if a device with the specified name already exists.
     #[cfg(target_os = "macos")]
     pub fn reuse_dev(mut self, reuse: bool) -> Self {
         self.reuse_dev = Some(reuse);
         self
     }
+    /// Only effective in TAP mode.
     /// If true, the feth device will be kept after the program exits;
     /// if false (default), the device will be destroyed automatically.
     #[cfg(target_os = "macos")]
