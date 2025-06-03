@@ -44,6 +44,7 @@ impl Deref for AsyncDevice {
 }
 
 impl AsyncDevice {
+    #[allow(dead_code)]
     pub fn new(device: SyncDevice) -> io::Result<AsyncDevice> {
         AsyncDevice::new_dev(device.0)
     }

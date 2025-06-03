@@ -6,16 +6,17 @@ use crate::{
 
 //const OVERWRITE_SIZE: usize = std::mem::size_of::<libc::__c_anonymous_ifr_ifru>();
 
+use crate::platform::macos::tuntap::TunTap;
 use crate::platform::unix::device::{ctl, ctl_v6};
 use crate::platform::unix::Tun;
+use crate::platform::ETHER_ADDR_LEN;
 use getifaddrs::{self, Interface};
-use libc::{
-    self, c_char, c_short, c_uint, c_void, sockaddr, socklen_t, AF_SYSTEM, AF_SYS_CONTROL,
-    IFF_RUNNING, IFF_UP, IFNAMSIZ, PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL, UTUN_OPT_IFNAME,
-};
+use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
-use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
+
 #[derive(Clone, Copy, Debug)]
 struct Route {
     addr: IpAddr,
@@ -24,119 +25,41 @@ struct Route {
 
 /// A TUN device using the TUN macOS driver.
 pub struct DeviceImpl {
-    pub(crate) tun: Tun,
+    associate_route: AtomicBool,
+    pub(crate) tun: TunTap,
     alias_lock: Mutex<()>,
 }
 
 impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
-        let id = config
-            .dev_name
-            .as_ref()
-            .map(|tun_name| {
-                if tun_name.len() > IFNAMSIZ {
-                    return Err(io::Error::new(
-                        ErrorKind::InvalidInput,
-                        "device name too long",
-                    ));
-                }
-                if !tun_name.starts_with("utun") {
-                    return Err(io::Error::new(
-                        ErrorKind::InvalidInput,
-                        "device name must start with utun",
-                    ));
-                }
-                tun_name[4..]
-                    .parse::<u32>()
-                    .map(|v| v + 1)
-                    .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))
-            })
-            .transpose()?
-            .unwrap_or(0);
-
-        let device = unsafe {
-            let fd = libc::socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
-            let tun = crate::platform::unix::Fd::new(fd)?;
-
-            let mut info = ctl_info {
-                ctl_id: 0,
-                ctl_name: {
-                    let mut buffer = [0; 96];
-                    for (i, o) in UTUN_CONTROL_NAME.as_bytes().iter().zip(buffer.iter_mut()) {
-                        *o = *i as _;
-                    }
-                    buffer
-                },
-            };
-
-            if let Err(err) = ctliocginfo(tun.inner, &mut info as *mut _ as *mut _) {
-                return Err(io::Error::from(err));
-            }
-
-            let addr = libc::sockaddr_ctl {
-                sc_id: info.ctl_id,
-                sc_len: mem::size_of::<libc::sockaddr_ctl>() as _,
-                sc_family: AF_SYSTEM as _,
-                ss_sysaddr: AF_SYS_CONTROL as _,
-                sc_unit: id as c_uint,
-                sc_reserved: [0; 5],
-            };
-
-            let address = &addr as *const libc::sockaddr_ctl as *const sockaddr;
-            if libc::connect(tun.inner, address, mem::size_of_val(&addr) as socklen_t) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-
-            let mut tun_name = [0u8; 64];
-            let mut name_len: socklen_t = 64;
-
-            let optval = &mut tun_name as *mut _ as *mut c_void;
-            let optlen = &mut name_len as *mut socklen_t;
-            if libc::getsockopt(tun.inner, SYSPROTO_CONTROL, UTUN_OPT_IFNAME, optval, optlen) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-
-            DeviceImpl {
-                tun: Tun::new(tun),
-                alias_lock: Mutex::new(()),
-            }
+        let associate_route = config.associate_route;
+        let tun_tap = TunTap::new(config)?;
+        let associate_route = if tun_tap.is_tun() {
+            associate_route.unwrap_or(true)
+        } else {
+            false
         };
-        device
-            .tun
-            .set_ignore_packet_info(!config.packet_information.unwrap_or(false));
-        Ok(device)
+        let device_impl = DeviceImpl {
+            tun: tun_tap,
+            associate_route: AtomicBool::new(associate_route),
+            alias_lock: Mutex::new(()),
+        };
+        Ok(device_impl)
     }
     pub(crate) fn from_tun(tun: Tun) -> Self {
         Self {
-            tun,
+            associate_route: AtomicBool::new(true),
+            tun: TunTap::Tun(tun),
             alias_lock: Mutex::new(()),
         }
     }
     /// Prepare a new request.
-    /// # Safety
-    unsafe fn request(&self) -> io::Result<libc::ifreq> {
-        let tun_name = self.name()?;
-        let mut req: libc::ifreq = mem::zeroed();
-        ptr::copy_nonoverlapping(
-            tun_name.as_ptr() as *const c_char,
-            req.ifr_name.as_mut_ptr(),
-            tun_name.len(),
-        );
-
-        Ok(req)
+    fn request(&self) -> io::Result<libc::ifreq> {
+        self.tun.request()
     }
-    /// # Safety
-    unsafe fn request_v6(&self) -> io::Result<in6_ifreq> {
-        let tun_name = self.name()?;
-        let mut req: in6_ifreq = mem::zeroed();
-        ptr::copy_nonoverlapping(
-            tun_name.as_ptr() as *const c_char,
-            req.ifra_name.as_mut_ptr(),
-            tun_name.len(),
-        );
-        req.ifr_ifru.ifru_flags = IN6_IFF_NODAD as _;
-        Ok(req)
+    fn request_v6(&self) -> io::Result<in6_ifreq> {
+        self.tun.request_v6()
     }
 
     fn current_route(&self) -> Option<Route> {
@@ -191,8 +114,24 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
+    /// System behavior:
+    /// On macOS, adding an IP to a feth interface will automatically add a route,
+    /// while adding an IP to a utun interface will not.
+    ///
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
+    /// Set this to be false to obtain the platform's default routing behavior.
+    pub fn set_associate_route(&self, associate_route: bool) {
+        self.associate_route
+            .store(associate_route, Ordering::Relaxed);
+    }
+    pub fn associate_route(&self) -> bool {
+        self.associate_route.load(Ordering::Relaxed)
+    }
     fn remove_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        if !self.associate_route() {
+            return Ok(());
+        }
         let if_index = self.if_index()?;
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
@@ -203,6 +142,9 @@ impl DeviceImpl {
     }
 
     fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        if !self.associate_route() {
+            return Ok(());
+        }
         let if_index = self.if_index()?;
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
@@ -213,6 +155,9 @@ impl DeviceImpl {
     }
 
     fn set_route(&self, old_route: Option<Route>, new_route: Route) -> io::Result<()> {
+        if !self.associate_route() {
+            return Ok(());
+        }
         let if_index = self.if_index()?;
         let mut manager = route_manager::RouteManager::new()?;
         if let Some(old_route) = old_route {
@@ -235,26 +180,7 @@ impl DeviceImpl {
 
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
-        let mut tun_name = [0u8; 64];
-        let mut name_len: socklen_t = 64;
-
-        let optval = &mut tun_name as *mut _ as *mut c_void;
-        let optlen = &mut name_len as *mut socklen_t;
-        unsafe {
-            if libc::getsockopt(
-                self.tun.as_raw_fd(),
-                SYSPROTO_CONTROL,
-                UTUN_OPT_IFNAME,
-                optval,
-                optlen,
-            ) < 0
-            {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(CStr::from_ptr(tun_name.as_ptr() as *const c_char)
-                .to_string_lossy()
-                .into())
-        }
+        self.tun.name()
     }
     /// Enables or disables the network interface.
     ///
@@ -299,16 +225,7 @@ impl DeviceImpl {
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
-        unsafe {
-            let ctl = ctl()?;
-            let mut req = self.request()?;
-            req.ifr_ifru.ifru_mtu = value as i32;
-
-            if let Err(err) = siocsifmtu(ctl.as_raw_fd(), &req) {
-                return Err(io::Error::from(err));
-            }
-            Ok(())
-        }
+        self.tun.set_mtu(value)
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
@@ -397,5 +314,11 @@ impl DeviceImpl {
             }
         }
         Ok(())
+    }
+    pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
+        self.tun.set_mac_address(eth_addr)
+    }
+    pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
+        self.tun.mac_address()
     }
 }

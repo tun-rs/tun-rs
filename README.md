@@ -4,7 +4,7 @@ Tun/Tap interfaces
 [![tun-rs](https://docs.rs/tun-rs/badge.svg)](https://docs.rs/tun-rs/latest/tun_rs)
 [![Apache-2.0](https://img.shields.io/github/license/tun-rs/tun-rs?style=flat)](https://github.com/tun-rs/tun-rs/blob/master/LICENSE)
 
-This crate allows the creation and usage of Tun/Tap interfaces(**supporting both Ipv4 and ipv6**), aiming to make this
+This crate allows the creation and usage of Tun and Tap interfaces(**supporting both Ipv4 and ipv6**), aiming to make this
 cross-platform.
 
 [benchmark](https://github.com/tun-rs/tun-benchmark)
@@ -20,22 +20,21 @@ cross-platform.
 7. Supporting `multi-queue` on Linux
 8. Having a consistent behavior of setting up routes when creating a device
 9. Supporting shutdown for Synchronous version
+10. Implement TAP mode on macOS using `feth`
 
 ## Supported Platforms
 
-| Platform    | TUN | TAP |
-|-------------|-----|-----|
-| Windows     | ✅   | ✅   |
-| Linux       | ✅   | ✅   |
-| macOS       | ✅   | ⬜   |
-| FreeBSD     | ✅   | ✅   |
-| Android     | ✅   |     |
-| iOS         | ✅   |     |
-| tvOS        | ✅   |     |
-| OpenHarmony | ✅   |     |
-| Other*      | ✅   |     |
+| Platform | TUN | TAP |
+|----------|-----|-----|
+| Windows  | ✅   | ✅   |
+| Linux    | ✅   | ✅   |
+| macOS    | ✅   | ✅*  |
+| FreeBSD  | ✅   | ✅   |
+| Android  | ✅   |     |
+| iOS      | ✅   |     |
+| Other*   | ✅   |     |
 
-> For other Unix-like platforms,You can use raw_fd
+> For other Unix-like platforms,You can use raw_fd;
 
 Usage
 -----
@@ -166,6 +165,12 @@ macOS & FreeBSD
 this:
 > sudo route -n add -net 10.0.0.0/24 10.0.0.1
 
+
+Implement TAP mode on macOS using a pair of `feth` interfaces. This approach differs from TAP on other Unix platforms—please pay special attention to the following points:
+
+1. The system will not automatically destroy `feth` interfaces (they rely on the destructor to execute the `ifconfig destroy` command), so killing the process may leave behind residual feth interfaces. This is similar to TAP behavior on Windows.
+
+2. Of the `feth` pair, one is used for basic operations such as IP configuration, while the other is used for I/O operations and is accessed via BPF. As a result, multiple file descriptors are involved, so caution is needed when using AsRawFd or IntoRawFd.
 
 iOS
 ----

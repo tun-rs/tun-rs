@@ -8,12 +8,14 @@ use std::sync::Arc;
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
+    target_os = "macos"
 ))]
 use tun_rs::DeviceBuilder;
 #[cfg(any(
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
+    target_os = "macos"
 ))]
 use tun_rs::Layer;
 
@@ -23,6 +25,7 @@ mod protocol_handle;
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
+    target_os = "macos"
 ))]
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -33,14 +36,12 @@ async fn main() -> io::Result<()> {
         tx.send(()).await.expect("Signal error");
     })
     .await;
-    let dev = Arc::new(
-        DeviceBuilder::new()
-            .name("tap0")
-            .ipv4(Ipv4Addr::from([10, 0, 0, 119]), 24, None)
-            .layer(Layer::L2)
-            .mtu(1500)
-            .build_async()?,
-    );
+    let dev = DeviceBuilder::new()
+        // .name("feth0")
+        .ipv4(Ipv4Addr::from([10, 0, 0, 9]), 24, None)
+        .layer(Layer::L2)
+        .mtu(1400)
+        .build_async()?;
     let mut buf = vec![0; 14 + 65536];
     loop {
         tokio::select! {
@@ -77,7 +78,6 @@ async fn main() -> io::Result<()> {
     target_os = "ios",
     target_os = "tvos",
     target_os = "android",
-    target_os = "macos"
 ))]
 fn main() -> io::Result<()> {
     unimplemented!()

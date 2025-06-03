@@ -9,8 +9,14 @@ use crate::platform::{DeviceImpl, SyncDevice};
 /// - **L2**: Data Link Layer (available on Windows, Linux, and FreeBSD; used for TAP interfaces).
 /// - **L3**: Network Layer (default for TUN interfaces).
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum Layer {
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "macos"
+    ))]
     L2,
     #[default]
     L3,
@@ -24,6 +30,22 @@ pub enum Layer {
 pub(crate) struct DeviceConfig {
     /// The name of the device/interface.
     pub dev_name: Option<String>,
+    /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
+    #[cfg(target_os = "macos")]
+    pub peer_feth: Option<String>,
+    /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// Set this to be false to obtain the platform's default routing behavior.
+    #[cfg(target_os = "macos")]
+    pub associate_route: Option<bool>,
+    /// If true (default), the existing device with the given name will be used if possible.
+    /// If false, an error will be returned if a device with the specified name already exists.
+    #[cfg(target_os = "macos")]
+    pub reuse_dev: Option<bool>,
+    /// If true, the feth device will be kept after the program exits;
+    /// if false (default), the device will be destroyed automatically.
+    #[cfg(target_os = "macos")]
+    pub persist: Option<bool>,
     /// Specifies whether the interface operates at L2 or L3.
     #[allow(dead_code)]
     pub layer: Option<Layer>,
@@ -65,6 +87,14 @@ type IPV4 = (
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,
+    #[cfg(target_os = "macos")]
+    peer_feth: Option<String>,
+    #[cfg(target_os = "macos")]
+    associate_route: Option<bool>,
+    #[cfg(target_os = "macos")]
+    reuse_dev: Option<bool>,
+    #[cfg(target_os = "macos")]
+    persist: Option<bool>,
     enabled: Option<bool>,
     mtu: Option<u16>,
     #[cfg(windows)]
@@ -256,6 +286,37 @@ impl DeviceBuilder {
         self.packet_information = Some(packet_information);
         self
     }
+    /// Available with Layer::L2;
+    /// creates a pair of feth devices, with peer_feth as the IO interface name.
+    #[cfg(target_os = "macos")]
+    pub fn peer_feth<S: Into<String>>(mut self, peer_feth: S) -> Self {
+        self.peer_feth = Some(peer_feth.into());
+        self
+    }
+    /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// Set this to false to obtain the platform's default routing behavior.
+    #[cfg(target_os = "macos")]
+    pub fn associate_route(mut self, associate_route: bool) -> Self {
+        self.associate_route = Some(associate_route);
+        self
+    }
+    /// Only effective in TAP mode.
+    /// If true (default), the existing device with the given name will be used if possible.
+    /// If false, an error will be returned if a device with the specified name already exists.
+    #[cfg(target_os = "macos")]
+    pub fn reuse_dev(mut self, reuse: bool) -> Self {
+        self.reuse_dev = Some(reuse);
+        self
+    }
+    /// Only effective in TAP mode.
+    /// If true, the feth device will be kept after the program exits;
+    /// if false (default), the device will be destroyed automatically.
+    #[cfg(target_os = "macos")]
+    pub fn persist(mut self, persist: bool) -> Self {
+        self.persist = Some(persist);
+        self
+    }
     /// Enables or disables the device.
     /// Defaults to enabled.
     pub fn enable(mut self, enable: bool) -> Self {
@@ -265,6 +326,14 @@ impl DeviceBuilder {
     pub(crate) fn build_config(&mut self) -> DeviceConfig {
         DeviceConfig {
             dev_name: self.dev_name.take(),
+            #[cfg(target_os = "macos")]
+            peer_feth: self.peer_feth.take(),
+            #[cfg(target_os = "macos")]
+            associate_route: self.associate_route,
+            #[cfg(target_os = "macos")]
+            reuse_dev: self.reuse_dev,
+            #[cfg(target_os = "macos")]
+            persist: self.persist,
             layer: self.layer.take(),
             #[cfg(windows)]
             device_guid: self.device_guid.take(),
@@ -312,7 +381,9 @@ impl DeviceBuilder {
             let prefix = prefix?;
             let address = address?;
             let destination = destination.transpose()?;
-            device.set_network_address(address, prefix, destination)?;
+            device
+                .set_network_address(address, prefix, destination)
+                .unwrap();
         }
         if let Some(ipv6) = self.ipv6 {
             for (address, prefix) in ipv6 {
