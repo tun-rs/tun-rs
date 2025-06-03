@@ -297,7 +297,13 @@ impl TapDevice {
         }
         ffi::write_file(self.handle.as_raw_handle(), buf, None).map(|res| res as _)
     }
-    pub fn write_cancelable(&self, buf: &[u8], cancel_event: &OwnedHandle) -> io::Result<usize> {
+
+    #[cfg(any(feature = "async_tokio", feature = "async_io"))]
+    pub(crate) fn write_cancelable(
+        &self,
+        buf: &[u8],
+        cancel_event: &OwnedHandle,
+    ) -> io::Result<usize> {
         let mut guard = self.write_io_overlapped.lock().unwrap();
         if let Some((overlapped, _write_buffer)) = guard.take() {
             ffi::wait_io_overlapped_cancelable(

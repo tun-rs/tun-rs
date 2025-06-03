@@ -136,6 +136,7 @@ impl DeviceImpl {
             Driver::Tun(tun) => tun.send(buf),
         }
     }
+    #[cfg(any(feature = "async_tokio", feature = "async_io"))]
     pub(crate) fn send_cancelable(
         &self,
         buf: &[u8],
