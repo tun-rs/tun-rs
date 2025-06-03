@@ -36,14 +36,12 @@ async fn main() -> io::Result<()> {
         tx.send(()).await.expect("Signal error");
     })
     .await;
-    let dev = Arc::new(
-        DeviceBuilder::new()
-            .name("tap0")
-            .ipv4(Ipv4Addr::from([10, 0, 0, 9]), 24, None)
-            .layer(Layer::L2)
-            .mtu(1500)
-            .build_async()?,
-    );
+    let dev = DeviceBuilder::new()
+        // .name("feth0")
+        .ipv4(Ipv4Addr::from([10, 0, 0, 9]), 24, None)
+        .layer(Layer::L2)
+        .mtu(1400)
+        .build_async()?;
     let mut buf = vec![0; 14 + 65536];
     loop {
         tokio::select! {
