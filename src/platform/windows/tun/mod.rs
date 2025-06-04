@@ -100,9 +100,6 @@ impl Drop for SessionHandle {
 unsafe impl Send for SessionHandle {}
 unsafe impl Sync for SessionHandle {}
 impl TunDevice {
-    /// Wintun adapters are destroyed when the process exits.
-    /// I haven’t found a reason to use WintunOpenAdapter, so it is not used here.
-    #[allow(dead_code)]
     pub fn open(wintun_path: &str, name: &str, ring_capacity: u32) -> std::io::Result<Self> {
         let range = MIN_RING_CAPACITY..=MAX_RING_CAPACITY;
         if !range.contains(&ring_capacity) {

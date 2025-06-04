@@ -57,9 +57,8 @@ impl DeviceImpl {
                     if config.dev_name.is_none() {
                         continue;
                     }
-                    Err(io::Error::other(format!(
-                        "The network adapter [{name}] already exists."
-                    )))?
+                    // Try to open an existing Wintun adapter.
+                    break TunDevice::open(wintun_file, name, ring_capacity)?;
                 }
                 let guid = config.device_guid.unwrap_or_else(|| hash_name(name));
                 match TunDevice::create(wintun_file, name, name, guid, ring_capacity) {
