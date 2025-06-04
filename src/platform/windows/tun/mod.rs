@@ -100,6 +100,52 @@ impl Drop for SessionHandle {
 unsafe impl Send for SessionHandle {}
 unsafe impl Sync for SessionHandle {}
 impl TunDevice {
+    /// Wintun adapters are destroyed when the process exits.
+    /// I haven’t found a reason to use WintunOpenAdapter, so it is not used here.
+    #[allow(dead_code)]
+    pub fn open(wintun_path: &str, name: &str, ring_capacity: u32) -> std::io::Result<Self> {
+        let range = MIN_RING_CAPACITY..=MAX_RING_CAPACITY;
+        if !range.contains(&ring_capacity) {
+            Err(io::Error::other(format!(
+                "ring capacity {ring_capacity} not in [{MIN_RING_CAPACITY},{MAX_RING_CAPACITY}]"
+            )))?;
+        }
+        let name_utf16 = encode_utf16(name);
+        if name_utf16.len() > MAX_POOL {
+            Err(io::Error::other("name too long"))?;
+        }
+
+        unsafe {
+            let shutdown_event = ffi::create_event()?;
+
+            let win_tun = wintun_raw::wintun::new(wintun_path).map_err(io::Error::other)?;
+            wintun_log::set_default_logger_if_unset(&win_tun);
+            let adapter = win_tun.WintunOpenAdapter(name_utf16.as_ptr());
+            if adapter.is_null() {
+                Err(io::Error::last_os_error())?
+            }
+            let mut luid: wintun_raw::NET_LUID = std::mem::zeroed();
+            win_tun.WintunGetAdapterLUID(adapter, &mut luid as *mut wintun_raw::NET_LUID);
+
+            let adapter = AdapterHandle {
+                win_tun,
+                handle: adapter,
+                ring_capacity,
+                shutdown_event,
+                shutdown_state: AtomicBool::new(false),
+            };
+            let luid = std::mem::transmute::<wintun_raw::_NET_LUID_LH, NET_LUID_LH>(luid);
+            let index = ffi::luid_to_index(&luid)?;
+            let session = adapter.start_session()?;
+
+            let tun = Self {
+                luid,
+                index,
+                session,
+            };
+            Ok(tun)
+        }
+    }
     pub fn create(
         wintun_path: &str,
         name: &str,
