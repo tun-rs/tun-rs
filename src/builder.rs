@@ -102,7 +102,12 @@ pub struct DeviceBuilder {
     ipv4: Option<IPV4>,
     ipv6: Option<Vec<(io::Result<Ipv6Addr>, io::Result<u8>)>>,
     layer: Option<Layer>,
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "macos"
+    ))]
     mac_addr: Option<[u8; 6]>,
     #[cfg(windows)]
     device_guid: Option<u128>,
@@ -370,7 +375,12 @@ impl DeviceBuilder {
         if let Some(tx_queue_len) = self.tx_queue_len {
             device.set_tx_queue_len(tx_queue_len)?;
         }
-        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "macos"
+        ))]
         if let Some(mac_addr) = self.mac_addr {
             if self.layer.unwrap_or_default() == Layer::L2 {
                 device.set_mac_address(mac_addr)?;
