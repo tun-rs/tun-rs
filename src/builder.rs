@@ -391,9 +391,7 @@ impl DeviceBuilder {
             let prefix = prefix?;
             let address = address?;
             let destination = destination.transpose()?;
-            device
-                .set_network_address(address, prefix, destination)
-                .unwrap();
+            device.set_network_address(address, prefix, destination)?;
         }
         if let Some(ipv6) = self.ipv6 {
             for (address, prefix) in ipv6 {
