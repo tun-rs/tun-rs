@@ -42,7 +42,7 @@ impl DeviceImpl {
         let mut count = 0;
         let interfaces: HashSet<String> = Self::get_all_adapter_address()?
             .into_iter()
-            .map(|v| v.name)
+            .map(|v| v.description)
             .collect();
         let device = if layer == Layer::L3 {
             let wintun_file = config.wintun_file.as_deref().unwrap_or("wintun.dll");
@@ -78,32 +78,30 @@ impl DeviceImpl {
             }
         } else if layer == Layer::L2 {
             const HARDWARE_ID: &str = "tap0901";
+            let persist = config.persist.unwrap_or(false);
+
             let tap = loop {
                 let default_name = format!("tap{count}");
                 let name = config.dev_name.as_deref().unwrap_or(&default_name);
                 if interfaces.contains(name) {
                     if config.dev_name.is_none() {
-                        continue;
-                    } else if !config.reuse_dev.unwrap_or(true) {
-                        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "name exists"));
-                    }
-                }
-                let persist = config.persist.unwrap_or(false);
-                if let Ok(tap) = TapDevice::open(HARDWARE_ID, name, persist) {
-                    if config.dev_name.is_none() {
                         count += 1;
                         continue;
+                    } else if !config.reuse_dev.unwrap_or(true) {
+                        Err(io::Error::other(format!(
+                            "The network adapter [{name}] already exists."
+                        )))?
                     }
-                    break tap;
-                } else {
-                    let tap = TapDevice::create(HARDWARE_ID, persist)?;
-                    if let Err(e) = tap.set_name(name) {
-                        if config.dev_name.is_some() {
-                            Err(e)?
-                        }
-                    }
+                    let tap = TapDevice::open(HARDWARE_ID, name, persist)?;
                     break tap;
                 }
+                let tap = TapDevice::create(HARDWARE_ID, persist)?;
+                if let Err(e) = tap.set_name(name) {
+                    if config.dev_name.is_some() {
+                        Err(e)?
+                    }
+                }
+                break tap;
             };
             DeviceImpl {
                 driver: Driver::Tap(tap),
