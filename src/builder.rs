@@ -40,11 +40,11 @@ pub(crate) struct DeviceConfig {
     pub associate_route: Option<bool>,
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub reuse_dev: Option<bool>,
     /// If true, the feth device will be kept after the program exits;
     /// if false (default), the device will be destroyed automatically.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub persist: Option<bool>,
     /// Specifies whether the interface operates at L2 or L3.
     #[allow(dead_code)]
@@ -91,9 +91,9 @@ pub struct DeviceBuilder {
     peer_feth: Option<String>,
     #[cfg(target_os = "macos")]
     associate_route: Option<bool>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     reuse_dev: Option<bool>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     persist: Option<bool>,
     enabled: Option<bool>,
     mtu: Option<u16>,
@@ -309,7 +309,7 @@ impl DeviceBuilder {
     /// Only effective in TAP mode.
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn reuse_dev(mut self, reuse: bool) -> Self {
         self.reuse_dev = Some(reuse);
         self
@@ -317,7 +317,7 @@ impl DeviceBuilder {
     /// Only effective in TAP mode.
     /// If true, the feth device will be kept after the program exits;
     /// if false (default), the device will be destroyed automatically.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn persist(mut self, persist: bool) -> Self {
         self.persist = Some(persist);
         self
@@ -335,9 +335,9 @@ impl DeviceBuilder {
             peer_feth: self.peer_feth.take(),
             #[cfg(target_os = "macos")]
             associate_route: self.associate_route,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             reuse_dev: self.reuse_dev,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             persist: self.persist,
             layer: self.layer.take(),
             #[cfg(windows)]

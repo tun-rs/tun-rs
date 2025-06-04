@@ -68,7 +68,7 @@ impl TapDevice {
         self.index
     }
     /// Creates a new tap-windows device
-    pub fn create(component_id: &str) -> io::Result<Self> {
+    pub fn create(component_id: &str, persist: bool) -> io::Result<Self> {
         let luid = iface::create_interface(component_id)?;
         // Even after retrieving the luid, we might need to wait
         let start = time::Instant::now();
@@ -110,14 +110,14 @@ impl TapDevice {
             handle,
             index,
             component_id: component_id.to_owned(),
-            need_delete: true,
+            need_delete: !persist,
             read_io_overlapped: Mutex::new((None, BytesMut::zeroed(READ_BUFFER_SIZE), None)),
             write_io_overlapped: Mutex::new(None),
         })
     }
 
     /// Opens an existing tap-windows device by name
-    pub fn open(component_id: &str, name: &str) -> io::Result<Self> {
+    pub fn open(component_id: &str, name: &str, persist: bool) -> io::Result<Self> {
         let luid = ffi::alias_to_luid(name)?;
         iface::check_interface(component_id, &luid)?;
 
@@ -128,7 +128,7 @@ impl TapDevice {
             luid,
             handle,
             component_id: component_id.to_owned(),
-            need_delete: false,
+            need_delete: !persist,
             read_io_overlapped: Mutex::new((None, BytesMut::zeroed(READ_BUFFER_SIZE), None)),
             write_io_overlapped: Mutex::new(None),
         })

@@ -81,17 +81,22 @@ impl DeviceImpl {
             let tap = loop {
                 let default_name = format!("tap{count}");
                 let name = config.dev_name.as_deref().unwrap_or(&default_name);
-                if interfaces.contains(name) && config.dev_name.is_none() {
-                    continue;
+                if interfaces.contains(name) {
+                    if config.dev_name.is_none() {
+                        continue;
+                    } else if !config.reuse_dev.unwrap_or(true) {
+                        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "name exists"));
+                    }
                 }
-                if let Ok(tap) = TapDevice::open(HARDWARE_ID, name) {
+                let persist = config.persist.unwrap_or(false);
+                if let Ok(tap) = TapDevice::open(HARDWARE_ID, name, persist) {
                     if config.dev_name.is_none() {
                         count += 1;
                         continue;
                     }
                     break tap;
                 } else {
-                    let tap = TapDevice::create(HARDWARE_ID)?;
+                    let tap = TapDevice::create(HARDWARE_ID, persist)?;
                     if let Err(e) = tap.set_name(name) {
                         if config.dev_name.is_some() {
                             Err(e)?
