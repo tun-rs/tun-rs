@@ -46,8 +46,14 @@ impl DeviceImpl {
                     // Try to open an existing Wintun adapter.
                     break TunDevice::open(wintun_file, name, ring_capacity)?;
                 }
-                match TunDevice::create(wintun_file, name, name, config.device_guid, ring_capacity)
-                {
+                let description = config.description.as_deref().unwrap_or(name);
+                match TunDevice::create(
+                    wintun_file,
+                    name,
+                    description,
+                    config.device_guid,
+                    ring_capacity,
+                ) {
                     Ok(tun_device) => break tun_device,
                     Err(e) => {
                         if attempts > 3 {
