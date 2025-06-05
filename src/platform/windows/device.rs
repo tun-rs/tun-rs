@@ -21,20 +21,6 @@ pub struct DeviceImpl {
     pub(crate) driver: Driver,
 }
 
-fn hash_name(input_str: &str) -> u128 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    8765028472139845610u64.hash(&mut hasher);
-    input_str.hash(&mut hasher);
-    let front = hasher.finish();
-
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    12874056902134875693u64.hash(&mut hasher);
-    input_str.hash(&mut hasher);
-    let back = hasher.finish();
-    (u128::from(front) << 64) | u128::from(back)
-}
-
 impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
@@ -60,8 +46,8 @@ impl DeviceImpl {
                     // Try to open an existing Wintun adapter.
                     break TunDevice::open(wintun_file, name, ring_capacity)?;
                 }
-                let guid = config.device_guid.unwrap_or_else(|| hash_name(name));
-                match TunDevice::create(wintun_file, name, name, guid, ring_capacity) {
+                match TunDevice::create(wintun_file, name, name, config.device_guid, ring_capacity)
+                {
                     Ok(tun_device) => break tun_device,
                     Err(e) => {
                         if attempts > 3 {

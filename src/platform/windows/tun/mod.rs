@@ -147,7 +147,7 @@ impl TunDevice {
         wintun_path: &str,
         name: &str,
         tunnel_type: &str,
-        guid: u128,
+        guid: Option<u128>,
         ring_capacity: u32,
     ) -> std::io::Result<Self> {
         let range = MIN_RING_CAPACITY..=MAX_RING_CAPACITY;
@@ -172,8 +172,12 @@ impl TunDevice {
             //SAFETY: guid is a unique integer so transmuting either all zeroes or the user's preferred
             //guid to the wintun_raw guid type is safe and will allow the windows kernel to see our GUID
 
-            let guid_struct: wintun_raw::GUID = std::mem::transmute(guid);
-            let guid_ptr = &guid_struct as *const wintun_raw::GUID;
+            let guid_ptr = guid
+                .map(|guid| {
+                    let guid_struct: wintun_raw::GUID = std::mem::transmute(guid);
+                    &guid_struct as *const wintun_raw::GUID
+                })
+                .unwrap_or(ptr::null());
 
             //SAFETY: the function is loaded from the wintun dll properly, we are providing valid
             //pointers, and all the strings are correct null terminated UTF-16. This safety rationale
