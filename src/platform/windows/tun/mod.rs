@@ -145,7 +145,7 @@ impl WinTunAdapter {
     fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         let guard = self.session.read().unwrap();
         if let Some(session) = guard.as_ref() {
-            return session.recv(&self.state, &self.event, buf);
+            return session.recv(&self.event, buf);
         }
         Err(io::Error::other("The interface has been disabled"))
     }
@@ -166,7 +166,7 @@ impl WinTunAdapter {
     fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
         let guard = self.session.read().unwrap();
         if let Some(session) = guard.as_ref() {
-            return session.wait_readable_cancelable(&self.state, &self.event, cancel_event);
+            return session.wait_readable_cancelable(&self.event, cancel_event);
         }
         Err(io::Error::other("The interface has been disabled"))
     }
@@ -209,7 +209,7 @@ impl WinTunSession {
             };
         }
     }
-    fn recv(&self, state: &State, inner_event: &OwnedHandle, buf: &mut [u8]) -> io::Result<usize> {
+    fn recv(&self, inner_event: &OwnedHandle, buf: &mut [u8]) -> io::Result<usize> {
         loop {
             for i in 0..64 {
                 return match self.try_recv(buf) {
@@ -225,7 +225,7 @@ impl WinTunSession {
                     Err(e) => Err(e),
                 };
             }
-            self.wait_readable(state, inner_event)?;
+            self.wait_readable(inner_event)?;
         }
     }
     fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
@@ -273,7 +273,6 @@ impl WinTunSession {
     }
     fn wait_readable_cancelable(
         &self,
-        state: &State,
         inner_event: &OwnedHandle,
         cancel_event: &OwnedHandle,
     ) -> io::Result<()> {
@@ -295,7 +294,7 @@ impl WinTunSession {
                     //We have data!
                     Ok(())
                 } else if result == WAIT_OBJECT_0 + 1 {
-                    state.check()
+                    Err(io::Error::other("The interface has been disabled"))
                 } else if result == WAIT_OBJECT_0 + 2 {
                     Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"))
                 } else {
@@ -304,7 +303,7 @@ impl WinTunSession {
             }
         }
     }
-    fn wait_readable(&self, state: &State, inner_event: &OwnedHandle) -> io::Result<()> {
+    fn wait_readable(&self, inner_event: &OwnedHandle) -> io::Result<()> {
         //Wait on both the read handle and the shutdown handle so that we stop when requested
         let handles = [self.read_event, inner_event.as_raw_handle()];
         let result = unsafe {
@@ -319,7 +318,7 @@ impl WinTunSession {
                     //We have data!
                     Ok(())
                 } else if result == WAIT_OBJECT_0 + 1 {
-                    state.check()
+                    Err(io::Error::other("The interface has been disabled"))
                 } else {
                     Err(io::Error::last_os_error())
                 }
