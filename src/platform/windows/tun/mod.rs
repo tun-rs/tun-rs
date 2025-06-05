@@ -85,7 +85,7 @@ impl State {
 }
 impl WinTunAdapter {
     fn disable(&self) -> io::Result<()> {
-        let _guard = self.lock.lock();
+        let _guard = self.lock.lock().unwrap();
         self.state.disable();
         ffi::set_event(self.event.as_raw_handle())?;
         let _session = self.session.write().unwrap().take();
@@ -93,7 +93,7 @@ impl WinTunAdapter {
     }
 
     fn enable(&self) -> io::Result<()> {
-        let _guard = self.lock.lock();
+        let _guard = self.lock.lock().unwrap();
         if self.state.is_disabled() {
             let mut session = self.session.write().unwrap();
             unsafe {
