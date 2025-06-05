@@ -113,7 +113,6 @@ pub fn luid_to_alias(luid: &NET_LUID_LH) -> io::Result<String> {
         _err => Err(io::Error::last_os_error()),
     }
 }
-#[allow(dead_code)]
 pub fn reset_event(handle: RawHandle) -> io::Result<()> {
     unsafe {
         if FALSE == ResetEvent(handle) {
@@ -122,7 +121,6 @@ pub fn reset_event(handle: RawHandle) -> io::Result<()> {
     }
     Ok(())
 }
-#[allow(dead_code)]
 pub fn wait_for_single_object(handle: RawHandle, timeout: u32) -> io::Result<()> {
     unsafe {
         if 0 == WaitForSingleObject(handle, timeout) {
