@@ -64,10 +64,10 @@ struct State {
 }
 impl State {
     fn check(&self) -> io::Result<()> {
-        if self.is_disabled() {
-            Err(io::Error::other("The interface has been disabled"))
-        } else {
+        if self.is_enabled() {
             Ok(())
+        } else {
+            Err(io::Error::other("The interface has been disabled"))
         }
     }
     fn is_disabled(&self) -> bool {
