@@ -1,7 +1,8 @@
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::{io, ptr};
+
 use windows_sys::Win32::Foundation::{
     GetLastError, ERROR_BUFFER_OVERFLOW, ERROR_HANDLE_EOF, ERROR_INVALID_DATA, ERROR_NO_MORE_ITEMS,
     WAIT_FAILED, WAIT_OBJECT_0,
@@ -32,10 +33,9 @@ pub struct TunDevice {
 struct WinTunAdapter {
     win_tun: Arc<wintun_raw::wintun>,
     handle: wintun_raw::WINTUN_ADAPTER_HANDLE,
-    state: State,
     event: OwnedHandle,
     ring_capacity: u32,
-    lock: Mutex<()>,
+    state: State,
     session: RwLock<Option<WinTunSession>>,
     delete_driver: bool,
 }
@@ -61,6 +61,7 @@ impl Drop for WinTunAdapter {
 #[derive(Default)]
 struct State {
     state: AtomicBool,
+    lock: Mutex<()>,
 }
 impl State {
     fn check(&self) -> io::Result<()> {
@@ -71,21 +72,24 @@ impl State {
         }
     }
     fn is_disabled(&self) -> bool {
-        !self.state.load(Ordering::Acquire)
+        !self.state.load(Ordering::Relaxed)
     }
     fn is_enabled(&self) -> bool {
-        self.state.load(Ordering::Acquire)
+        self.state.load(Ordering::Relaxed)
     }
     fn disable(&self) {
-        self.state.store(false, Ordering::Release);
+        self.state.store(false, Ordering::Relaxed);
     }
     fn enable(&self) {
-        self.state.store(true, Ordering::Release);
+        self.state.store(true, Ordering::Relaxed);
+    }
+    fn lock(&self) -> MutexGuard<'_, ()> {
+        self.lock.lock().unwrap()
     }
 }
 impl WinTunAdapter {
     fn disable(&self) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.state.lock();
         if self.state.is_disabled() {
             return Ok(());
         }
@@ -94,12 +98,12 @@ impl WinTunAdapter {
             self.state.enable();
             return Err(e);
         }
-        let _session = self.session.write().unwrap().take();
+        _ = self.session.write().unwrap().take();
         ffi::reset_event(self.event.as_raw_handle())
     }
 
     fn enable(&self) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.state.lock();
         if self.state.is_disabled() {
             let mut session = self.session.write().unwrap();
             unsafe {
@@ -363,7 +367,6 @@ impl TunDevice {
                 state: State::default(),
                 event,
                 ring_capacity,
-                lock: Mutex::new(()),
                 session: Default::default(),
                 delete_driver,
             };
@@ -435,7 +438,6 @@ impl TunDevice {
                 state: State::default(),
                 event,
                 ring_capacity,
-                lock: Mutex::new(()),
                 session: Default::default(),
                 delete_driver,
             };
