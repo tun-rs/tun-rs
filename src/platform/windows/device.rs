@@ -33,6 +33,7 @@ impl DeviceImpl {
         let device = if layer == Layer::L3 {
             let wintun_file = config.wintun_file.as_deref().unwrap_or("wintun.dll");
             let ring_capacity = config.ring_capacity.unwrap_or(0x20_0000);
+            let delete_driver = config.delete_driver.unwrap_or(false);
             let mut attempts = 0;
             let tun_device = loop {
                 let default_name = format!("tun{count}");
@@ -44,7 +45,7 @@ impl DeviceImpl {
                         continue;
                     }
                     // Try to open an existing Wintun adapter.
-                    break TunDevice::open(wintun_file, name, ring_capacity)?;
+                    break TunDevice::open(wintun_file, name, ring_capacity, delete_driver)?;
                 }
                 let description = config.description.as_deref().unwrap_or(name);
                 match TunDevice::create(
@@ -53,6 +54,7 @@ impl DeviceImpl {
                     description,
                     config.device_guid,
                     ring_capacity,
+                    delete_driver,
                 ) {
                     Ok(tun_device) => break tun_device,
                     Err(e) => {
@@ -191,13 +193,7 @@ impl DeviceImpl {
     /// For a TAP device, this calls the appropriate method to set the device status.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
         match &self.driver {
-            Driver::Tun(_tun) => {
-                if value {
-                    Ok(())
-                } else {
-                    Err(io::Error::from(io::ErrorKind::Unsupported))
-                }
-            }
+            Driver::Tun(tun) => tun.enabled(value),
             Driver::Tap(tap) => tap.set_status(value),
         }
     }

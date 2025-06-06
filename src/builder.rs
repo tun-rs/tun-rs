@@ -61,6 +61,10 @@ pub(crate) struct DeviceConfig {
     /// Capacity of the ring buffer on Windows.
     #[cfg(windows)]
     pub ring_capacity: Option<u32>,
+    /// Whether to call WintunDeleteDriver to remove the driver.
+    /// Default: false.
+    #[cfg(windows)]
+    pub delete_driver: Option<bool>,
     /// switch of Enable/Disable packet information for network driver
     #[cfg(any(
         target_os = "tvos",
@@ -122,6 +126,8 @@ pub struct DeviceBuilder {
     ring_capacity: Option<u32>,
     #[cfg(windows)]
     metric: Option<u16>,
+    #[cfg(windows)]
+    delete_driver: Option<bool>,
     /// switch of Enable/Disable packet information for network driver
     #[cfg(any(
         target_os = "ios",
@@ -269,6 +275,13 @@ impl DeviceBuilder {
         self.metric = Some(metric);
         self
     }
+    /// Whether to call WintunDeleteDriver to remove the driver.
+    /// Default: false.
+    #[cfg(windows)]
+    pub fn delete_driver(mut self, delete_driver: bool) -> Self {
+        self.delete_driver = Some(delete_driver);
+        self
+    }
     /// Sets the transmit queue length on Linux.
     #[cfg(target_os = "linux")]
     pub fn tx_queue_len(mut self, tx_queue_len: u32) -> Self {
@@ -359,6 +372,8 @@ impl DeviceBuilder {
             wintun_file: self.wintun_file.take(),
             #[cfg(windows)]
             ring_capacity: self.ring_capacity.take(),
+            #[cfg(windows)]
+            delete_driver: self.delete_driver.take(),
             #[cfg(any(
                 target_os = "ios",
                 target_os = "tvos",
