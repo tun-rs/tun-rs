@@ -87,6 +87,7 @@ async_tokio = ["blocking", "tokio"]
 async_io = ["blocking", "async-io"]
 async_framed = ["futures", "futures-core"]
 interruptible = []
+experimental = []
 
 [package.metadata.docs.rs]
 all-features = true
