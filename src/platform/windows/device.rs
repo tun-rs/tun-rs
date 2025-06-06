@@ -25,28 +25,12 @@ impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
         let layer = config.layer.unwrap_or(Layer::L3);
-        let mut count = 0;
-        let interfaces: HashSet<String> = Self::get_all_adapter_address()?
-            .into_iter()
-            .map(|v| v.description)
-            .collect();
         let device = if layer == Layer::L3 {
             let wintun_file = config.wintun_file.as_deref().unwrap_or("wintun.dll");
             let ring_capacity = config.ring_capacity.unwrap_or(0x20_0000);
             let delete_driver = config.delete_driver.unwrap_or(false);
-            let mut attempts = 0;
-            let tun_device = loop {
-                let default_name = format!("tun{count}");
-                count += 1;
-                let name = config.dev_name.as_deref().unwrap_or(&default_name);
-
-                if interfaces.contains(name) {
-                    if config.dev_name.is_none() {
-                        continue;
-                    }
-                    // Try to open an existing Wintun adapter.
-                    break TunDevice::open(wintun_file, name, ring_capacity, delete_driver)?;
-                }
+            let tun_device = {
+                let name = config.dev_name.as_deref().unwrap_or("tun");
                 let description = config.description.as_deref().unwrap_or(name);
                 match TunDevice::create(
                     wintun_file,
@@ -56,12 +40,16 @@ impl DeviceImpl {
                     ring_capacity,
                     delete_driver,
                 ) {
-                    Ok(tun_device) => break tun_device,
+                    Ok(tun_device) => tun_device,
                     Err(e) => {
-                        if attempts > 3 {
-                            Err(e)?
-                        }
-                        attempts += 1;
+                        log::error!("Failed to create Wintun adapter: {}", e);
+
+                        // This is an attempt to fix the elusive "Failed to create Wintun adapter" error.
+                        // we cannot reproduce the issue on our end, but if it is caused by an existing adapter
+                        // that hasn't been cleaned up properly, it may help to open the adapter and return it.
+                        log::info!("Attempting to open existing adapter with name: '{}'", name);
+
+                        TunDevice::open(wintun_file, name, ring_capacity, delete_driver)?
                     }
                 }
             };
@@ -70,6 +58,13 @@ impl DeviceImpl {
                 driver: Driver::Tun(tun_device),
             }
         } else if layer == Layer::L2 {
+            let mut count = 0;
+
+            let interfaces: HashSet<String> = Self::get_all_adapter_address()?
+                .into_iter()
+                .map(|v| v.description)
+                .collect();
+
             const HARDWARE_ID: &str = "tap0901";
             let persist = config.persist.unwrap_or(false);
 
