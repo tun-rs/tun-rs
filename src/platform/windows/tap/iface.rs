@@ -1,31 +1,22 @@
+use crate::platform::windows::device::GUID_NETWORK_ADAPTER;
 use crate::platform::windows::ffi;
 use crate::platform::windows::ffi::decode_utf16;
 use scopeguard::{guard, ScopeGuard};
 use std::io;
 use std::os::windows::io::{FromRawHandle, OwnedHandle};
 use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
-use windows_sys::{
-    core::GUID,
-    Win32::{
-        Devices::DeviceAndDriverInstallation::{
-            DICD_GENERATE_ID, DICS_FLAG_GLOBAL, DIF_INSTALLDEVICE, DIF_INSTALLINTERFACES,
-            DIF_REGISTERDEVICE, DIF_REGISTER_COINSTALLERS, DIF_REMOVE, DIGCF_PRESENT, DIREG_DRV,
-            SPDIT_COMPATDRIVER, SPDRP_HARDWAREID,
-        },
-        Foundation::{GENERIC_READ, GENERIC_WRITE, TRUE},
-        NetworkManagement::Ndis::NET_LUID_LH,
-        Storage::FileSystem::{
-            FILE_ATTRIBUTE_SYSTEM, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-        },
-        System::Registry::{KEY_NOTIFY, KEY_QUERY_VALUE, REG_NOTIFY_CHANGE_NAME},
+use windows_sys::Win32::{
+    Devices::DeviceAndDriverInstallation::{
+        DICD_GENERATE_ID, DICS_FLAG_GLOBAL, DIF_INSTALLDEVICE, DIF_INSTALLINTERFACES,
+        DIF_REGISTERDEVICE, DIF_REGISTER_COINSTALLERS, DIF_REMOVE, DIGCF_PRESENT, DIREG_DRV,
+        SPDIT_COMPATDRIVER, SPDRP_HARDWAREID,
     },
-};
-
-const GUID_NETWORK_ADAPTER: GUID = GUID {
-    data1: 0x4d36e972,
-    data2: 0xe325,
-    data3: 0x11ce,
-    data4: [0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18],
+    Foundation::{GENERIC_READ, GENERIC_WRITE, TRUE},
+    NetworkManagement::Ndis::NET_LUID_LH,
+    Storage::FileSystem::{
+        FILE_ATTRIBUTE_SYSTEM, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    },
+    System::Registry::{KEY_NOTIFY, KEY_QUERY_VALUE, REG_NOTIFY_CHANGE_NAME},
 };
 
 #[repr(C, align(1))]
