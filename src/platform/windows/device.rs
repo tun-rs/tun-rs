@@ -47,10 +47,11 @@ impl DeviceImpl {
                     // Try to open an existing Wintun adapter.
                     break TunDevice::open(wintun_file, name, ring_capacity, delete_driver)?;
                 }
+                let description = config.description.as_deref().unwrap_or(name);
                 match TunDevice::create(
                     wintun_file,
                     name,
-                    name,
+                    description,
                     config.device_guid,
                     ring_capacity,
                     delete_driver,

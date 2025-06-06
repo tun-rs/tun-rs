@@ -381,7 +381,7 @@ impl TunDevice {
     pub fn create(
         wintun_path: &str,
         name: &str,
-        tunnel_type: &str,
+        description: &str,
         guid: Option<u128>,
         ring_capacity: u32,
         delete_driver: bool,
@@ -393,11 +393,11 @@ impl TunDevice {
             )))?;
         }
         let name_utf16 = encode_utf16(name);
-        let tunnel_type_utf16 = encode_utf16(tunnel_type);
+        let description_utf16 = encode_utf16(description);
         if name_utf16.len() > MAX_POOL {
             Err(io::Error::other("name too long"))?;
         }
-        if tunnel_type_utf16.len() > MAX_POOL {
+        if description_utf16.len() > MAX_POOL {
             Err(io::Error::other("tunnel type too long"))?;
         }
         unsafe {
@@ -420,7 +420,7 @@ impl TunDevice {
             //applies for all Wintun* functions below
             let adapter = win_tun.WintunCreateAdapter(
                 name_utf16.as_ptr(),
-                tunnel_type_utf16.as_ptr(),
+                description_utf16.as_ptr(),
                 guid_ptr,
             );
             if adapter.is_null() {
