@@ -151,7 +151,7 @@ impl DeviceBuilder {
         self.dev_name = Some(dev_name.into());
         self
     }
-    /// Sets the device description (effective only on Windows).
+    /// Sets the device description (effective only on Windows L3 mode).
     #[cfg(windows)]
     pub fn description<S: Into<String>>(mut self, description: S) -> Self {
         self.description = Some(description.into());
