@@ -30,6 +30,9 @@ pub enum Layer {
 pub(crate) struct DeviceConfig {
     /// The name of the device/interface.
     pub dev_name: Option<String>,
+    /// The description of the device/interface.
+    #[cfg(windows)]
+    pub description: Option<String>,
     /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
     #[cfg(target_os = "macos")]
     pub peer_feth: Option<String>,
@@ -87,6 +90,8 @@ type IPV4 = (
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,
+    #[cfg(windows)]
+    description: Option<String>,
     #[cfg(target_os = "macos")]
     peer_feth: Option<String>,
     #[cfg(target_os = "macos")]
@@ -144,6 +149,12 @@ impl DeviceBuilder {
     /// Sets the device name.
     pub fn name<S: Into<String>>(mut self, dev_name: S) -> Self {
         self.dev_name = Some(dev_name.into());
+        self
+    }
+    /// Sets the device description (effective only on Windows L3 mode).
+    #[cfg(windows)]
+    pub fn description<S: Into<String>>(mut self, description: S) -> Self {
+        self.description = Some(description.into());
         self
     }
     /// Sets the device MTU (Maximum Transmission Unit).
@@ -331,6 +342,8 @@ impl DeviceBuilder {
     pub(crate) fn build_config(&mut self) -> DeviceConfig {
         DeviceConfig {
             dev_name: self.dev_name.take(),
+            #[cfg(windows)]
+            description: self.description.take(),
             #[cfg(target_os = "macos")]
             peer_feth: self.peer_feth.take(),
             #[cfg(target_os = "macos")]
