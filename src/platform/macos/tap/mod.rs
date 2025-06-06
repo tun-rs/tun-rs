@@ -368,7 +368,7 @@ fn new_ifreq_str(name: &str) -> io::Result<ifreq> {
     if bytes.len() < 4 || &bytes[..4] != FETH.as_bytes() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "The prefix of the network card name must be 'fech'",
+            "The prefix of the network card name must be 'feth'",
         ));
     }
     let mut ifr: ifreq = unsafe { std::mem::zeroed() };
