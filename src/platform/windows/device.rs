@@ -111,6 +111,25 @@ impl DeviceImpl {
             Driver::Tun(tun) => tun.wait_readable_cancelable(cancel_event),
         }
     }
+    #[cfg(feature = "interruptible")]
+    pub fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        loop {
+            self.wait_readable_cancelable(&event.0)?;
+            match self.try_recv(buf) {
+                Ok(rs) => {
+                    return Ok(rs);
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
     /// Recv a packet from tun device
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         match &self.driver {

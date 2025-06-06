@@ -61,10 +61,21 @@ impl DeviceImpl {
     pub(crate) fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.tun.send_vectored(bufs)
     }
-    #[cfg_attr(docsrs, doc(cfg(feature = "experimental")))]
-    #[cfg(feature = "experimental")]
-    pub(crate) fn shutdown(&self) -> io::Result<()> {
-        self.tun.shutdown()
+    #[cfg(feature = "interruptible")]
+    pub(crate) fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.tun.read_interruptible(buf, event)
+    }
+    #[cfg(feature = "interruptible")]
+    pub(crate) fn readv_interruptible(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.tun.readv_interruptible(bufs, event)
     }
 }
 #[cfg(any(

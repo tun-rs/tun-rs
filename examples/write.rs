@@ -54,14 +54,6 @@ fn main_entry(quit: Receiver<()>) -> std::io::Result<()> {
 
     let mut buf = [0; 4096];
 
-    #[cfg(feature = "experimental")]
-    let dev2 = dev.clone();
-    #[cfg(feature = "experimental")]
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(5));
-        dev2.shutdown().unwrap();
-    });
-
     std::thread::spawn(move || {
         loop {
             let amount = dev.recv(&mut buf);

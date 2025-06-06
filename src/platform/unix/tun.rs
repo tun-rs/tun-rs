@@ -163,9 +163,21 @@ impl Tun {
     pub(crate) fn set_ignore_packet_info(&self, ign: bool) {
         self.ignore_packet_information.store(ign, Ordering::Relaxed);
     }
-    #[cfg(feature = "experimental")]
-    pub(crate) fn shutdown(&self) -> io::Result<()> {
-        self.fd.shutdown()
+    #[cfg(feature = "interruptible")]
+    pub(crate) fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.fd.read_interruptible(buf, event)
+    }
+    #[cfg(feature = "interruptible")]
+    pub(crate) fn readv_interruptible(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.fd.readv_interruptible(bufs, event)
     }
 }
 

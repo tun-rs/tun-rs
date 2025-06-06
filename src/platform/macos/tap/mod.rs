@@ -320,10 +320,6 @@ impl Tap {
         }
         Ok(pos)
     }
-    #[cfg(feature = "experimental")]
-    pub(crate) fn shutdown(&self) -> io::Result<()> {
-        self.s_bpf_fd.shutdown()
-    }
 }
 impl AsRawFd for Tap {
     fn as_raw_fd(&self) -> RawFd {

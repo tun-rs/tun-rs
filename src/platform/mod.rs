@@ -1,5 +1,6 @@
 #[cfg(unix)]
 pub(crate) mod unix;
+
 #[cfg(all(
     unix,
     not(any(
@@ -10,6 +11,12 @@ pub(crate) mod unix;
     ))
 ))]
 pub use self::unix::DeviceImpl;
+#[cfg(unix)]
+#[cfg(feature = "interruptible")]
+pub use unix::InterruptEvent;
+#[cfg(windows)]
+#[cfg(feature = "interruptible")]
+pub use windows::InterruptEvent;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub(crate) mod linux;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
@@ -96,13 +103,58 @@ impl SyncDevice {
     pub fn shutdown(&self) -> std::io::Result<()> {
         self.0.shutdown()
     }
-    /// Shuts down the device on Unix when the experimental feature is enabled.
+    /// Reads data into the provided buffer, with support for interruption.
     ///
-    /// This method signals the device to stop operations.
-    #[cfg(all(unix, feature = "experimental"))]
-    pub fn shutdown(&self) -> std::io::Result<()> {
-        self.0.shutdown()
+    /// This function attempts to read from the underlying file descriptor into `buf`,
+    /// and can be interrupted using the given [`InterruptEvent`]. If the `event` is triggered
+    /// while the read operation is blocked, the function will return early with
+    /// an error of kind [`io::ErrorKind::Interrupted`].
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - The buffer to store the read data.
+    /// * `event` - An [`InterruptEvent`] used to interrupt the blocking read.
+    ///
+    /// # Returns
+    ///
+    /// On success, returns the number of bytes read. On failure, returns an [`io::Error`].
+    ///
+    /// # Platform-specific Behavior
+    ///
+    /// On **Unix platforms**, this function **must not be called concurrently** with other
+    /// read operations on the same file descriptor. Doing so may result in the read operation
+    /// not responding to the interrupt signal. External synchronization is required.
+    ///
+    /// On **non-Unix platforms**, concurrent reads are allowed.
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
+    #[cfg(feature = "interruptible")]
+    pub fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> std::io::Result<usize> {
+        self.0.read_interruptible(buf, event)
     }
+    /// Like [`read_interruptible`](Self::read_interruptible), but reads into multiple buffers.
+    ///
+    /// This function behaves the same as [`read_interruptible`](Self::read_interruptible),
+    /// but uses `readv` to fill the provided set of non-contiguous buffers.
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
+    #[cfg(all(unix, feature = "interruptible"))]
+    pub fn readv_interruptible(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &crate::InterruptEvent,
+    ) -> std::io::Result<usize> {
+        self.0.readv_interruptible(bufs, event)
+    }
+
     /// Receives data from the device into multiple buffers using vectored I/O.
     ///
     /// **Note:** This method operates on a single packet only. It will only read data from one packet,

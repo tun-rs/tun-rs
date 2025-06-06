@@ -287,13 +287,6 @@ impl TunTap {
             Ok(())
         }
     }
-    #[cfg(feature = "experimental")]
-    pub(crate) fn shutdown(&self) -> io::Result<()> {
-        match &self {
-            TunTap::Tun(tun) => tun.shutdown(),
-            TunTap::Tap(tap) => tap.shutdown(),
-        }
-    }
 }
 impl AsRawFd for TunTap {
     fn as_raw_fd(&self) -> RawFd {

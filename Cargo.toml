@@ -86,7 +86,7 @@ async_std = ["async_io"]
 async_tokio = ["blocking", "tokio"]
 async_io = ["blocking", "async-io"]
 async_framed = ["futures", "futures-core"]
-experimental = []
+interruptible = []
 
 [package.metadata.docs.rs]
 all-features = true
@@ -117,3 +117,7 @@ required-features = ["async_tokio"]
 [[example]]
 name = "async_tap"
 required-features = ["async_tokio"]
+
+[[example]]
+name = "read_interruptible"
+required-features = ["interruptible"]
