@@ -112,7 +112,7 @@ impl DeviceImpl {
         }
     }
     #[cfg(feature = "interruptible")]
-    pub fn read_interruptible(
+    pub(crate) fn read_interruptible(
         &self,
         buf: &mut [u8],
         event: &crate::InterruptEvent,
