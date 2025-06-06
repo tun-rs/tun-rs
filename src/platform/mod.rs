@@ -103,6 +103,11 @@ impl SyncDevice {
     pub fn shutdown(&self) -> std::io::Result<()> {
         self.0.shutdown()
     }
+    #[cfg(all(unix, feature = "experimental"))]
+    #[deprecated]
+    pub fn shutdown(&self) -> std::io::Result<()> {
+        std::io::Error::from(std::io::ErrorKind::Unsupported)
+    }
     /// Reads data into the provided buffer, with support for interruption.
     ///
     /// This function attempts to read from the underlying file descriptor into `buf`,
