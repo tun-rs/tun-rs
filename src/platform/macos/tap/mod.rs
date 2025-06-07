@@ -320,6 +320,70 @@ impl Tap {
         }
         Ok(pos)
     }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        loop {
+            self.wait_readable_interruptible(event)?;
+            match self.recv(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                rs => return rs,
+            }
+        }
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn readv_interruptible(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        loop {
+            self.wait_readable_interruptible(event)?;
+            match self.recv_vectored(bufs) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                rs => return rs,
+            }
+        }
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_readable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        self.s_bpf_fd.wait_readable_interruptible(event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn write_interruptible(
+        &self,
+        buf: &[u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.s_ndrv_fd.write_interruptible(buf, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn writev_interruptible(
+        &self,
+        bufs: &[IoSlice<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.s_ndrv_fd.writev_interruptible(bufs, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_writable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        self.s_ndrv_fd.wait_writable_interruptible(event)
+    }
 }
 impl AsRawFd for Tap {
     fn as_raw_fd(&self) -> RawFd {
