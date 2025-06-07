@@ -84,6 +84,8 @@ impl WriteOverlapped {
                 if let Err(e) = &result {
                     if e.kind() == io::ErrorKind::WouldBlock {
                         inner.no_pending_io = false;
+                        // WouldBlock here means the async write was successfully submitted and is still in progress
+                        return Ok(buf.len());
                     }
                 }
                 result
