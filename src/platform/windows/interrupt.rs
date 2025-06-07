@@ -10,4 +10,8 @@ impl InterruptEvent {
     pub fn wake(&self) -> io::Result<()> {
         ffi::set_event(self.0.as_raw_handle())
     }
+    #[cfg(feature = "interruptible")]
+    pub fn reset(&self) -> io::Result<()> {
+        ffi::reset_event(self.0.as_raw_handle())
+    }
 }

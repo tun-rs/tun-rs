@@ -260,7 +260,7 @@ pub fn cancel_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::R
 pub fn read_file(
     handle: HANDLE,
     buffer: &mut [u8],
-    cancel_event: Option<RawHandle>,
+    interrupt_event: Option<RawHandle>,
 ) -> io::Result<u32> {
     let mut ret = 0;
     //https://www.cnblogs.com/linyilong3/archive/2012/05/03/2480451.html
@@ -278,8 +278,8 @@ pub fn read_file(
         ) {
             let e = io::Error::last_os_error();
             if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                if let Some(cancel_event) = cancel_event {
-                    wait_io_overlapped_cancelable(handle, &io_overlapped, cancel_event)
+                if let Some(interrupt_event) = interrupt_event {
+                    wait_io_overlapped_interruptible(handle, &io_overlapped, interrupt_event)
                 } else {
                     wait_io_overlapped(handle, &io_overlapped)
                 }
@@ -295,7 +295,7 @@ pub fn read_file(
 pub fn write_file(
     handle: HANDLE,
     buffer: &[u8],
-    cancel_event: Option<RawHandle>,
+    interrupt_event: Option<RawHandle>,
 ) -> io::Result<u32> {
     let mut ret = 0;
     let mut io_overlapped = io_overlapped();
@@ -311,8 +311,8 @@ pub fn write_file(
         ) {
             let e = io::Error::last_os_error();
             if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                if let Some(cancel_event) = cancel_event {
-                    wait_io_overlapped_cancelable(handle, &io_overlapped, cancel_event)
+                if let Some(interrupt_event) = interrupt_event {
+                    wait_io_overlapped_interruptible(handle, &io_overlapped, interrupt_event)
                 } else {
                     wait_io_overlapped(handle, &io_overlapped)
                 }
@@ -335,12 +335,12 @@ pub fn wait_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Res
         }
     }
 }
-pub fn wait_io_overlapped_cancelable(
+pub fn wait_io_overlapped_interruptible(
     handle: HANDLE,
     io_overlapped: &OVERLAPPED,
-    cancel_event: RawHandle,
+    interrupt_event: RawHandle,
 ) -> io::Result<u32> {
-    let handles = [io_overlapped.hEvent, cancel_event];
+    let handles = [io_overlapped.hEvent, interrupt_event];
     unsafe {
         let wait_ret = WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE);
         match wait_ret {
@@ -357,7 +357,10 @@ pub fn wait_io_overlapped_cancelable(
                 if wait_ret == windows_sys::Win32::Foundation::WAIT_OBJECT_0 + 1 {
                     _ = CancelIoEx(handle, io_overlapped);
                     _ = WaitForSingleObject(io_overlapped.hEvent, INFINITE);
-                    Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"))
+                    Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "trigger interrupt",
+                    ))
                 } else {
                     Err(io::Error::last_os_error())
                 }

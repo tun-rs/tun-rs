@@ -60,6 +60,9 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
     );
 
     println!("if_index = {:?}", dev.if_index());
+    #[cfg(unix)]
+    dev.set_nonblocking(true)?;
+
     let event = Arc::new(InterruptEvent::new()?);
     let event_clone = event.clone();
     let join = std::thread::spawn(move || {
@@ -68,6 +71,12 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
             match dev.read_interruptible(&mut buf, &event_clone) {
                 Ok(len) => {
                     println!("read_interruptible Ok({len})");
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                    // If the interrupt event is to be reused, it must be reset before the next wait.
+                    event_clone.reset().unwrap();
+                    println!("read_interruptible Err({e:?})");
+                    return;
                 }
                 Err(e) => {
                     println!("Error: {:?}", e);

@@ -106,7 +106,7 @@ impl SyncDevice {
     #[cfg(all(unix, feature = "experimental"))]
     #[deprecated]
     pub fn shutdown(&self) -> std::io::Result<()> {
-        std::io::Error::from(std::io::ErrorKind::Unsupported)
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
     }
     /// Reads data into the provided buffer, with support for interruption.
     ///
@@ -126,11 +126,8 @@ impl SyncDevice {
     ///
     /// # Platform-specific Behavior
     ///
-    /// On **Unix platforms**, this function **must not be called concurrently** with other
-    /// read operations on the same file descriptor. Doing so may result in the read operation
-    /// not responding to the interrupt signal. External synchronization is required.
-    ///
-    /// On **non-Unix platforms**, concurrent reads are allowed.
+    /// On **Unix platforms**, it is recommended to use this together with `set_nonblocking(true)`.
+    /// Without setting non-blocking mode, concurrent reads may not respond properly to interrupt signals.
     ///
     /// # Feature
     ///
@@ -139,7 +136,7 @@ impl SyncDevice {
     pub fn read_interruptible(
         &self,
         buf: &mut [u8],
-        event: &crate::InterruptEvent,
+        event: &InterruptEvent,
     ) -> std::io::Result<usize> {
         self.0.read_interruptible(buf, event)
     }
@@ -155,11 +152,35 @@ impl SyncDevice {
     pub fn readv_interruptible(
         &self,
         bufs: &mut [IoSliceMut<'_>],
-        event: &crate::InterruptEvent,
+        event: &InterruptEvent,
     ) -> std::io::Result<usize> {
         self.0.readv_interruptible(bufs, event)
     }
-
+    #[cfg(feature = "interruptible")]
+    pub fn wait_readable_interruptible(&self, event: &InterruptEvent) -> std::io::Result<()> {
+        self.0.wait_readable_interruptible(event)
+    }
+    #[cfg(feature = "interruptible")]
+    pub fn write_interruptible(
+        &self,
+        buf: &[u8],
+        event: &InterruptEvent,
+    ) -> std::io::Result<usize> {
+        self.0.write_interruptible(buf, event)
+    }
+    #[cfg(all(unix, feature = "interruptible"))]
+    pub fn writev_interruptible(
+        &self,
+        bufs: &[IoSlice<'_>],
+        event: &InterruptEvent,
+    ) -> std::io::Result<usize> {
+        self.0.writev_interruptible(bufs, event)
+    }
+    #[cfg(all(unix, feature = "interruptible"))]
+    #[inline]
+    pub fn wait_writable_interruptible(&self, event: &InterruptEvent) -> std::io::Result<()> {
+        self.0.wait_writable_interruptible(event)
+    }
     /// Receives data from the device into multiple buffers using vectored I/O.
     ///
     /// **Note:** This method operates on a single packet only. It will only read data from one packet,

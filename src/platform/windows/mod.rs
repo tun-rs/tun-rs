@@ -1,11 +1,11 @@
 mod device;
 pub(crate) mod ffi;
-#[cfg(feature = "interruptible")]
+#[cfg(any(feature = "interruptible", feature = "async", feature = "async_io"))]
 mod interrupt;
 mod netsh;
 mod tap;
 mod tun;
-#[cfg(feature = "interruptible")]
+#[cfg(any(feature = "interruptible", feature = "async", feature = "async_io"))]
 pub use interrupt::InterruptEvent;
 
 pub use device::DeviceImpl;

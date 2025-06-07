@@ -203,20 +203,21 @@ impl TapDevice {
             &mut out_status,
         )
     }
-    pub fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
+    #[cfg(any(feature = "interruptible", feature = "async", feature = "async_io"))]
+    pub fn wait_readable_interruptible(&self, interrupt_event: &OwnedHandle) -> io::Result<()> {
         let mut guard = self.read_io_overlapped.lock().unwrap();
         let (overlapped, read_buffer, len) = guard.deref_mut();
         let n = if let Some(mut overlapped) = overlapped.take() {
-            ffi::wait_io_overlapped_cancelable(
+            ffi::wait_io_overlapped_interruptible(
                 self.handle.as_raw_handle(),
                 overlapped.as_mut_overlapped(),
-                cancel_event.as_raw_handle(),
+                interrupt_event.as_raw_handle(),
             )?
         } else {
             ffi::read_file(
                 self.handle.as_raw_handle(),
                 read_buffer,
-                Some(cancel_event.as_raw_handle()),
+                Some(interrupt_event.as_raw_handle()),
             )?
         };
         _ = len.replace(n as usize);
@@ -298,24 +299,20 @@ impl TapDevice {
         ffi::write_file(self.handle.as_raw_handle(), buf, None).map(|res| res as _)
     }
 
-    #[cfg(any(feature = "async_tokio", feature = "async_io"))]
-    pub(crate) fn write_cancelable(
-        &self,
-        buf: &[u8],
-        cancel_event: &OwnedHandle,
-    ) -> io::Result<usize> {
+    #[allow(dead_code)]
+    pub(crate) fn write_interruptible(&self, buf: &[u8], event: &OwnedHandle) -> io::Result<usize> {
         let mut guard = self.write_io_overlapped.lock().unwrap();
         if let Some((overlapped, _write_buffer)) = guard.take() {
-            ffi::wait_io_overlapped_cancelable(
+            ffi::wait_io_overlapped_interruptible(
                 self.handle.as_raw_handle(),
                 overlapped.as_overlapped(),
-                cancel_event.as_raw_handle(),
+                event.as_raw_handle(),
             )?;
         }
         ffi::write_file(
             self.handle.as_raw_handle(),
             buf,
-            Some(cancel_event.as_raw_handle()),
+            Some(event.as_raw_handle()),
         )
         .map(|res| res as _)
     }

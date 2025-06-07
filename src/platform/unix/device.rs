@@ -77,6 +77,39 @@ impl DeviceImpl {
     ) -> io::Result<usize> {
         self.tun.readv_interruptible(bufs, event)
     }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_readable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        self.tun.wait_readable_interruptible(event)
+    }
+    #[cfg(feature = "interruptible")]
+    pub(crate) fn write_interruptible(
+        &self,
+        buf: &[u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.tun.write_interruptible(buf, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn writev_interruptible(
+        &self,
+        bufs: &[IoSlice<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.tun.writev_interruptible(bufs, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_writable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        self.tun.wait_writable_interruptible(event)
+    }
 }
 #[cfg(any(
     all(target_os = "linux", not(target_env = "ohos")),
