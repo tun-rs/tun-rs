@@ -1,4 +1,4 @@
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
+use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
 use std::{io, mem, ptr};
 
 use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, NO_ERROR};
@@ -6,9 +6,7 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
     GetIpInterfaceTable, MIB_IPINTERFACE_ROW, MIB_IPINTERFACE_TABLE,
 };
 use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
-use windows_sys::Win32::System::Threading::{
-    ResetEvent, SetEvent, WaitForMultipleObjects, INFINITE,
-};
+use windows_sys::Win32::System::Threading::{ResetEvent, SetEvent};
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::{
     core::GUID,
@@ -252,76 +250,8 @@ pub fn try_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Resu
 #[allow(dead_code)]
 pub fn cancel_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Result<u32> {
     unsafe {
-        windows_sys::Win32::System::IO::CancelIoEx(handle, io_overlapped);
+        CancelIoEx(handle, io_overlapped);
         wait_io_overlapped(handle, io_overlapped)
-    }
-}
-
-pub fn read_file(
-    handle: HANDLE,
-    buffer: &mut [u8],
-    interrupt_event: Option<RawHandle>,
-) -> io::Result<u32> {
-    let mut ret = 0;
-    //https://www.cnblogs.com/linyilong3/archive/2012/05/03/2480451.html
-    unsafe {
-        let mut io_overlapped = io_overlapped();
-        let io_event = create_event()?;
-        io_overlapped.hEvent = io_event.as_raw_handle();
-
-        if 0 == ReadFile(
-            handle,
-            buffer.as_mut_ptr() as _,
-            buffer.len() as _,
-            &mut ret,
-            &mut io_overlapped,
-        ) {
-            let e = io::Error::last_os_error();
-            if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                if let Some(interrupt_event) = interrupt_event {
-                    wait_io_overlapped_interruptible(handle, &io_overlapped, interrupt_event)
-                } else {
-                    wait_io_overlapped(handle, &io_overlapped)
-                }
-            } else {
-                Err(e)
-            }
-        } else {
-            Ok(ret)
-        }
-    }
-}
-
-pub fn write_file(
-    handle: HANDLE,
-    buffer: &[u8],
-    interrupt_event: Option<RawHandle>,
-) -> io::Result<u32> {
-    let mut ret = 0;
-    let mut io_overlapped = io_overlapped();
-    let io_event = create_event()?;
-    io_overlapped.hEvent = io_event.as_raw_handle();
-    unsafe {
-        if 0 == WriteFile(
-            handle,
-            buffer.as_ptr() as _,
-            buffer.len() as _,
-            &mut ret,
-            &mut io_overlapped,
-        ) {
-            let e = io::Error::last_os_error();
-            if e.raw_os_error().unwrap_or(0) == ERROR_IO_PENDING as i32 {
-                if let Some(interrupt_event) = interrupt_event {
-                    wait_io_overlapped_interruptible(handle, &io_overlapped, interrupt_event)
-                } else {
-                    wait_io_overlapped(handle, &io_overlapped)
-                }
-            } else {
-                Err(e)
-            }
-        } else {
-            Ok(ret)
-        }
     }
 }
 
@@ -332,39 +262,6 @@ pub fn wait_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Res
             Err(io::Error::last_os_error())
         } else {
             Ok(ret)
-        }
-    }
-}
-pub fn wait_io_overlapped_interruptible(
-    handle: HANDLE,
-    io_overlapped: &OVERLAPPED,
-    interrupt_event: RawHandle,
-) -> io::Result<u32> {
-    let handles = [io_overlapped.hEvent, interrupt_event];
-    unsafe {
-        let wait_ret = WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE);
-        match wait_ret {
-            windows_sys::Win32::Foundation::WAIT_OBJECT_0 => {
-                let mut transferred = 0u32;
-                let ok = GetOverlappedResult(handle, io_overlapped, &mut transferred, 0);
-                if ok != 0 {
-                    Ok(transferred)
-                } else {
-                    Err(io::Error::last_os_error())
-                }
-            }
-            _ => {
-                if wait_ret == windows_sys::Win32::Foundation::WAIT_OBJECT_0 + 1 {
-                    _ = CancelIoEx(handle, io_overlapped);
-                    _ = WaitForSingleObject(io_overlapped.hEvent, INFINITE);
-                    Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        "trigger interrupt",
-                    ))
-                } else {
-                    Err(io::Error::last_os_error())
-                }
-            }
         }
     }
 }
