@@ -104,7 +104,6 @@ impl SyncDevice {
         self.0.shutdown()
     }
     #[cfg(all(unix, feature = "experimental"))]
-    #[deprecated]
     pub fn shutdown(&self) -> std::io::Result<()> {
         Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
     }

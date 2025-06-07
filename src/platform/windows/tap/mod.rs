@@ -203,7 +203,11 @@ impl TapDevice {
             &mut out_status,
         )
     }
-    #[cfg(any(feature = "interruptible", feature = "async", feature = "async_io"))]
+    #[cfg(any(
+        feature = "interruptible",
+        feature = "async_tokio",
+        feature = "async_io"
+    ))]
     pub fn wait_readable_interruptible(&self, interrupt_event: &OwnedHandle) -> io::Result<()> {
         let mut guard = self.read_io_overlapped.lock().unwrap();
         let (overlapped, read_buffer, len) = guard.deref_mut();

@@ -103,7 +103,11 @@ impl DeviceImpl {
         };
         Ok(device)
     }
-    #[cfg(any(feature = "interruptible", feature = "async", feature = "async_io"))]
+    #[cfg(any(
+        feature = "interruptible",
+        feature = "async_tokio",
+        feature = "async_io"
+    ))]
     pub(crate) fn wait_readable_interruptible(
         &self,
         event: &crate::platform::windows::InterruptEvent,
@@ -153,7 +157,11 @@ impl DeviceImpl {
             Driver::Tun(tun) => tun.send(buf),
         }
     }
-    #[cfg(any(feature = "interruptible", feature = "async", feature = "async_io"))]
+    #[cfg(any(
+        feature = "interruptible",
+        feature = "async_tokio",
+        feature = "async_io"
+    ))]
     pub(crate) fn write_interruptible(
         &self,
         buf: &[u8],
