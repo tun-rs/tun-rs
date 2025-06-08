@@ -186,7 +186,12 @@ impl DeviceBuilder {
         self
     }
     /// Sets the MAC address for the device (effective only in L2 mode).
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "macos"
+    ))]
     pub fn mac_addr(mut self, mac_addr: [u8; 6]) -> Self {
         self.mac_addr = Some(mac_addr);
         self
@@ -410,9 +415,7 @@ impl DeviceBuilder {
             target_os = "macos"
         ))]
         if let Some(mac_addr) = self.mac_addr {
-            if self.layer.unwrap_or_default() == Layer::L2 {
-                device.set_mac_address(mac_addr)?;
-            }
+            device.set_mac_address(mac_addr)?;
         }
 
         if let Some((address, prefix, destination)) = self.ipv4 {
