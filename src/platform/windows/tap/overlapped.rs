@@ -124,6 +124,9 @@ impl Drop for OwnedOVERLAPPED {
 impl OwnedOVERLAPPED {
     pub fn new(file_handle: Arc<OwnedHandle>) -> io::Result<OwnedOVERLAPPED> {
         let event_handle = Arc::new(ffi::create_event()?);
+        // Set the event to signaled when initializing OVERLAPPED,
+        // so that the first wait does not block unexpectedly
+        ffi::set_event(event_handle.as_raw_handle())?;
         let mut overlapped = Box::new(ffi::io_overlapped());
         overlapped.hEvent = event_handle.as_raw_handle();
         Ok(Self {
