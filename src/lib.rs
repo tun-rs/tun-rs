@@ -34,8 +34,6 @@ loop {
 ```
 */
 
-extern crate alloc;
-
 #[cfg(any(
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
