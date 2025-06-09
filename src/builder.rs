@@ -65,6 +65,8 @@ pub(crate) struct DeviceConfig {
     /// Default: false.
     #[cfg(windows)]
     pub delete_driver: Option<bool>,
+    #[cfg(windows)]
+    pub mac_address: Option<String>,
     /// switch of Enable/Disable packet information for network driver
     #[cfg(any(
         target_os = "tvos",
@@ -379,6 +381,10 @@ impl DeviceBuilder {
             ring_capacity: self.ring_capacity.take(),
             #[cfg(windows)]
             delete_driver: self.delete_driver.take(),
+            #[cfg(windows)]
+            mac_address: self
+                .mac_addr
+                .map(|v| v.iter().map(|b| format!("{:02X}", b)).collect::<String>()),
             #[cfg(any(
                 target_os = "ios",
                 target_os = "tvos",
@@ -408,12 +414,7 @@ impl DeviceBuilder {
         if let Some(tx_queue_len) = self.tx_queue_len {
             device.set_tx_queue_len(tx_queue_len)?;
         }
-        #[cfg(any(
-            target_os = "windows",
-            target_os = "linux",
-            target_os = "freebsd",
-            target_os = "macos"
-        ))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
         if let Some(mac_addr) = self.mac_addr {
             device.set_mac_address(mac_addr)?;
         }

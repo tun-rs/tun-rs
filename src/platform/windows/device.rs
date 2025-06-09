@@ -97,10 +97,11 @@ impl DeviceImpl {
                             "The network adapter [{name}] already exists."
                         )))?
                     }
-                    let tap = TapDevice::open(HARDWARE_ID, name, persist)?;
+                    let tap =
+                        TapDevice::open(HARDWARE_ID, name, persist, config.mac_address.as_ref())?;
                     break tap;
                 }
-                let tap = TapDevice::create(HARDWARE_ID, persist)?;
+                let tap = TapDevice::create(HARDWARE_ID, persist, config.mac_address.as_ref())?;
                 if let Err(e) = tap.set_name(name) {
                     if config.dev_name.is_some() {
                         Err(e)?
