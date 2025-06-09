@@ -58,6 +58,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_LibraryLoader",
     "Win32_NetworkManagement_IpHelper",
+    "Win32_Devices_Properties",
+    "Win32_System_SystemInformation",
 ] }
 libloading = "0.8"
 
