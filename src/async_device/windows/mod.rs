@@ -284,7 +284,7 @@ struct CancelWaitGuard<'a> {
 
 impl Drop for CancelWaitGuard<'_> {
     fn drop(&mut self) {
-        _ = self.cancel_event_handle.wake();
+        _ = self.cancel_event_handle.trigger();
         _ = ffi::wait_for_single_object(self.exit_event_handle.as_raw_handle(), 10);
     }
 }

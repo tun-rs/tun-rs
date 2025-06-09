@@ -2,6 +2,7 @@ use crate::platform::unix::Fd;
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
 use std::os::fd::AsRawFd;
+use std::sync::Mutex;
 
 impl Fd {
     pub(crate) fn read_interruptible(
@@ -141,6 +142,7 @@ impl Fd {
 }
 
 pub struct InterruptEvent {
+    state: Mutex<bool>,
     read_fd: Fd,
     write_fd: Fd,
 }
@@ -155,10 +157,16 @@ impl InterruptEvent {
             let read_fd = Fd::new_unchecked(fds[0]);
             let write_fd = Fd::new_unchecked(fds[1]);
             read_fd.set_nonblocking(true)?;
-            Ok(Self { read_fd, write_fd })
+            Ok(Self {
+                state: Default::default(),
+                read_fd,
+                write_fd,
+            })
         }
     }
-    pub fn wake(&self) -> io::Result<()> {
+    pub fn trigger(&self) -> io::Result<()> {
+        let mut guard = self.state.lock().unwrap();
+        *guard = true;
         let buf: [u8; 8] = 1u64.to_ne_bytes();
         let res = unsafe {
             libc::write(
@@ -173,8 +181,13 @@ impl InterruptEvent {
             Ok(())
         }
     }
+    pub fn is_trigger(&self) -> bool {
+        *self.state.lock().unwrap()
+    }
     pub fn reset(&self) -> io::Result<()> {
         let mut buf = [0; 8];
+        let mut guard = self.state.lock().unwrap();
+        *guard = false;
         loop {
             unsafe {
                 let res = libc::read(

@@ -113,8 +113,8 @@ impl DeviceImpl {
         event: &crate::platform::windows::InterruptEvent,
     ) -> io::Result<()> {
         match &self.driver {
-            Driver::Tap(tap) => tap.wait_readable_interruptible(&event.0),
-            Driver::Tun(tun) => tun.wait_readable_interruptible(&event.0),
+            Driver::Tap(tap) => tap.wait_readable_interruptible(&event.handle),
+            Driver::Tun(tun) => tun.wait_readable_interruptible(&event.handle),
         }
     }
     #[cfg(feature = "interruptible")]
@@ -168,8 +168,8 @@ impl DeviceImpl {
         event: &crate::platform::windows::InterruptEvent,
     ) -> io::Result<usize> {
         match &self.driver {
-            Driver::Tap(tap) => tap.write_interruptible(buf, &event.0),
-            Driver::Tun(tun) => tun.send_interruptible(buf, &event.0),
+            Driver::Tap(tap) => tap.write_interruptible(buf, &event.handle),
+            Driver::Tun(tun) => tun.send_interruptible(buf, &event.handle),
         }
     }
     pub(crate) fn try_send(&self, buf: &[u8]) -> io::Result<usize> {

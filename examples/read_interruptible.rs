@@ -74,8 +74,10 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {
                     // If the interrupt event is to be reused, it must be reset before the next wait.
-                    event_clone.reset().unwrap();
-                    println!("read_interruptible Err({e:?})");
+                    if event_clone.is_trigger() {
+                        event_clone.reset().unwrap();
+                        println!("read_interruptible Err({e:?})");
+                    }
                     return;
                 }
                 Err(e) => {
@@ -86,7 +88,7 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
         }
     });
     _ = quit.recv();
-    event.wake()?;
+    event.trigger()?;
     join.join().unwrap();
     Ok(())
 }
