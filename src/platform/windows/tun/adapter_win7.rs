@@ -77,7 +77,7 @@ pub fn check_adapter_if_orphaned_devices_win7(adapter_name: &str) -> bool {
                     index += 1;
                     continue;
                 };
-                if adapter_name == &name {
+                if adapter_name == name {
                     break true;
                 }
             }
@@ -116,6 +116,6 @@ fn process_is_stale(owning_process: &OwningProcess) -> bool {
     if ret == 0 {
         return false;
     }
-    return creation_time.dwHighDateTime == owning_process.creation_time.dwHighDateTime
-        && creation_time.dwLowDateTime == owning_process.creation_time.dwLowDateTime;
+    creation_time.dwHighDateTime == owning_process.creation_time.dwHighDateTime
+        && creation_time.dwLowDateTime == owning_process.creation_time.dwLowDateTime
 }
