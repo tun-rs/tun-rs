@@ -54,7 +54,6 @@ impl DeviceImpl {
 
                     // Resolves an issue where there are orphaned adapters. fixes #33
                     let is_orphaned_adapter = check_adapter_if_orphaned_devices(name);
-                    log::error!("is_orphaned_adapter: {}", is_orphaned_adapter);
                     if !is_orphaned_adapter {
                         // Try to open an existing Wintun adapter.
                         break TunDevice::open(wintun_file, name, ring_capacity, delete_driver)?;
