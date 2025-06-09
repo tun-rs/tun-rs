@@ -382,9 +382,14 @@ impl DeviceBuilder {
             #[cfg(windows)]
             delete_driver: self.delete_driver.take(),
             #[cfg(windows)]
-            mac_address: self
-                .mac_addr
-                .map(|v| v.iter().map(|b| format!("{:02X}", b)).collect::<String>()),
+            mac_address: self.mac_addr.map(|v| {
+                use std::fmt::Write;
+                v.iter()
+                    .fold(String::with_capacity(v.len() * 2), |mut s, b| {
+                        write!(&mut s, "{:02X}", b).unwrap();
+                        s
+                    })
+            }),
             #[cfg(any(
                 target_os = "ios",
                 target_os = "tvos",

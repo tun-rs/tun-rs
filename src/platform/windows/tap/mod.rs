@@ -145,9 +145,9 @@ impl TapDevice {
             let guid = ffi::string_from_guid(&guid)?;
             iface::set_adapter_mac_by_guid(&guid, mac)?;
             std::thread::sleep(time::Duration::from_millis(1));
-            iface::enable_adapter(&name, false)?;
+            iface::enable_adapter(name, false)?;
             std::thread::sleep(time::Duration::from_millis(1));
-            iface::enable_adapter(&name, true)?;
+            iface::enable_adapter(name, true)?;
         }
         let handle = iface::open_interface(&luid)?;
         let index = ffi::luid_to_index(&luid)?;

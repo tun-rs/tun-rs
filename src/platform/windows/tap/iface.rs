@@ -331,8 +331,8 @@ pub fn set_adapter_mac_by_guid(adapter_guid: &str, new_mac: &str) -> io::Result<
     Ok(())
 }
 pub fn enable_adapter(adapter_name: &str, val: bool) -> io::Result<()> {
-    let status = Command::new("wmic")
-        .args(&[
+    let out = Command::new("wmic")
+        .args([
             "path",
             "win32_networkadapter",
             "where",
@@ -340,10 +340,8 @@ pub fn enable_adapter(adapter_name: &str, val: bool) -> io::Result<()> {
             "call",
             if val { "enable" } else { "disable" },
         ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
-    if status.success() {
+        .output()?;
+    if out.status.success() {
         Ok(())
     } else {
         Err(io::Error::other("Failed to enable adapter"))
