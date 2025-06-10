@@ -1,4 +1,4 @@
-use crate::platform::windows::ffi;
+use crate::platform::windows::{ffi, InterruptEvent};
 use crate::platform::DeviceImpl;
 use crate::SyncDevice;
 use std::future::Future;
@@ -175,7 +175,7 @@ impl AsyncDevice {
         let (cancel_guard, exit_guard) = canceller.guard(device);
         blocking::unblock(move || {
             exit_guard.call(|device, cancel_event_handle| {
-                device.wait_readable_cancelable(cancel_event_handle)
+                device.wait_readable_interruptible(cancel_event_handle)
             })
         })
         .await?;
@@ -213,7 +213,7 @@ impl AsyncDevice {
         let (cancel_guard, exit_guard) = canceller.guard(device);
         let result = blocking::unblock(move || {
             exit_guard.call(|device, cancel_event_handle| {
-                device.send_cancelable(&buf, cancel_event_handle)
+                device.write_interruptible(&buf, cancel_event_handle)
             })
         })
         .await;
@@ -227,7 +227,7 @@ impl AsyncDevice {
 
 struct ExitSignalGuard {
     device: Option<Arc<DeviceImpl>>,
-    cancel_event_handle: Arc<OwnedHandle>,
+    cancel_event_handle: Arc<InterruptEvent>,
     exit_event: Arc<OwnedHandle>,
 }
 impl Drop for ExitSignalGuard {
@@ -239,7 +239,7 @@ impl Drop for ExitSignalGuard {
 impl ExitSignalGuard {
     pub fn call<R>(
         &self,
-        mut op: impl FnMut(&DeviceImpl, &OwnedHandle) -> io::Result<R>,
+        mut op: impl FnMut(&DeviceImpl, &InterruptEvent) -> io::Result<R>,
     ) -> io::Result<R> {
         if let Some(device) = &self.device {
             op(device, &self.cancel_event_handle)
@@ -251,14 +251,14 @@ impl ExitSignalGuard {
 
 struct Canceller {
     exit_event_handle: Arc<OwnedHandle>,
-    cancel_event_handle: Arc<OwnedHandle>,
+    cancel_event_handle: Arc<InterruptEvent>,
 }
 
 impl Canceller {
     fn new_cancelable() -> io::Result<Self> {
         Ok(Self {
             exit_event_handle: Arc::new(ffi::create_event()?),
-            cancel_event_handle: Arc::new(ffi::create_event()?),
+            cancel_event_handle: Arc::new(InterruptEvent::new()?),
         })
     }
 
@@ -279,12 +279,12 @@ impl Canceller {
 
 struct CancelWaitGuard<'a> {
     exit_event_handle: &'a Arc<OwnedHandle>,
-    cancel_event_handle: &'a Arc<OwnedHandle>,
+    cancel_event_handle: &'a Arc<InterruptEvent>,
 }
 
 impl Drop for CancelWaitGuard<'_> {
     fn drop(&mut self) {
-        _ = ffi::set_event(self.cancel_event_handle.as_raw_handle());
+        _ = self.cancel_event_handle.trigger();
         _ = ffi::wait_for_single_object(self.exit_event_handle.as_raw_handle(), 10);
     }
 }

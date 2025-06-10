@@ -61,10 +61,54 @@ impl DeviceImpl {
     pub(crate) fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.tun.send_vectored(bufs)
     }
-    #[cfg_attr(docsrs, doc(cfg(feature = "experimental")))]
-    #[cfg(feature = "experimental")]
-    pub(crate) fn shutdown(&self) -> io::Result<()> {
-        self.tun.shutdown()
+    #[cfg(feature = "interruptible")]
+    pub(crate) fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.tun.read_interruptible(buf, event)
+    }
+    #[cfg(feature = "interruptible")]
+    pub(crate) fn readv_interruptible(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.tun.readv_interruptible(bufs, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_readable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        self.tun.wait_readable_interruptible(event)
+    }
+    #[cfg(feature = "interruptible")]
+    pub(crate) fn write_interruptible(
+        &self,
+        buf: &[u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.tun.write_interruptible(buf, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn writev_interruptible(
+        &self,
+        bufs: &[IoSlice<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.tun.writev_interruptible(bufs, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_writable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        self.tun.wait_writable_interruptible(event)
     }
 }
 #[cfg(any(

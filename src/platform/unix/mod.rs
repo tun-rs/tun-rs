@@ -16,7 +16,10 @@ pub(crate) use sockaddr::ipaddr_to_sockaddr;
 
 mod fd;
 pub(crate) use self::fd::Fd;
-
+#[cfg(feature = "interruptible")]
+mod interrupt;
+#[cfg(feature = "interruptible")]
+pub use interrupt::InterruptEvent;
 mod tun;
 pub(crate) use self::tun::Tun;
 

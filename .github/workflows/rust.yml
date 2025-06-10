@@ -29,6 +29,7 @@ jobs:
           cargo clippy --all-targets -- -D warnings
           cargo clippy --all-targets --features async_io -- -D warnings
           cargo clippy --all-targets --features async_tokio -- -D warnings
+          cargo clippy --all-targets --features interruptible -- -D warnings
       - name: Build
         if: ${{ !cancelled() }}
         run: |

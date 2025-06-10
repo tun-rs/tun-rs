@@ -1,50 +1,26 @@
+use crate::platform::windows::tap::overlapped::{ReadOverlapped, WriteOverlapped};
 use crate::platform::windows::{ffi, netsh};
-use bytes::BytesMut;
-use std::ops::DerefMut;
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::{io, time};
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 use windows_sys::Win32::System::Ioctl::{FILE_ANY_ACCESS, FILE_DEVICE_UNKNOWN, METHOD_BUFFERED};
-use windows_sys::Win32::System::IO::OVERLAPPED;
 
 mod iface;
+mod overlapped;
 
 pub struct TapDevice {
     tap_interface: TapInterface,
-    handle: OwnedHandle,
+    handle: Arc<OwnedHandle>,
     index: u32,
-    read_io_overlapped: Mutex<(Option<OwnedOVERLAPPED>, BytesMut, Option<usize>)>,
-    write_io_overlapped: Mutex<Option<(OwnedOVERLAPPED, Vec<u8>)>>,
+    read_io_overlapped: Mutex<ReadOverlapped>,
+    write_io_overlapped: Mutex<WriteOverlapped>,
 }
-const READ_BUFFER_SIZE: usize = 14 + 65536;
+pub(crate) const READ_BUFFER_SIZE: usize = 14 + 65536;
 unsafe impl Send for TapDevice {}
 
 unsafe impl Sync for TapDevice {}
-
-pub struct OwnedOVERLAPPED {
-    #[allow(dead_code)]
-    event_handle: OwnedHandle,
-    overlapped: Box<OVERLAPPED>,
-}
-impl OwnedOVERLAPPED {
-    pub fn new() -> io::Result<OwnedOVERLAPPED> {
-        let event_handle = ffi::create_event()?;
-        let mut overlapped = Box::new(ffi::io_overlapped());
-        overlapped.hEvent = event_handle.as_raw_handle();
-        Ok(Self {
-            event_handle,
-            overlapped,
-        })
-    }
-    pub fn as_overlapped(&self) -> &OVERLAPPED {
-        &self.overlapped
-    }
-    pub fn as_mut_overlapped(&mut self) -> &mut OVERLAPPED {
-        &mut self.overlapped
-    }
-}
 
 impl Drop for TapInterface {
     fn drop(&mut self) {
@@ -120,14 +96,17 @@ impl TapDevice {
             Ok(index) => index,
             Err(e) => Err(e)?,
         };
+        let handle = Arc::new(handle);
+        let read_io_overlapped = ReadOverlapped::new(handle.clone())?;
+        let write_io_overlapped = WriteOverlapped::new(handle.clone())?;
         // Set to desired value after successful creation
         tap_interface.need_delete = !persist;
         Ok(Self {
             tap_interface,
             handle,
             index,
-            read_io_overlapped: Mutex::new((None, BytesMut::zeroed(READ_BUFFER_SIZE), None)),
-            write_io_overlapped: Mutex::new(None),
+            read_io_overlapped: Mutex::new(read_io_overlapped),
+            write_io_overlapped: Mutex::new(write_io_overlapped),
         })
     }
 
@@ -156,12 +135,16 @@ impl TapDevice {
             component_id: component_id.to_string(),
             need_delete: !persist,
         };
+        let handle = Arc::new(handle);
+        let read_io_overlapped = ReadOverlapped::new(handle.clone())?;
+        let write_io_overlapped = WriteOverlapped::new(handle.clone())?;
+
         Ok(Self {
             index,
             tap_interface,
             handle,
-            read_io_overlapped: Mutex::new((None, BytesMut::zeroed(READ_BUFFER_SIZE), None)),
-            write_io_overlapped: Mutex::new(None),
+            read_io_overlapped: Mutex::new(read_io_overlapped),
+            write_io_overlapped: Mutex::new(write_io_overlapped),
         })
     }
 
@@ -234,121 +217,79 @@ impl TapDevice {
             &mut out_status,
         )
     }
-    pub fn wait_readable_cancelable(&self, cancel_event: &OwnedHandle) -> io::Result<()> {
-        let mut guard = self.read_io_overlapped.lock().unwrap();
-        let (overlapped, read_buffer, len) = guard.deref_mut();
-        let n = if let Some(mut overlapped) = overlapped.take() {
-            ffi::wait_io_overlapped_cancelable(
-                self.handle.as_raw_handle(),
-                overlapped.as_mut_overlapped(),
-                cancel_event.as_raw_handle(),
-            )?
-        } else {
-            ffi::read_file(
-                self.handle.as_raw_handle(),
-                read_buffer,
-                Some(cancel_event.as_raw_handle()),
-            )?
-        };
-        _ = len.replace(n as usize);
-        Ok(())
+    #[cfg(any(
+        feature = "interruptible",
+        feature = "async_tokio",
+        feature = "async_io"
+    ))]
+    pub fn wait_readable_interruptible(&self, interrupt_event: &OwnedHandle) -> io::Result<()> {
+        let guard = self.read_io_overlapped.lock().unwrap();
+        let event = guard.overlapped_event();
+        drop(guard);
+        event.wait_interruptible(interrupt_event)
+    }
+    pub fn wait_readable(&self) -> io::Result<()> {
+        let guard = self.read_io_overlapped.lock().unwrap();
+        let event_handle = guard.overlapped_event();
+        drop(guard);
+        event_handle.wait()
     }
 
-    pub fn try_read(&self, mut buf: &mut [u8]) -> io::Result<usize> {
+    pub fn try_read(&self, buf: &mut [u8]) -> io::Result<usize> {
         let Ok(mut guard) = self.read_io_overlapped.try_lock() else {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         };
-        let (overlapped, read_buffer, len) = guard.deref_mut();
-        let len = if let Some(len) = len.take() {
-            len
-        } else if let Some(overlapped) = overlapped {
-            let n = ffi::try_io_overlapped(
-                self.handle.as_raw_handle(),
-                overlapped.as_mut_overlapped(),
-            )?;
-            n as usize
-        } else {
-            let overlapped = overlapped.insert(OwnedOVERLAPPED::new()?);
-            let n = ffi::try_read_file(
-                self.handle.as_raw_handle(),
-                overlapped.as_mut_overlapped(),
-                read_buffer,
-            )?;
-            n as usize
-        };
-        _ = overlapped.take();
-        let result = io::copy(&mut &read_buffer[..len], &mut buf);
-        match result {
-            Ok(n) => Ok(n as usize),
-            Err(e) => Err(e),
-        }
+        guard.try_read(buf)
     }
     pub fn try_write(&self, buf: &[u8]) -> io::Result<usize> {
         let Ok(mut guard) = self.write_io_overlapped.try_lock() else {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         };
-        if let Some((overlapped, _write_buffer)) = guard.deref_mut() {
-            ffi::try_io_overlapped(self.handle.as_raw_handle(), overlapped.as_overlapped())?;
-        }
-        let (overlapped, write_buffer) = guard.insert((OwnedOVERLAPPED::new()?, buf.to_vec()));
-        let rs = ffi::try_write_file(
-            self.handle.as_raw_handle(),
-            overlapped.as_mut_overlapped(),
-            write_buffer,
-        );
-        match rs {
-            Ok(len) => {
-                guard.take();
-                Ok(len as _)
-            }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(buf.len()),
-            Err(e) => Err(e),
-        }
+        guard.try_write(buf)
     }
-    pub fn read(&self, mut buf: &mut [u8]) -> io::Result<usize> {
-        let mut guard = self.read_io_overlapped.lock().unwrap();
-        let (overlapped, read_buffer, len) = guard.deref_mut();
-        let len = if let Some(len) = len.take() {
-            len
-        } else if let Some(overlapped) = overlapped.take() {
-            ffi::wait_io_overlapped(self.handle.as_raw_handle(), overlapped.as_overlapped())?
-                as usize
-        } else {
-            return ffi::read_file(self.handle.as_raw_handle(), buf, None).map(|res| res as _);
-        };
-        match io::copy(&mut &read_buffer[..len], &mut buf) {
-            Ok(n) => Ok(n as usize),
-            Err(e) => Err(e),
+    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            match self.try_read(buf) {
+                Ok(len) => return Ok(len),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                Err(e) => return Err(e),
+            }
+            self.wait_readable()?
         }
     }
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
-        let mut guard = self.write_io_overlapped.lock().unwrap();
-        if let Some((overlapped, _write_buffer)) = guard.take() {
-            ffi::wait_io_overlapped(self.handle.as_raw_handle(), overlapped.as_overlapped())?;
+        loop {
+            match self.try_write(buf) {
+                Ok(len) => return Ok(len),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    let guard = self.write_io_overlapped.lock().unwrap();
+                    let event = guard.overlapped_event();
+                    drop(guard);
+                    event.wait()?
+                }
+                Err(e) => return Err(e),
+            }
         }
-        ffi::write_file(self.handle.as_raw_handle(), buf, None).map(|res| res as _)
     }
 
-    #[cfg(any(feature = "async_tokio", feature = "async_io"))]
-    pub(crate) fn write_cancelable(
+    #[allow(dead_code)]
+    pub(crate) fn write_interruptible(
         &self,
         buf: &[u8],
-        cancel_event: &OwnedHandle,
+        interrupt_event: &OwnedHandle,
     ) -> io::Result<usize> {
-        let mut guard = self.write_io_overlapped.lock().unwrap();
-        if let Some((overlapped, _write_buffer)) = guard.take() {
-            ffi::wait_io_overlapped_cancelable(
-                self.handle.as_raw_handle(),
-                overlapped.as_overlapped(),
-                cancel_event.as_raw_handle(),
-            )?;
+        loop {
+            match self.try_write(buf) {
+                Ok(len) => return Ok(len),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    let guard = self.write_io_overlapped.lock().unwrap();
+                    let event = guard.overlapped_event();
+                    drop(guard);
+                    event.wait_interruptible(interrupt_event)?
+                }
+                Err(e) => return Err(e),
+            }
         }
-        ffi::write_file(
-            self.handle.as_raw_handle(),
-            buf,
-            Some(cancel_event.as_raw_handle()),
-        )
-        .map(|res| res as _)
     }
 }
 

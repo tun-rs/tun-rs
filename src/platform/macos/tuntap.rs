@@ -178,6 +178,76 @@ impl TunTap {
             TunTap::Tap(tap) => tap.recv_vectored(bufs),
         }
     }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        match &self {
+            TunTap::Tun(tun) => tun.read_interruptible(buf, event),
+            TunTap::Tap(tap) => tap.read_interruptible(buf, event),
+        }
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn readv_interruptible(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        match &self {
+            TunTap::Tun(tun) => tun.readv_interruptible(bufs, event),
+            TunTap::Tap(tap) => tap.readv_interruptible(bufs, event),
+        }
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_readable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        match &self {
+            TunTap::Tun(tun) => tun.wait_readable_interruptible(event),
+            TunTap::Tap(tap) => tap.wait_readable_interruptible(event),
+        }
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn write_interruptible(
+        &self,
+        buf: &[u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        match &self {
+            TunTap::Tun(tun) => tun.write_interruptible(buf, event),
+            TunTap::Tap(tap) => tap.write_interruptible(buf, event),
+        }
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn writev_interruptible(
+        &self,
+        bufs: &[IoSlice<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        match &self {
+            TunTap::Tun(tun) => tun.writev_interruptible(bufs, event),
+            TunTap::Tap(tap) => tap.writev_interruptible(bufs, event),
+        }
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_writable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        match &self {
+            TunTap::Tun(tun) => tun.wait_writable_interruptible(event),
+            TunTap::Tap(tap) => tap.wait_writable_interruptible(event),
+        }
+    }
     pub fn request(&self) -> io::Result<libc::ifreq> {
         let tun_name = self.name()?;
         unsafe {
@@ -285,13 +355,6 @@ impl TunTap {
                 }
             }
             Ok(())
-        }
-    }
-    #[cfg(feature = "experimental")]
-    pub(crate) fn shutdown(&self) -> io::Result<()> {
-        match &self {
-            TunTap::Tun(tun) => tun.shutdown(),
-            TunTap::Tap(tap) => tap.shutdown(),
         }
     }
 }

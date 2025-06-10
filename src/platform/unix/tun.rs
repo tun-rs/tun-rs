@@ -1,7 +1,7 @@
 use crate::platform::unix::Fd;
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 use crate::PACKET_INFORMATION_LENGTH as PIL;
-use std::io::{self, IoSlice, IoSliceMut, Read, Write};
+use std::io::{self, IoSlice, IoSliceMut};
 use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -44,7 +44,7 @@ pub(crate) fn generate_packet_information(_ipv6: bool) -> [u8; PIL] {
     }
 }
 
-pub struct Tun {
+pub(crate) struct Tun {
     pub(crate) fd: Fd,
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     ignore_packet_information: AtomicBool,
@@ -163,25 +163,57 @@ impl Tun {
     pub(crate) fn set_ignore_packet_info(&self, ign: bool) {
         self.ignore_packet_information.store(ign, Ordering::Relaxed);
     }
-    #[cfg(feature = "experimental")]
-    pub(crate) fn shutdown(&self) -> io::Result<()> {
-        self.fd.shutdown()
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.fd.read_interruptible(buf, event)
     }
-}
-
-impl Read for Tun {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.recv(buf)
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn readv_interruptible(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.fd.readv_interruptible(bufs, event)
     }
-}
-
-impl Write for Tun {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.send(buf)
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_readable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        self.fd.wait_readable_interruptible(event)
     }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn write_interruptible(
+        &self,
+        buf: &[u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.fd.write_interruptible(buf, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn writev_interruptible(
+        &self,
+        bufs: &[IoSlice<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        self.fd.writev_interruptible(bufs, event)
+    }
+    #[cfg(feature = "interruptible")]
+    #[inline]
+    pub(crate) fn wait_writable_interruptible(
+        &self,
+        event: &crate::InterruptEvent,
+    ) -> io::Result<()> {
+        self.fd.wait_writable_interruptible(event)
     }
 }
 

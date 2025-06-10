@@ -252,7 +252,17 @@ impl DeviceImpl {
         &self,
         gro_table: &mut GROTable,
         bufs: &mut [B],
+        offset: usize,
+    ) -> io::Result<usize> {
+        self.send_multiple0(gro_table, bufs, offset, |tun, buf| tun.send(buf), &mut 0)
+    }
+    pub(crate) fn send_multiple0<B: ExpandBuffer, W: FnMut(&Tun, &[u8]) -> io::Result<usize>>(
+        &self,
+        gro_table: &mut GROTable,
+        bufs: &mut [B],
         mut offset: usize,
+        mut write_f: W,
+        send_offset: &mut usize,
     ) -> io::Result<usize> {
         gro_table.reset();
         if self.vnet_hdr {
@@ -274,7 +284,7 @@ impl DeviceImpl {
         let mut total = 0;
         let mut err = Ok(());
         for buf_idx in &gro_table.to_write {
-            match self.send(&bufs[*buf_idx].as_ref()[offset..]) {
+            match write_f(&self.tun, &bufs[*buf_idx].as_ref()[offset..]) {
                 Ok(n) => {
                     total += n;
                 }
@@ -287,6 +297,7 @@ impl DeviceImpl {
                     err = Err(e)
                 }
             }
+            *send_offset += 1;
         }
         err?;
         Ok(total)
@@ -304,11 +315,26 @@ impl DeviceImpl {
         sizes: &mut [usize],
         offset: usize,
     ) -> io::Result<usize> {
+        self.recv_multiple0(original_buffer, bufs, sizes, offset, |tun, buf| {
+            tun.recv(buf)
+        })
+    }
+    pub(crate) fn recv_multiple0<
+        B: AsRef<[u8]> + AsMut<[u8]>,
+        R: Fn(&Tun, &mut [u8]) -> io::Result<usize>,
+    >(
+        &self,
+        original_buffer: &mut [u8],
+        bufs: &mut [B],
+        sizes: &mut [usize],
+        offset: usize,
+        read_f: R,
+    ) -> io::Result<usize> {
         if bufs.is_empty() || bufs.len() != sizes.len() {
             return Err(io::Error::new(io::ErrorKind::Other, "bufs error"));
         }
         if self.vnet_hdr {
-            let len = self.recv(original_buffer)?;
+            let len = read_f(&self.tun, original_buffer)?;
             if len <= VIRTIO_NET_HDR_LEN {
                 Err(io::Error::new(
                     io::ErrorKind::Other,
@@ -326,7 +352,7 @@ impl DeviceImpl {
                 offset,
             )
         } else {
-            let len = self.recv(bufs[0].as_mut())?;
+            let len = read_f(&self.tun, bufs[0].as_mut())?;
             sizes[0] = len;
             Ok(1)
         }

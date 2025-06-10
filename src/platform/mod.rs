@@ -1,5 +1,6 @@
 #[cfg(unix)]
 pub(crate) mod unix;
+
 #[cfg(all(
     unix,
     not(any(
@@ -10,6 +11,12 @@ pub(crate) mod unix;
     ))
 ))]
 pub use self::unix::DeviceImpl;
+#[cfg(unix)]
+#[cfg(feature = "interruptible")]
+pub use unix::InterruptEvent;
+#[cfg(windows)]
+#[cfg(feature = "interruptible")]
+pub use windows::InterruptEvent;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub(crate) mod linux;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
@@ -96,12 +103,74 @@ impl SyncDevice {
     pub fn shutdown(&self) -> std::io::Result<()> {
         self.0.shutdown()
     }
-    /// Shuts down the device on Unix when the experimental feature is enabled.
-    ///
-    /// This method signals the device to stop operations.
     #[cfg(all(unix, feature = "experimental"))]
     pub fn shutdown(&self) -> std::io::Result<()> {
-        self.0.shutdown()
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+    }
+    /// Reads data into the provided buffer, with support for interruption.
+    ///
+    /// This function attempts to read from the underlying file descriptor into `buf`,
+    /// and can be interrupted using the given [`InterruptEvent`]. If the `event` is triggered
+    /// while the read operation is blocked, the function will return early with
+    /// an error of kind [`io::ErrorKind::Interrupted`].
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - The buffer to store the read data.
+    /// * `event` - An [`InterruptEvent`] used to interrupt the blocking read.
+    ///
+    /// # Returns
+    ///
+    /// On success, returns the number of bytes read. On failure, returns an [`io::Error`].
+    ///
+    /// # Platform-specific Behavior
+    ///
+    /// On **Unix platforms**, it is recommended to use this together with `set_nonblocking(true)`.
+    /// Without setting non-blocking mode, concurrent reads may not respond properly to interrupt signals.
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
+    #[cfg(feature = "interruptible")]
+    pub fn recv_intr(&self, buf: &mut [u8], event: &InterruptEvent) -> std::io::Result<usize> {
+        self.0.read_interruptible(buf, event)
+    }
+    /// Like [`recv_intr`](Self::recv_intr), but reads into multiple buffers.
+    ///
+    /// This function behaves the same as [`recv_intr`](Self::recv_intr),
+    /// but uses `readv` to fill the provided set of non-contiguous buffers.
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
+    #[cfg(all(unix, feature = "interruptible"))]
+    pub fn recv_vectored_intr(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &InterruptEvent,
+    ) -> std::io::Result<usize> {
+        self.0.readv_interruptible(bufs, event)
+    }
+    #[cfg(feature = "interruptible")]
+    pub fn wait_readable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {
+        self.0.wait_readable_interruptible(event)
+    }
+    #[cfg(feature = "interruptible")]
+    pub fn send_intr(&self, buf: &[u8], event: &InterruptEvent) -> std::io::Result<usize> {
+        self.0.write_interruptible(buf, event)
+    }
+    #[cfg(all(unix, feature = "interruptible"))]
+    pub fn send_vectored_intr(
+        &self,
+        bufs: &[IoSlice<'_>],
+        event: &InterruptEvent,
+    ) -> std::io::Result<usize> {
+        self.0.writev_interruptible(bufs, event)
+    }
+    #[cfg(all(unix, feature = "interruptible"))]
+    #[inline]
+    pub fn wait_writable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {
+        self.0.wait_writable_interruptible(event)
     }
     /// Receives data from the device into multiple buffers using vectored I/O.
     ///
@@ -151,6 +220,39 @@ impl SyncDevice {
     pub fn try_clone(&self) -> std::io::Result<SyncDevice> {
         let device_impl = self.0.try_clone()?;
         Ok(SyncDevice(device_impl))
+    }
+}
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+impl SyncDevice {
+    #[cfg(feature = "interruptible")]
+    pub fn send_multiple_intr<B: ExpandBuffer>(
+        &self,
+        gro_table: &mut GROTable,
+        bufs: &mut [B],
+        offset: usize,
+        event: &InterruptEvent,
+        send_offset: &mut usize,
+    ) -> std::io::Result<usize> {
+        self.send_multiple0(
+            gro_table,
+            bufs,
+            offset,
+            |tun, buf| tun.write_interruptible(buf, event),
+            send_offset,
+        )
+    }
+    #[cfg(feature = "interruptible")]
+    pub fn recv_multiple_intr<B: AsRef<[u8]> + AsMut<[u8]>>(
+        &self,
+        original_buffer: &mut [u8],
+        bufs: &mut [B],
+        sizes: &mut [usize],
+        offset: usize,
+        event: &InterruptEvent,
+    ) -> std::io::Result<usize> {
+        self.recv_multiple0(original_buffer, bufs, sizes, offset, |tun, buf| {
+            tun.read_interruptible(buf, event)
+        })
     }
 }
 
