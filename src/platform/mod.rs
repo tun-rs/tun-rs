@@ -112,7 +112,7 @@ impl SyncDevice {
     /// This function attempts to read from the underlying file descriptor into `buf`,
     /// and can be interrupted using the given [`InterruptEvent`]. If the `event` is triggered
     /// while the read operation is blocked, the function will return early with
-    /// an error of kind [`io::ErrorKind::Interrupted`].
+    /// an error of kind [`std::io::ErrorKind::Interrupted`].
     ///
     /// # Arguments
     ///
@@ -121,7 +121,7 @@ impl SyncDevice {
     ///
     /// # Returns
     ///
-    /// On success, returns the number of bytes read. On failure, returns an [`io::Error`].
+    /// On success, returns the number of bytes read. On failure, returns an [`std::io::Error`].
     ///
     /// # Platform-specific Behavior
     ///
