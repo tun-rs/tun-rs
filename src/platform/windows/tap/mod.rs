@@ -14,7 +14,6 @@ pub struct TapDevice {
     tap_interface: TapInterface,
     handle: Arc<OwnedHandle>,
     index: u32,
-    need_delete: bool,
     read_io_overlapped: Mutex<ReadOverlapped>,
     write_io_overlapped: Mutex<WriteOverlapped>,
 }
@@ -106,7 +105,6 @@ impl TapDevice {
             tap_interface,
             handle,
             index,
-            need_delete: !persist,
             read_io_overlapped: Mutex::new(read_io_overlapped),
             write_io_overlapped: Mutex::new(write_io_overlapped),
         })
@@ -145,7 +143,6 @@ impl TapDevice {
             index,
             tap_interface,
             handle,
-            need_delete: !persist,
             read_io_overlapped: Mutex::new(read_io_overlapped),
             write_io_overlapped: Mutex::new(write_io_overlapped),
         })
