@@ -1,14 +1,21 @@
+use crate::builder::DeviceConfig;
+use crate::platform::windows::netsh;
+use crate::platform::windows::tap::TapDevice;
+use crate::platform::windows::tun::{check_adapter_if_orphaned_devices, TunDevice};
+use crate::platform::ETHER_ADDR_LEN;
+use crate::{Layer, ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask};
 use getifaddrs::Interface;
 use std::collections::HashSet;
 use std::io;
 use std::net::IpAddr;
+use windows_sys::core::GUID;
 
-use crate::builder::DeviceConfig;
-use crate::platform::windows::netsh;
-use crate::platform::windows::tap::TapDevice;
-use crate::platform::windows::tun::TunDevice;
-use crate::platform::ETHER_ADDR_LEN;
-use crate::{Layer, ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask};
+pub(crate) const GUID_NETWORK_ADAPTER: GUID = GUID {
+    data1: 0x4d36e972,
+    data2: 0xe325,
+    data3: 0x11ce,
+    data4: [0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18],
+};
 
 pub(crate) enum Driver {
     Tun(TunDevice),
@@ -43,8 +50,13 @@ impl DeviceImpl {
                     if config.dev_name.is_none() {
                         continue;
                     }
-                    // Try to open an existing Wintun adapter.
-                    break TunDevice::open(wintun_file, name, ring_capacity, delete_driver)?;
+
+                    // Resolves an issue where there are orphaned adapters. fixes #33
+                    let is_orphaned_adapter = check_adapter_if_orphaned_devices(name);
+                    if !is_orphaned_adapter {
+                        // Try to open an existing Wintun adapter.
+                        break TunDevice::open(wintun_file, name, ring_capacity, delete_driver)?;
+                    }
                 }
                 let description = config.description.as_deref().unwrap_or(name);
                 match TunDevice::create(
@@ -84,10 +96,11 @@ impl DeviceImpl {
                             "The network adapter [{name}] already exists."
                         )))?
                     }
-                    let tap = TapDevice::open(HARDWARE_ID, name, persist)?;
+                    let tap =
+                        TapDevice::open(HARDWARE_ID, name, persist, config.mac_address.as_ref())?;
                     break tap;
                 }
-                let tap = TapDevice::create(HARDWARE_ID, persist)?;
+                let tap = TapDevice::create(HARDWARE_ID, persist, config.mac_address.as_ref())?;
                 if let Err(e) = tap.set_name(name) {
                     if config.dev_name.is_some() {
                         Err(e)?

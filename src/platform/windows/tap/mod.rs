@@ -11,9 +11,8 @@ mod iface;
 mod overlapped;
 
 pub struct TapDevice {
-    luid: NET_LUID_LH,
+    tap_interface: TapInterface,
     handle: Arc<OwnedHandle>,
-    component_id: String,
     index: u32,
     need_delete: bool,
     read_io_overlapped: Mutex<ReadOverlapped>,
@@ -24,12 +23,17 @@ unsafe impl Send for TapDevice {}
 
 unsafe impl Sync for TapDevice {}
 
-impl Drop for TapDevice {
+impl Drop for TapInterface {
     fn drop(&mut self) {
         if self.need_delete {
             let _ = iface::delete_interface(&self.component_id, &self.luid);
         }
     }
+}
+struct TapInterface {
+    luid: NET_LUID_LH,
+    component_id: String,
+    need_delete: bool,
 }
 
 fn get_version(handle: HANDLE) -> io::Result<[u64; 3]> {
@@ -44,27 +48,42 @@ impl TapDevice {
         self.index
     }
     /// Creates a new tap-windows device
-    pub fn create(component_id: &str, persist: bool) -> io::Result<Self> {
+    pub fn create(component_id: &str, persist: bool, mut mac: Option<&String>) -> io::Result<Self> {
         let luid = iface::create_interface(component_id)?;
+        let mut tap_interface = TapInterface {
+            luid,
+            component_id: component_id.to_string(),
+            need_delete: true, // Initialization must be true
+        };
+        std::thread::sleep(time::Duration::from_millis(20));
         // Even after retrieving the luid, we might need to wait
         let start = time::Instant::now();
         let handle = loop {
             // If we surpassed 2 seconds just return
             let now = time::Instant::now();
             if now - start > time::Duration::from_secs(3) {
-                let _ = iface::delete_interface(component_id, &luid);
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "Interface timed out",
                 ));
             }
 
-            match iface::open_interface(&luid) {
+            match ffi::luid_to_guid(&luid) {
                 Err(_) => {
-                    std::thread::yield_now();
+                    std::thread::sleep(time::Duration::from_millis(20));
                     continue;
                 }
-                Ok(handle) => {
+                Ok(guid) => {
+                    if let Some(mac) = mac.take() {
+                        let guid = ffi::string_from_guid(&guid)?;
+                        let name = ffi::luid_to_alias(&luid)?;
+                        iface::set_adapter_mac_by_guid(&guid, mac)?;
+                        std::thread::sleep(time::Duration::from_millis(20));
+                        iface::enable_adapter(&name, false)?;
+                        std::thread::sleep(time::Duration::from_millis(20));
+                        iface::enable_adapter(&name, true)?;
+                    }
+                    let handle = iface::open_interface(&luid)?;
                     if get_version(handle.as_raw_handle()).is_err() {
                         std::thread::sleep(time::Duration::from_millis(200));
                         continue;
@@ -76,19 +95,17 @@ impl TapDevice {
 
         let index = match ffi::luid_to_index(&luid) {
             Ok(index) => index,
-            Err(e) => {
-                let _ = iface::delete_interface(component_id, &luid);
-                Err(e)?
-            }
+            Err(e) => Err(e)?,
         };
         let handle = Arc::new(handle);
         let read_io_overlapped = ReadOverlapped::new(handle.clone())?;
         let write_io_overlapped = WriteOverlapped::new(handle.clone())?;
+        // Set to desired value after successful creation
+        tap_interface.need_delete = !persist;
         Ok(Self {
-            luid,
+            tap_interface,
             handle,
             index,
-            component_id: component_id.to_owned(),
             need_delete: !persist,
             read_io_overlapped: Mutex::new(read_io_overlapped),
             write_io_overlapped: Mutex::new(write_io_overlapped),
@@ -96,21 +113,38 @@ impl TapDevice {
     }
 
     /// Opens an existing tap-windows device by name
-    pub fn open(component_id: &str, name: &str, persist: bool) -> io::Result<Self> {
+    pub fn open(
+        component_id: &str,
+        name: &str,
+        persist: bool,
+        mac: Option<&String>,
+    ) -> io::Result<Self> {
         let luid = ffi::alias_to_luid(name)?;
         iface::check_interface(component_id, &luid)?;
-
+        if let Some(mac) = mac {
+            let guid = ffi::luid_to_guid(&luid)?;
+            let guid = ffi::string_from_guid(&guid)?;
+            iface::set_adapter_mac_by_guid(&guid, mac)?;
+            std::thread::sleep(time::Duration::from_millis(1));
+            iface::enable_adapter(name, false)?;
+            std::thread::sleep(time::Duration::from_millis(1));
+            iface::enable_adapter(name, true)?;
+        }
         let handle = iface::open_interface(&luid)?;
         let index = ffi::luid_to_index(&luid)?;
+        let tap_interface = TapInterface {
+            luid,
+            component_id: component_id.to_string(),
+            need_delete: !persist,
+        };
         let handle = Arc::new(handle);
         let read_io_overlapped = ReadOverlapped::new(handle.clone())?;
         let write_io_overlapped = WriteOverlapped::new(handle.clone())?;
 
         Ok(Self {
             index,
-            luid,
+            tap_interface,
             handle,
-            component_id: component_id.to_owned(),
             need_delete: !persist,
             read_io_overlapped: Mutex::new(read_io_overlapped),
             write_io_overlapped: Mutex::new(write_io_overlapped),
@@ -153,7 +187,7 @@ impl TapDevice {
 
     /// Retrieve the name of the interface
     pub fn get_name(&self) -> io::Result<String> {
-        ffi::luid_to_alias(&self.luid)
+        ffi::luid_to_alias(&self.tap_interface.luid)
     }
 
     /// Set the name of the interface

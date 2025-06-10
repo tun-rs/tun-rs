@@ -1,6 +1,6 @@
 [package]
 name = "tun-rs"
-version = "2.2.0"
+version = "2.2.1"
 edition = "2021"
 authors = ["xmh0511, vnt-dev"]
 license = "Apache-2.0"
@@ -58,6 +58,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_LibraryLoader",
     "Win32_NetworkManagement_IpHelper",
+    "Win32_Devices_Properties",
+    "Win32_System_SystemInformation",
 ] }
 libloading = "0.8"
 
@@ -69,7 +71,7 @@ route_manager = "0.1.4"
 mac_address = "1.1.7"
 
 [build-dependencies]
-bindgen = "0.71.1"
+bindgen = "0.72.0"
 
 [dev-dependencies]
 ctrlc2 = { version = "3", features = ["tokio", "termination"] }

@@ -65,6 +65,8 @@ pub(crate) struct DeviceConfig {
     /// Default: false.
     #[cfg(windows)]
     pub delete_driver: Option<bool>,
+    #[cfg(windows)]
+    pub mac_address: Option<String>,
     /// switch of Enable/Disable packet information for network driver
     #[cfg(any(
         target_os = "tvos",
@@ -186,7 +188,12 @@ impl DeviceBuilder {
         self
     }
     /// Sets the MAC address for the device (effective only in L2 mode).
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "macos"
+    ))]
     pub fn mac_addr(mut self, mac_addr: [u8; 6]) -> Self {
         self.mac_addr = Some(mac_addr);
         self
@@ -374,6 +381,15 @@ impl DeviceBuilder {
             ring_capacity: self.ring_capacity.take(),
             #[cfg(windows)]
             delete_driver: self.delete_driver.take(),
+            #[cfg(windows)]
+            mac_address: self.mac_addr.map(|v| {
+                use std::fmt::Write;
+                v.iter()
+                    .fold(String::with_capacity(v.len() * 2), |mut s, b| {
+                        write!(&mut s, "{:02X}", b).unwrap();
+                        s
+                    })
+            }),
             #[cfg(any(
                 target_os = "ios",
                 target_os = "tvos",
@@ -403,16 +419,9 @@ impl DeviceBuilder {
         if let Some(tx_queue_len) = self.tx_queue_len {
             device.set_tx_queue_len(tx_queue_len)?;
         }
-        #[cfg(any(
-            target_os = "windows",
-            target_os = "linux",
-            target_os = "freebsd",
-            target_os = "macos"
-        ))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
         if let Some(mac_addr) = self.mac_addr {
-            if self.layer.unwrap_or_default() == Layer::L2 {
-                device.set_mac_address(mac_addr)?;
-            }
+            device.set_mac_address(mac_addr)?;
         }
 
         if let Some((address, prefix, destination)) = self.ipv4 {

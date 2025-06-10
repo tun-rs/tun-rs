@@ -13,8 +13,12 @@ use windows_sys::Win32::System::Threading::{WaitForMultipleObjects, INFINITE};
 use crate::platform::windows::ffi;
 use crate::platform::windows::ffi::encode_utf16;
 
+mod adapter;
+mod adapter_win7;
 mod wintun_log;
 mod wintun_raw;
+
+pub use adapter::check_adapter_if_orphaned_devices;
 
 /// The maximum size of wintun's internal ring buffer (in bytes)
 pub const MAX_RING_CAPACITY: u32 = 0x400_0000;
