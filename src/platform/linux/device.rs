@@ -254,7 +254,7 @@ impl DeviceImpl {
         bufs: &mut [B],
         offset: usize,
     ) -> io::Result<usize> {
-        self.send_multiple0(gro_table, bufs, offset, |tun, buf| tun.send(buf))
+        self.send_multiple0(gro_table, bufs, offset, |tun, buf| tun.send(buf), &mut 0)
     }
     pub(crate) fn send_multiple0<B: ExpandBuffer, W: FnMut(&Tun, &[u8]) -> io::Result<usize>>(
         &self,
@@ -262,6 +262,7 @@ impl DeviceImpl {
         bufs: &mut [B],
         mut offset: usize,
         mut write_f: W,
+        send_offset: &mut usize,
     ) -> io::Result<usize> {
         gro_table.reset();
         if self.vnet_hdr {
@@ -296,6 +297,7 @@ impl DeviceImpl {
                     err = Err(e)
                 }
             }
+            *send_offset += 1;
         }
         err?;
         Ok(total)
