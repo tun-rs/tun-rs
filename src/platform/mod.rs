@@ -230,6 +230,39 @@ impl SyncDevice {
         Ok(SyncDevice(device_impl))
     }
 }
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+impl SyncDevice {
+    #[cfg(feature = "interruptible")]
+    pub fn send_multi_interruptible<B: ExpandBuffer>(
+        &self,
+        gro_table: &mut GROTable,
+        bufs: &mut [B],
+        offset: usize,
+        event: &InterruptEvent,
+        total: &mut usize,
+    ) -> std::io::Result<usize> {
+        self.send_multiple0(gro_table, bufs, offset, |tun, buf| {
+            let result = tun.write_interruptible(buf, event);
+            if result.is_ok() {
+                *total += 1;
+            }
+            result
+        })
+    }
+    #[cfg(feature = "interruptible")]
+    pub fn recv_multi_interruptible<B: AsRef<[u8]> + AsMut<[u8]>>(
+        &self,
+        original_buffer: &mut [u8],
+        bufs: &mut [B],
+        sizes: &mut [usize],
+        offset: usize,
+        event: &InterruptEvent,
+    ) -> std::io::Result<usize> {
+        self.recv_multiple0(original_buffer, bufs, sizes, offset, |tun, buf| {
+            tun.read_interruptible(buf, event)
+        })
+    }
+}
 
 impl Deref for SyncDevice {
     type Target = DeviceImpl;
