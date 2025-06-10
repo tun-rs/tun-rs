@@ -68,7 +68,7 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
     let join = std::thread::spawn(move || {
         let mut buf = [0; 4096];
         loop {
-            match dev.read_interruptible(&mut buf, &event_clone) {
+            match dev.recv_intr(&mut buf, &event_clone) {
                 Ok(len) => {
                     println!("read_interruptible Ok({len})");
                 }

@@ -132,23 +132,19 @@ impl SyncDevice {
     ///
     /// This method is only available when the `interruptible` feature is enabled.
     #[cfg(feature = "interruptible")]
-    pub fn read_interruptible(
-        &self,
-        buf: &mut [u8],
-        event: &InterruptEvent,
-    ) -> std::io::Result<usize> {
+    pub fn recv_intr(&self, buf: &mut [u8], event: &InterruptEvent) -> std::io::Result<usize> {
         self.0.read_interruptible(buf, event)
     }
-    /// Like [`read_interruptible`](Self::read_interruptible), but reads into multiple buffers.
+    /// Like [`recv_intr`](Self::recv_intr), but reads into multiple buffers.
     ///
-    /// This function behaves the same as [`read_interruptible`](Self::read_interruptible),
+    /// This function behaves the same as [`recv_intr`](Self::recv_intr),
     /// but uses `readv` to fill the provided set of non-contiguous buffers.
     ///
     /// # Feature
     ///
     /// This method is only available when the `interruptible` feature is enabled.
     #[cfg(all(unix, feature = "interruptible"))]
-    pub fn readv_interruptible(
+    pub fn recv_vectored_intr(
         &self,
         bufs: &mut [IoSliceMut<'_>],
         event: &InterruptEvent,
@@ -156,19 +152,15 @@ impl SyncDevice {
         self.0.readv_interruptible(bufs, event)
     }
     #[cfg(feature = "interruptible")]
-    pub fn wait_readable_interruptible(&self, event: &InterruptEvent) -> std::io::Result<()> {
+    pub fn wait_readable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {
         self.0.wait_readable_interruptible(event)
     }
     #[cfg(feature = "interruptible")]
-    pub fn write_interruptible(
-        &self,
-        buf: &[u8],
-        event: &InterruptEvent,
-    ) -> std::io::Result<usize> {
+    pub fn send_intr(&self, buf: &[u8], event: &InterruptEvent) -> std::io::Result<usize> {
         self.0.write_interruptible(buf, event)
     }
     #[cfg(all(unix, feature = "interruptible"))]
-    pub fn writev_interruptible(
+    pub fn send_vectored_intr(
         &self,
         bufs: &[IoSlice<'_>],
         event: &InterruptEvent,
@@ -177,7 +169,7 @@ impl SyncDevice {
     }
     #[cfg(all(unix, feature = "interruptible"))]
     #[inline]
-    pub fn wait_writable_interruptible(&self, event: &InterruptEvent) -> std::io::Result<()> {
+    pub fn wait_writable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {
         self.0.wait_writable_interruptible(event)
     }
     /// Receives data from the device into multiple buffers using vectored I/O.
@@ -233,7 +225,7 @@ impl SyncDevice {
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 impl SyncDevice {
     #[cfg(feature = "interruptible")]
-    pub fn send_multi_interruptible<B: ExpandBuffer>(
+    pub fn send_multiple_intr<B: ExpandBuffer>(
         &self,
         gro_table: &mut GROTable,
         bufs: &mut [B],
@@ -250,7 +242,7 @@ impl SyncDevice {
         )
     }
     #[cfg(feature = "interruptible")]
-    pub fn recv_multi_interruptible<B: AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn recv_multiple_intr<B: AsRef<[u8]> + AsMut<[u8]>>(
         &self,
         original_buffer: &mut [u8],
         bufs: &mut [B],
