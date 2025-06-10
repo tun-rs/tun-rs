@@ -239,14 +239,9 @@ impl SyncDevice {
         bufs: &mut [B],
         offset: usize,
         event: &InterruptEvent,
-        total: &mut usize,
     ) -> std::io::Result<usize> {
         self.send_multiple0(gro_table, bufs, offset, |tun, buf| {
-            let result = tun.write_interruptible(buf, event);
-            if result.is_ok() {
-                *total += 1;
-            }
-            result
+            tun.write_interruptible(buf, event)
         })
     }
     #[cfg(feature = "interruptible")]
