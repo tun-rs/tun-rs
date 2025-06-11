@@ -15,18 +15,25 @@ use libc::{
 };
 use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
+use std::sync::atomic::AtomicBool;
 use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     pub(crate) tun: Tun,
     alias_lock: Mutex<()>,
+    associate_route: AtomicBool,
 }
 
 impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> std::io::Result<Self> {
         let layer = config.layer.unwrap_or(Layer::L3);
+        let associate_route = if layer == Layer::L3 {
+            config.associate_route.unwrap_or(true)
+        } else {
+            false
+        };
         let device_prefix = if layer == Layer::L3 {
             "tun".to_string()
         } else {
@@ -97,6 +104,7 @@ impl DeviceImpl {
             DeviceImpl {
                 tun: Tun::new(tun),
                 alias_lock: Mutex::new(()),
+                associate_route: AtomicBool::new(associate_route),
             }
         };
 
@@ -106,6 +114,7 @@ impl DeviceImpl {
         Self {
             tun,
             alias_lock: Mutex::new(()),
+            associate_route: AtomicBool::new(true),
         }
     }
 
@@ -196,8 +205,22 @@ impl DeviceImpl {
         req.ifr_ifru.ifru_flags = IN6_IFF_NODAD as _;
         Ok(req)
     }
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
+    /// Set this to be false to obtain the platform's default routing behavior.
+    pub fn set_associate_route(&self, associate_route: bool) {
+        self.associate_route
+            .store(associate_route, std::sync::atomic::Ordering::Relaxed);
+    }
 
+    pub fn associate_route(&self) -> bool {
+        self.associate_route
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
     fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        if !self.associate_route() {
+            return Ok(());
+        }
         let if_index = self.if_index()?;
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
