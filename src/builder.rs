@@ -69,9 +69,6 @@ pub(crate) struct DeviceConfig {
     pub mac_address: Option<String>,
     /// switch of Enable/Disable packet information for network driver
     #[cfg(any(
-        target_os = "tvos",
-        target_os = "ios",
-        target_os = "tvos",
         target_os = "macos",
         target_os = "linux"
     ))]
@@ -132,8 +129,6 @@ pub struct DeviceBuilder {
     delete_driver: Option<bool>,
     /// switch of Enable/Disable packet information for network driver
     #[cfg(any(
-        target_os = "ios",
-        target_os = "tvos",
         target_os = "macos",
         target_os = "linux"
     ))]
@@ -309,12 +304,10 @@ impl DeviceBuilder {
         self
     }
     /// Enables or disables packet information for the network driver
-    /// on iOS, macOS, and Linux.
+    /// on macOS, Linux.
     ///
     /// This option is disabled by default (`false`).
     #[cfg(any(
-        target_os = "ios",
-        target_os = "tvos",
         target_os = "macos",
         target_os = "linux"
     ))]
@@ -391,8 +384,6 @@ impl DeviceBuilder {
                     })
             }),
             #[cfg(any(
-                target_os = "ios",
-                target_os = "tvos",
                 target_os = "macos",
                 target_os = "linux"
             ))]
