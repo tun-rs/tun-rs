@@ -14,12 +14,14 @@ use libc::{
     IFNAMSIZ, KINFO_FILE_SIZE, O_RDWR,
 };
 use mac_address::mac_address_by_name;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::io::ErrorKind;
 use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
-/// A TUN device using the TUN/TAP Linux driver.
+/// A TUN or TAP device using the FreeBSD driver.
 pub struct DeviceImpl {
     pub(crate) tun: Tun,
+    associate_route: AtomicBool,
     alias_lock: Mutex<()>,
 }
 
@@ -27,6 +29,11 @@ impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> std::io::Result<Self> {
         let layer = config.layer.unwrap_or(Layer::L3);
+        let associate_route = if layer == Layer::L3 {
+            config.associate_route.unwrap_or(true)
+        } else {
+            false
+        };
         let device_prefix = if layer == Layer::L3 {
             "tun".to_string()
         } else {
@@ -96,6 +103,7 @@ impl DeviceImpl {
 
             DeviceImpl {
                 tun: Tun::new(tun),
+                associate_route: AtomicBool::new(associate_route),
                 alias_lock: Mutex::new(()),
             }
         };
@@ -105,6 +113,7 @@ impl DeviceImpl {
     pub(crate) fn from_tun(tun: Tun) -> Self {
         Self {
             tun,
+            associate_route: AtomicBool::new(true),
             alias_lock: Mutex::new(()),
         }
     }
@@ -115,6 +124,17 @@ impl DeviceImpl {
         Ok(ipnet::IpNet::new(addr, prefix_len)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
             .broadcast())
+    }
+
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
+    /// Set this to be false to obtain the platform's default routing behavior.
+    pub fn set_associate_route(&self, associate_route: bool) {
+        self.associate_route.store(associate_route, Ordering::Relaxed);
+    }
+
+    pub fn associate_route(&self) -> bool {
+        self.associate_route.load(Ordering::Relaxed)
     }
 
     /// Set the IPv4 alias of the device.
@@ -198,12 +218,28 @@ impl DeviceImpl {
     }
 
     fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        if !self.associate_route() {
+            return Ok(());
+        }
         let if_index = self.if_index()?;
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
         let mut manager = route_manager::RouteManager::new()?;
         let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
         manager.add(&route)?;
+        Ok(())
+    }
+
+    fn remove_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
+        if !self.associate_route() {
+            return Ok(());
+        }
+        let if_index = self.if_index()?;
+        let prefix_len = ipnet::ip_mask_to_prefix(netmask)
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+        let mut manager = route_manager::RouteManager::new()?;
+        let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
+        manager.delete(&route)?;
         Ok(())
     }
 
@@ -338,6 +374,14 @@ impl DeviceImpl {
                     req_v6.ifr_ifru.ifru_addr = sockaddr_union::from((addr, 0)).addr6;
                     if let Err(err) = siocdifaddr_in6(ctl_v6()?.as_raw_fd(), &req_v6) {
                         return Err(io::Error::from(err));
+                    }
+                }
+            }
+            if let Ok(addrs) = crate::platform::get_if_addrs_by_name(self.name()?) {
+                for v in addrs.iter().filter(|v| v.address == addr) {
+                    let Some(netmask) = v.netmask else { continue; };
+                    if let Err(e) = self.remove_route(addr, netmask) {
+                        log::warn!("remove_route {addr}-{netmask},{e}");
                     }
                 }
             }
