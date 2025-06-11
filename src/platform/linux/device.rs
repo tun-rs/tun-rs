@@ -331,17 +331,14 @@ impl DeviceImpl {
         read_f: R,
     ) -> io::Result<usize> {
         if bufs.is_empty() || bufs.len() != sizes.len() {
-            return Err(io::Error::new(io::ErrorKind::Other, "bufs error"));
+            return Err(io::Error::other("bufs error"));
         }
         if self.vnet_hdr {
             let len = read_f(&self.tun, original_buffer)?;
             if len <= VIRTIO_NET_HDR_LEN {
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "length of packet ({len}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
-                    ),
-                ))?
+                Err(io::Error::other(format!(
+                    "length of packet ({len}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
+                )))?
             }
             let hdr = VirtioNetHdr::decode(&original_buffer[..VIRTIO_NET_HDR_LEN])?;
             self.handle_virtio_read(
@@ -378,13 +375,10 @@ impl DeviceImpl {
                 gso_none_checksum(input, hdr.csum_start, hdr.csum_offset);
             }
             if bufs[0].as_ref()[offset..].len() < len {
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "read len {len} overflows bufs element len {}",
-                        bufs[0].as_ref().len()
-                    ),
-                ))?
+                Err(io::Error::other(format!(
+                    "read len {len} overflows bufs element len {}",
+                    bufs[0].as_ref().len()
+                )))?
             }
             sizes[0] = len;
             bufs[0].as_mut()[offset..offset + len].copy_from_slice(input);
@@ -394,10 +388,10 @@ impl DeviceImpl {
             && hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV6
             && hdr.gso_type != VIRTIO_NET_HDR_GSO_UDP_L4
         {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("unsupported virtio GSO type: {}", hdr.gso_type),
-            ))?
+            Err(io::Error::other(format!(
+                "unsupported virtio GSO type: {}",
+                hdr.gso_type
+            )))?
         }
         let ip_version = input[0] >> 4;
         match ip_version {
@@ -405,26 +399,26 @@ impl DeviceImpl {
                 if hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV4
                     && hdr.gso_type != VIRTIO_NET_HDR_GSO_UDP_L4
                 {
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("ip header version: 4, GSO type: {}", hdr.gso_type),
-                    ))?
+                    Err(io::Error::other(format!(
+                        "ip header version: 4, GSO type: {}",
+                        hdr.gso_type
+                    )))?
                 }
             }
             6 => {
                 if hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV6
                     && hdr.gso_type != VIRTIO_NET_HDR_GSO_UDP_L4
                 {
-                    Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("ip header version: 6, GSO type: {}", hdr.gso_type),
-                    ))?
+                    Err(io::Error::other(format!(
+                        "ip header version: 6, GSO type: {}",
+                        hdr.gso_type
+                    )))?
                 }
             }
-            ip_version => Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("invalid ip header version: {}", ip_version),
-            ))?,
+            ip_version => Err(io::Error::other(format!(
+                "invalid ip header version: {}",
+                ip_version
+            )))?,
         }
         // Don't trust hdr.hdrLen from the kernel as it can be equal to the length
         // of the entire first packet when the kernel is handling it as part of a
@@ -434,7 +428,7 @@ impl DeviceImpl {
             hdr.hdr_len = hdr.csum_start + 8
         } else {
             if len <= hdr.csum_start as usize + 12 {
-                Err(io::Error::new(io::ErrorKind::Other, "packet is too short"))?
+                Err(io::Error::other("packet is too short"))?
             }
 
             let tcp_h_len = ((input[hdr.csum_start as usize + 12] as u16) >> 4) * 4;
