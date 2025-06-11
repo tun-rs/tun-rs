@@ -179,18 +179,15 @@ impl AsyncDevice {
         offset: usize,
     ) -> io::Result<usize> {
         if bufs.is_empty() || bufs.len() != sizes.len() {
-            return Err(io::Error::new(io::ErrorKind::Other, "bufs error"));
+            return Err(io::Error::other("bufs error"));
         }
         let tun = self.get_ref();
         if tun.vnet_hdr {
             let len = self.recv(original_buffer).await?;
             if len <= VIRTIO_NET_HDR_LEN {
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "length of packet ({len}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
-                    ),
-                ))?
+                Err(io::Error::other(format!(
+                    "length of packet ({len}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
+                )))?
             }
             let hdr = VirtioNetHdr::decode(&original_buffer[..VIRTIO_NET_HDR_LEN])?;
             tun.handle_virtio_read(
