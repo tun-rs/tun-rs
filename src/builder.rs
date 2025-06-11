@@ -68,10 +68,7 @@ pub(crate) struct DeviceConfig {
     #[cfg(windows)]
     pub mac_address: Option<String>,
     /// switch of Enable/Disable packet information for network driver
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux"
-    ))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub packet_information: Option<bool>,
     /// Enable/Disable TUN offloads.
     /// After enabling, use `recv_multiple`/`send_multiple` for data transmission.
@@ -128,10 +125,7 @@ pub struct DeviceBuilder {
     #[cfg(windows)]
     delete_driver: Option<bool>,
     /// switch of Enable/Disable packet information for network driver
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux"
-    ))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     packet_information: Option<bool>,
     #[cfg(target_os = "linux")]
     tx_queue_len: Option<u32>,
@@ -307,10 +301,7 @@ impl DeviceBuilder {
     /// on macOS, Linux.
     ///
     /// This option is disabled by default (`false`).
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux"
-    ))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
         self.packet_information = Some(packet_information);
         self
@@ -383,10 +374,7 @@ impl DeviceBuilder {
                         s
                     })
             }),
-            #[cfg(any(
-                target_os = "macos",
-                target_os = "linux"
-            ))]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             packet_information: self.packet_information.take(),
             #[cfg(target_os = "linux")]
             offload: self.offload.take(),
