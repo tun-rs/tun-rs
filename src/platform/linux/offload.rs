@@ -1259,7 +1259,7 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
 
     while next_segment_data_at < input.len() {
         if i == out_bufs.len() {
-            return Err(io::Error::new(io::ErrorKind::Other, "ErrTooManySegments"));
+            return Err(io::Error::other("ErrTooManySegments"));
         }
 
         let mut next_segment_end = next_segment_data_at + hdr.gso_size as usize;
