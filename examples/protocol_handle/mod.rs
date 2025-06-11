@@ -62,7 +62,8 @@ pub fn ping_ethernet(buf: &[u8]) -> Option<Vec<u8>> {
 }
 pub fn arp(buf: &[u8]) -> Option<Vec<u8>> {
     let packet = EthernetPacket::new(buf)?;
-    const MAC: [u8; 6] = [0xf, 0xf, 0xf, 0xf, 0xe, 0x9];
+    // Use a valid MAC address
+    const MAC: [u8; 6] = [0x2, 0xf, 0xf, 0xf, 0xe, 0x9];
     let mut buf = packet.packet().to_vec();
     let mut ethernet_packet = MutableEthernetPacket::new(&mut buf).unwrap();
     let sender_h = packet.get_source();
