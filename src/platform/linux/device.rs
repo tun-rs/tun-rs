@@ -434,40 +434,30 @@ impl DeviceImpl {
             let tcp_h_len = ((input[hdr.csum_start as usize + 12] as u16) >> 4) * 4;
             if !(20..=60).contains(&tcp_h_len) {
                 // A TCP header must be between 20 and 60 bytes in length.
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("tcp header len is invalid: {tcp_h_len}"),
-                ))?
+                Err(io::Error::other(format!(
+                    "tcp header len is invalid: {tcp_h_len}"
+                )))?
             }
             hdr.hdr_len = hdr.csum_start + tcp_h_len
         }
         if len < hdr.hdr_len as usize {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "length of packet ({len}) < virtioNetHdr.hdr_len ({})",
-                    hdr.hdr_len
-                ),
-            ))?
+            Err(io::Error::other(format!(
+                "length of packet ({len}) < virtioNetHdr.hdr_len ({})",
+                hdr.hdr_len
+            )))?
         }
         if hdr.hdr_len < hdr.csum_start {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "virtioNetHdr.hdrLen ({}) < virtioNetHdr.csumStart ({})",
-                    hdr.hdr_len, hdr.csum_start
-                ),
-            ))?
+            Err(io::Error::other(format!(
+                "virtioNetHdr.hdrLen ({}) < virtioNetHdr.csumStart ({})",
+                hdr.hdr_len, hdr.csum_start
+            )))?
         }
         let c_sum_at = (hdr.csum_start + hdr.csum_offset) as usize;
         if c_sum_at + 1 >= len {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "end of checksum offset ({}) exceeds packet length ({len})",
-                    c_sum_at + 1,
-                ),
-            ))?
+            Err(io::Error::other(format!(
+                "end of checksum offset ({}) exceeds packet length ({len})",
+                c_sum_at + 1,
+            )))?
         }
         gso_split(input, hdr, bufs, sizes, offset, ip_version == 6)
     }
