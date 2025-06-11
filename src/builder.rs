@@ -36,7 +36,7 @@ pub(crate) struct DeviceConfig {
     /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
     #[cfg(target_os = "macos")]
     pub peer_feth: Option<String>,
-    /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// If true (default), the program will automatically add or remove routes on macOS to provide consistent routing behavior across all platforms.
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to be false to obtain the platform's default routing behavior.
     #[cfg(target_os = "macos")]
@@ -71,7 +71,6 @@ pub(crate) struct DeviceConfig {
     #[cfg(any(
         target_os = "tvos",
         target_os = "ios",
-        target_os = "tvos",
         target_os = "macos",
         target_os = "linux"
     ))]
@@ -329,7 +328,7 @@ impl DeviceBuilder {
         self.peer_feth = Some(peer_feth.into());
         self
     }
-    /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// If true (default), the program will automatically add or remove routes on macOS to provide consistent routing behavior across all platforms.
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to false to obtain the platform's default routing behavior.
     #[cfg(target_os = "macos")]

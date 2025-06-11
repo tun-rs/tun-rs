@@ -41,9 +41,9 @@ pub unsafe extern "C" fn default_logger(
     default_logger_(level, message)
 }
 fn default_logger_(level: wintun_raw::WINTUN_LOGGER_LEVEL, message: *const wintun_raw::WCHAR) {
-    //Cant wait for RFC 2585
+    // Can't wait for RFC 2585
     #[allow(unused_unsafe)]
-    //Wintun will always give us a valid UTF16 null termineted string
+    // Wintun will always give us a valid UTF16 null terminated string
     let msg = unsafe { U16CStr::from_ptr_str(message) };
     let utf8_msg = msg.to_string_lossy();
     match level {

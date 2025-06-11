@@ -154,7 +154,7 @@ impl TapDevice {
         self.set_status(false)
     }
 
-    /// Retieve the mac of the interface
+    /// Retrieve the MAC address of the interface
     pub fn get_mac(&self) -> io::Result<[u8; 6]> {
         let mut mac = [0; 6];
         ffi::device_io_control(
@@ -174,7 +174,7 @@ impl TapDevice {
         get_version(self.handle.as_raw_handle())
     }
 
-    // ///Retieve the mtu of the interface
+    // ///Retrieve the MTU of the interface
     // pub fn get_mtu(&self) -> io::Result<u32> {
     //     let in_mtu: u32 = 0;
     //     let mut out_mtu = 0;

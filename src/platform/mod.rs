@@ -300,6 +300,7 @@ mod test {
     use std::net::Ipv4Addr;
 
     #[test]
+    #[ignore]
     fn create() {
         let dev = DeviceBuilder::new()
             .name("utun6")

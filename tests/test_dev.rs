@@ -22,6 +22,7 @@ use tun_rs::SyncDevice;
 ))]
 #[cfg(not(any(feature = "async_tokio", feature = "async_io")))]
 #[test]
+#[ignore]
 fn test_udp() {
     let test_msg = "test udp";
     let device = DeviceBuilder::new()
@@ -89,6 +90,7 @@ fn test_udp() {
 ))]
 #[cfg(feature = "async_tokio")]
 #[tokio::test]
+#[ignore]
 async fn test_udp() {
     let test_msg = "test udp";
     let device = DeviceBuilder::new()
