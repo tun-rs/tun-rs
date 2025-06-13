@@ -9,7 +9,7 @@ use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
 use windows_sys::Win32::System::Threading::{ResetEvent, SetEvent};
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::{
-    core::GUID,
+    core::{BOOL, GUID},
     Win32::{
         Devices::DeviceAndDriverInstallation::{
             SetupDiBuildDriverInfoList, SetupDiCallClassInstaller, SetupDiClassNameFromGuidW,
@@ -20,7 +20,7 @@ use windows_sys::{
             SetupDiSetSelectedDriverW, HDEVINFO, MAX_CLASS_NAME_LEN, SP_DEVINFO_DATA,
             SP_DRVINFO_DATA_V2_W, SP_DRVINFO_DETAIL_DATA_W,
         },
-        Foundation::{GetLastError, BOOL, ERROR_NO_MORE_ITEMS, FALSE, FILETIME, HANDLE, TRUE},
+        Foundation::{GetLastError, ERROR_NO_MORE_ITEMS, FALSE, FILETIME, HANDLE, TRUE},
         NetworkManagement::{
             IpHelper::{
                 ConvertInterfaceAliasToLuid, ConvertInterfaceLuidToAlias,

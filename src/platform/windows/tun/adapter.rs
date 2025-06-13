@@ -5,7 +5,7 @@ use crate::windows::{
     ffi::{decode_utf16, destroy_device_info_list, encode_utf16, enum_device_info},
 };
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-use windows_sys::Win32::{Devices::Properties::DEVPROPKEY, Foundation::ERROR_INSUFFICIENT_BUFFER};
+use windows_sys::Win32::Foundation::{DEVPROPKEY, ERROR_INSUFFICIENT_BUFFER};
 use windows_sys::{
     core::GUID,
     Win32::{
