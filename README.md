@@ -7,7 +7,7 @@ Tun/Tap interfaces
 This crate allows the creation and usage of Tun and Tap interfaces(**supporting both Ipv4 and ipv6**), aiming to make this
 cross-platform.
 
-[benchmark](https://github.com/tun-rs/tun-benchmark)
+[benchmark](https://github.com/tun-rs/tun-benchmark2)
 
 ## Features:
 
