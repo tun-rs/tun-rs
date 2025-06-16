@@ -74,7 +74,7 @@ mac_address = "1.1.7"
 bindgen = "0.72.0"
 
 [dev-dependencies]
-ctrlc2 = { version = "=3.6.3", features = ["tokio", "termination"] }
+ctrlc2 = { version = "=3.6.9", features = ["tokio", "termination"] }
 env_logger = "0.11"
 futures = "0.3"
 pnet_packet = "0.35.0"
