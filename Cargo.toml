@@ -70,6 +70,10 @@ route_manager = "0.2.0"
 [target.'cfg(any(target_os = "linux", target_os = "freebsd",target_os = "windows"))'.dependencies]
 mac_address = "1.1.7"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { version = "0.7.7", optional = true }
+io_uring_buf_ring = {version = "0.2.0",optional = true}
+
 [build-dependencies]
 bindgen = "0.72.0"
 
@@ -88,6 +92,7 @@ async_std = ["async_io"]
 async_tokio = ["blocking", "tokio"]
 async_io = ["blocking", "async-io"]
 async_framed = ["futures", "futures-core"]
+io_uring = ["io-uring","io_uring_buf_ring"]
 interruptible = []
 experimental = []
 
@@ -124,3 +129,7 @@ required-features = ["async_tokio"]
 [[example]]
 name = "read_interruptible"
 required-features = ["interruptible"]
+
+[[example]]
+name = "sync_io_uring_ping"
+required-features = ["io_uring"]
