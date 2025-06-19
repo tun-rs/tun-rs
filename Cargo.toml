@@ -31,7 +31,7 @@ getifaddrs = "0.2.0"
 futures-core = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
 
-[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "android", target_os="freebsd"))'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "android", target_os="freebsd", target_os="openbsd"))'.dependencies]
 nix = { version = "0.30", features = ["ioctl"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -63,11 +63,11 @@ windows-sys = { version = "0.60", features = [
 ] }
 libloading = "0.8"
 
-[target.'cfg(any(target_os = "macos", target_os = "freebsd"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
 route_manager = "0.2.0"
 
 
-[target.'cfg(any(target_os = "linux", target_os = "freebsd",target_os = "windows"))'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd",target_os = "windows"))'.dependencies]
 mac_address = "1.1.7"
 
 [build-dependencies]
