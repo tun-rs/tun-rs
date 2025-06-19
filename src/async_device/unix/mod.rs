@@ -198,7 +198,7 @@ impl AsyncDevice {
                 offset,
             )
         } else {
-            let len = self.recv(bufs[0].as_mut()).await?;
+            let len = self.recv(&mut bufs[0].as_mut()[offset..]).await?;
             sizes[0] = len;
             Ok(1)
         }

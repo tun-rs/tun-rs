@@ -349,7 +349,7 @@ impl DeviceImpl {
                 offset,
             )
         } else {
-            let len = read_f(&self.tun, bufs[0].as_mut())?;
+            let len = read_f(&self.tun, &mut bufs[0].as_mut()[offset..])?;
             sizes[0] = len;
             Ok(1)
         }
