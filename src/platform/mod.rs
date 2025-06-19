@@ -231,15 +231,10 @@ impl SyncDevice {
         bufs: &mut [B],
         offset: usize,
         event: &InterruptEvent,
-        send_offset: &mut usize,
     ) -> std::io::Result<usize> {
-        self.send_multiple0(
-            gro_table,
-            bufs,
-            offset,
-            |tun, buf| tun.write_interruptible(buf, event),
-            send_offset,
-        )
+        self.send_multiple0(gro_table, bufs, offset, |tun, buf| {
+            tun.write_interruptible(buf, event)
+        })
     }
     #[cfg(feature = "interruptible")]
     pub fn recv_multiple_intr<B: AsRef<[u8]> + AsMut<[u8]>>(
