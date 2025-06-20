@@ -9,7 +9,7 @@ use crate::platform::DeviceImpl;
 use libc::{AF_INET, AF_INET6, SOCK_DGRAM};
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
 
 impl FromRawFd for DeviceImpl {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
@@ -26,9 +26,10 @@ impl AsFd for DeviceImpl {
         unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
     }
 }
-
+#[cfg(not(target_os = "freebsd"))]
 impl IntoRawFd for DeviceImpl {
     fn into_raw_fd(self) -> RawFd {
+        use std::os::unix::io::IntoRawFd;
         self.tun.into_raw_fd()
     }
 }

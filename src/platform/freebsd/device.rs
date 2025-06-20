@@ -15,6 +15,7 @@ use libc::{
 };
 use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
+use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::atomic::AtomicBool;
 use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
@@ -24,7 +25,27 @@ pub struct DeviceImpl {
     alias_lock: Mutex<()>,
     associate_route: AtomicBool,
 }
-
+impl IntoRawFd for DeviceImpl {
+    fn into_raw_fd(mut self) -> RawFd {
+        let fd = self.tun.fd.inner;
+        self.tun.fd.inner = -1;
+        fd
+    }
+}
+impl Drop for DeviceImpl {
+    fn drop(&mut self) {
+        unsafe {
+            match (ctl(), self.request()) {
+                (Ok(ctl), Ok(req)) => {
+                    libc::close(self.tun.fd.inner);
+                    self.tun.fd.inner = -1;
+                    _ = siocifdestroy(ctl.as_raw_fd(), &req);
+                }
+                (_, _) => {}
+            }
+        }
+    }
+}
 impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> std::io::Result<Self> {
