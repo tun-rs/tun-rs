@@ -160,13 +160,14 @@ fn main() -> std::io::Result<()> {
 }
 ````
 
-macOS & FreeBSD
+macOS | *BSD  
 -----
 `tun-rs` will automatically set up a route according to the provided configuration, which does a similar thing like
 this:
 > sudo route -n add -net 10.0.0.0/24 10.0.0.1
 
-
+Tap for macOS 
+-----
 Implement TAP mode on macOS using a pair of `feth` interfaces. This approach differs from TAP on other Unix platforms—please pay special attention to the following points:
 
 1. The system will not automatically destroy `feth` interfaces (they rely on the destructor to execute the `ifconfig destroy` command), so killing the process may leave behind residual feth interfaces. This is similar to TAP behavior on Windows.
