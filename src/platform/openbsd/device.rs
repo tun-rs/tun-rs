@@ -96,10 +96,10 @@ impl DeviceImpl {
                         }
                     }
                 }
+                if_index += 1;
                 if if_index >= 256 {
                     return Err(io::Error::last_os_error());
                 }
-                if_index += 1;
             }
         };
         let tun = Tun::new(dev_fd);
