@@ -124,13 +124,13 @@ impl DeviceImpl {
             .map(|_| ())
             .map_err(|e| e.into())
     }
-    pub(crate) fn from_tun(tun: Tun) -> Self {
-        Self {
+    pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        Ok(Self {
             tun,
             vnet_hdr: false,
             udp_gso: false,
             flags: 0,
-        }
+        })
     }
 
     /// # Prerequisites

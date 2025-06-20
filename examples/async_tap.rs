@@ -45,6 +45,7 @@ async fn main() -> io::Result<()> {
         .layer(Layer::L2)
         .mtu(1400)
         .build_async()?;
+    println!("mac address = {:?}",dev.mac_address());
     let mut buf = vec![0; 14 + 65536];
     loop {
         tokio::select! {

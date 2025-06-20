@@ -47,12 +47,12 @@ impl DeviceImpl {
         };
         Ok(device_impl)
     }
-    pub(crate) fn from_tun(tun: Tun) -> Self {
-        Self {
+    pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        Ok(Self {
             associate_route: AtomicBool::new(true),
             tun: TunTap::Tun(tun),
             alias_lock: Mutex::new(()),
-        }
+        })
     }
     /// Prepare a new request.
     fn request(&self) -> io::Result<libc::ifreq> {

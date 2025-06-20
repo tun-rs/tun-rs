@@ -19,15 +19,43 @@ use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
-    name: Option<String>,
+    name: String,
     pub(crate) tun: Tun,
     alias_lock: Mutex<()>,
     associate_route: AtomicBool,
 }
 
 impl DeviceImpl {
+    /// Returns whether the TUN device is set to ignore packet information (PI).
+    ///
+    /// When enabled, the device does not prepend the `struct tun_pi` header
+    /// to packets, which can simplify packet processing in some cases.
+    ///
+    /// # Returns
+    /// * `true` - The TUN device ignores packet information.
+    /// * `false` - The TUN device includes packet information.
+    pub fn ignore_packet_info(&self) -> bool {
+        self.tun.ignore_packet_info()
+    }
+    /// Sets whether the TUN device should ignore packet information (PI).
+    ///
+    /// When `ignore_packet_info` is set to `true`, the TUN device does not
+    /// prepend the `struct tun_pi` header to packets. This can be useful
+    /// if the additional metadata is not needed.
+    ///
+    /// # Parameters
+    /// * `ign`
+    ///     - If `true`, the TUN device will ignore packet information.
+    ///     - If `false`, it will include packet information.
+    pub fn set_ignore_packet_info(&self, ign: bool) {
+        if let Ok(name) = self.name() {
+            if name.starts_with("tun") {
+                self.tun.set_ignore_packet_info(ign)
+            }
+        }
+    }
     /// Create a new `Device` for the given `Configuration`.
-    pub(crate) fn new(config: DeviceConfig) -> std::io::Result<Self> {
+    pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
         let layer = config.layer.unwrap_or(Layer::L3);
         let associate_route = if layer == Layer::L3 {
             config.associate_route.unwrap_or(true)
@@ -75,32 +103,41 @@ impl DeviceImpl {
                 if_index += 1;
             }
         };
+        let tun = Tun::new(dev_fd);
+        if layer == Layer::L2 {
+            tun.set_ignore_packet_info(false);
+        }
         Ok(DeviceImpl {
-            name: Some(dev_name),
-            tun: Tun::new(dev_fd),
+            name: dev_name,
+            tun,
             alias_lock: Mutex::new(()),
             associate_route: AtomicBool::new(associate_route),
         })
     }
-    pub(crate) fn from_tun(tun: Tun) -> Self {
-        Self {
-            name: None,
+    pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        let name = Self::name0(&tun)?;
+        if name.starts_with("tap") {
+            // Tap does not have PI
+            tun.set_ignore_packet_info(false)
+        }
+        Ok(Self {
+            name,
             tun,
             alias_lock: Mutex::new(()),
             associate_route: AtomicBool::new(true),
-        }
+        })
     }
 
-    fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> std::io::Result<IpAddr> {
+    fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<IpAddr> {
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
         Ok(ipnet::IpNet::new(addr, prefix_len)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?
             .broadcast())
     }
 
     /// Set the IPv4 alias of the device.
-    fn set_alias(&self, addr: IpAddr, dest: IpAddr, mask: IpAddr) -> std::io::Result<()> {
+    fn set_alias(&self, addr: IpAddr, dest: IpAddr, mask: IpAddr) -> io::Result<()> {
         let _guard = self.alias_lock.lock().unwrap();
         // let old_route = self.current_route();
         unsafe {
@@ -149,13 +186,13 @@ impl DeviceImpl {
             if let Err(e) = self.add_route(addr, mask) {
                 log::warn!("{e:?}");
             }
-            
+
             Ok(())
         }
     }
 
     /// Prepare a new request.
-    unsafe fn request(&self) -> std::io::Result<ifreq> {
+    unsafe fn request(&self) -> io::Result<ifreq> {
         let mut req: ifreq = mem::zeroed();
         let tun_name = self.name()?;
         ptr::copy_nonoverlapping(
@@ -168,7 +205,7 @@ impl DeviceImpl {
     }
 
     /// # Safety
-    unsafe fn request_v6(&self) -> std::io::Result<in6_ifreq> {
+    unsafe fn request_v6(&self) -> io::Result<in6_ifreq> {
         let tun_name = self.name()?;
         let mut req: in6_ifreq = mem::zeroed();
         ptr::copy_nonoverlapping(
@@ -205,21 +242,20 @@ impl DeviceImpl {
     }
 
     /// Retrieves the name of the network interface.
-    pub fn name(&self) -> std::io::Result<String> {
-        if let Some(name) = self.name.as_ref() {
-            Ok(name.clone())
-        } else {
-            let file = unsafe { std::fs::File::from_raw_fd(self.tun.as_raw_fd()) };
-            let metadata = file.metadata()?;
-            let rdev = metadata.rdev();
-            let index = rdev % 256;
-            std::mem::forget(file); // prevent fd being closed
-            Ok(format!("tun{}", index))
-        }
+    pub fn name(&self) -> io::Result<String> {
+        Ok(self.name.clone())
+    }
+    fn name0(tun: &Tun) -> io::Result<String> {
+        let file = unsafe { std::fs::File::from_raw_fd(tun.as_raw_fd()) };
+        let metadata = file.metadata()?;
+        let rdev = metadata.rdev();
+        let index = rdev % 256;
+        std::mem::forget(file); // prevent fd being closed
+        Ok(format!("tun{}", index))
     }
 
     /// Enables or disables the network interface.
-    pub fn enabled(&self, value: bool) -> std::io::Result<()> {
+    pub fn enabled(&self, value: bool) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
             let ctl = ctl()?;
@@ -243,7 +279,7 @@ impl DeviceImpl {
     }
 
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
-    pub fn mtu(&self) -> std::io::Result<u16> {
+    pub fn mtu(&self) -> io::Result<u16> {
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name()?;
@@ -261,7 +297,7 @@ impl DeviceImpl {
         }
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
-    pub fn set_mtu(&self, value: u16) -> std::io::Result<()> {
+    pub fn set_mtu(&self, value: u16) -> io::Result<()> {
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name()?;
@@ -355,7 +391,7 @@ impl DeviceImpl {
     /// This function constructs an interface request and copies the provided MAC address
     /// into the hardware address field. It then applies the change via a system call.
     /// This operation is typically supported only for TAP devices.
-    pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> std::io::Result<()> {
+    pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_addr.sa_len = ETHER_ADDR_LEN;
@@ -372,11 +408,11 @@ impl DeviceImpl {
     ///
     /// This function queries the MAC address by the interface name using a helper function.
     /// An error is returned if the MAC address cannot be found.
-    pub fn mac_address(&self) -> std::io::Result<[u8; ETHER_ADDR_LEN as usize]> {
+    pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let mac = mac_address_by_name(&self.name()?)
             .map_err(|e| io::Error::other(e.to_string()))?
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
+            .ok_or(io::Error::new(
+                ErrorKind::InvalidInput,
                 "invalid mac address",
             ))?;
         Ok(mac.bytes())

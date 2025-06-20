@@ -110,12 +110,12 @@ impl DeviceImpl {
 
         Ok(device)
     }
-    pub(crate) fn from_tun(tun: Tun) -> Self {
-        Self {
+    pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        Ok(Self {
             tun,
             alias_lock: Mutex::new(()),
             associate_route: AtomicBool::new(true),
-        }
+        })
     }
 
     fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> std::io::Result<IpAddr> {

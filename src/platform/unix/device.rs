@@ -13,7 +13,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
 
 impl FromRawFd for DeviceImpl {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        DeviceImpl::from_fd(fd)
+        DeviceImpl::from_fd(fd).unwrap()
     }
 }
 impl AsRawFd for DeviceImpl {
@@ -35,7 +35,7 @@ impl IntoRawFd for DeviceImpl {
 impl DeviceImpl {
     /// # Safety
     /// The fd passed in must be an owned file descriptor; in particular, it must be open.
-    pub(crate) unsafe fn from_fd(fd: RawFd) -> Self {
+    pub(crate) unsafe fn from_fd(fd: RawFd) -> io::Result<Self> {
         let tun = Fd::new_unchecked(fd);
         DeviceImpl::from_tun(Tun::new(tun))
     }

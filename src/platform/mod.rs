@@ -72,8 +72,8 @@ impl SyncDevice {
     ///
     /// This function is only available on Unix platforms.
     #[cfg(unix)]
-    pub unsafe fn from_fd(fd: RawFd) -> Self {
-        SyncDevice(DeviceImpl::from_fd(fd))
+    pub unsafe fn from_fd(fd: RawFd) -> std::io::Result<Self> {
+        Ok(SyncDevice(DeviceImpl::from_fd(fd)?))
     }
     /// Receives data from the device into the provided buffer.
     ///
@@ -266,7 +266,7 @@ impl Deref for SyncDevice {
 #[cfg(unix)]
 impl FromRawFd for SyncDevice {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        SyncDevice::from_fd(fd)
+        SyncDevice::from_fd(fd).unwrap()
     }
 }
 #[cfg(unix)]

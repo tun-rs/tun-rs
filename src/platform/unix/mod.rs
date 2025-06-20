@@ -52,7 +52,7 @@ pub struct DeviceImpl {
     ))
 ))]
 impl DeviceImpl {
-    pub(crate) fn from_tun(tun: Tun) -> Self {
-        Self { tun }
+    pub(crate) fn from_tun(tun: Tun) -> std::io::Result<Self> {
+        Ok(Self { tun })
     }
 }
