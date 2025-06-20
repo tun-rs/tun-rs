@@ -35,13 +35,10 @@ impl IntoRawFd for DeviceImpl {
 impl Drop for DeviceImpl {
     fn drop(&mut self) {
         unsafe {
-            match (ctl(), self.request()) {
-                (Ok(ctl), Ok(req)) => {
-                    libc::close(self.tun.fd.inner);
-                    self.tun.fd.inner = -1;
-                    _ = siocifdestroy(ctl.as_raw_fd(), &req);
-                }
-                (_, _) => {}
+            if let (Ok(ctl), Ok(req)) = (ctl(), self.request()) {
+                libc::close(self.tun.fd.inner);
+                self.tun.fd.inner = -1;
+                _ = siocifdestroy(ctl.as_raw_fd(), &req);
             }
         }
     }
