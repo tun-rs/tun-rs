@@ -9,13 +9,15 @@ use std::sync::Arc;
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "openbsd",
 ))]
 use tun_rs::DeviceBuilder;
 #[cfg(any(
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 #[allow(unused_imports)]
 use tun_rs::Layer;
@@ -47,13 +49,14 @@ fn main_entry(_quit: Receiver<()>) -> Result<(), std::io::Error> {
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
     #[allow(unused_imports)]
     use std::net::IpAddr;
     let dev = Arc::new(
         DeviceBuilder::new()
-            .name("utun7")
+            // .name("utun7")
             .ipv4(Ipv4Addr::new(10, 0, 0, 12), 24, None)
             // .ipv4(Ipv4Addr::new(10, 0, 0, 2), Ipv4Addr::new(255, 255, 255, 0), None)
             .ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)
@@ -70,6 +73,7 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
     // // linux multi queue
     // let device = dev.try_clone().unwrap();
     // println!("clone {:?}", device.name());
+    println!("addr {:?}", dev.addresses());
 
     println!("if_index = {:?}", dev.if_index());
     println!("mtu = {:?}", dev.mtu());

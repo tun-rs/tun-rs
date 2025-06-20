@@ -12,41 +12,41 @@ pub struct ctl_info {
     pub ctl_id: c_uint,
     pub ctl_name: [c_char; 96],
 }
-
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union ifra_ifrau {
+    pub ifrau_addr: sockaddr,
+    pub ifrau_align: c_int,
+}
 #[allow(non_camel_case_types)]
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct ifaliasreq {
-    pub ifran: [c_char; IFNAMSIZ],
-    pub addr: sockaddr,
-    pub dstaddr: sockaddr,
-    pub mask: sockaddr,
-    pub ifra_vhid: c_int,
+    pub ifra_name: [c_char; IFNAMSIZ],
+    pub ifra_ifrau: ifra_ifrau,
+    pub ifra_dstaddr: sockaddr, // == ifra_broadaddr
+    pub ifra_mask: sockaddr,
+}
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union ifra_ifrau_in6 {
+    pub ifrau_addr: sockaddr_in6,
+    pub ifrau_align: c_int,
 }
 
 #[allow(non_camel_case_types)]
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct in6_ifaliasreq {
+pub struct in6_aliasreq {
     pub ifra_name: [c_char; IFNAMSIZ],
-    pub ifra_addr: sockaddr_in6,
+    pub ifra_ifrau: ifra_ifrau_in6,
     pub ifra_dstaddr: sockaddr_in6,
     pub ifra_prefixmask: sockaddr_in6,
-    pub ifra_flags: libc::c_int,
-    pub in6_addrlifetime: in6_addrlifetime,
-    pub ifra_vhid: libc::c_int,
+    pub ifra_flags: c_int,
+    pub ifra_lifetime: in6_addrlifetime,
 }
-
-// #[allow(non_camel_case_types)]
-// #[repr(C)]
-// #[derive(Copy, Clone)]
-// pub struct in_aliasreq  {
-//     pub ifra_name: [c_char; IFNAMSIZ],
-//     pub ifra_addr: sockaddr_in,
-//     pub ifra_dstaddr: sockaddr_in,
-//     pub ifra_mask: sockaddr_in,
-// 	pub ifra_vhid:c_int
-// }
 
 #[allow(non_camel_case_types)]
 #[repr(C)]
@@ -201,6 +201,16 @@ pub struct icmp6_ifstat {
     /* ipv6IfIcmpOutGroupMembReductions, # of output MLD done */
     pub ifs6_out_mlddone: u_quad_t,
 }
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ifreq_mtu {
+    pub ifr_name: [c_char; IFNAMSIZ],
+    pub mtu: c_uint,
+    pub pad0: [u8; 12],
+}
+
+// https://github.com/openbsd/src/blob/25ed657ec9c4285c385bc3b3556c0dc8eb6d6665/sys/sys/sockio.h#L114
 
 ioctl_write_ptr!(siocsifflags, b'i', 16, ifreq);
 ioctl_readwrite!(siocgifflags, b'i', 17, ifreq);
@@ -217,20 +227,14 @@ ioctl_readwrite!(siocgifbrdaddr, b'i', 35, ifreq);
 ioctl_write_ptr!(siocsifnetmask, b'i', 22, ifreq);
 ioctl_readwrite!(siocgifnetmask, b'i', 37, ifreq);
 
-ioctl_write_ptr!(siocsifmtu, b'i', 52, ifreq);
-ioctl_readwrite!(siocgifmtu, b'i', 51, ifreq);
+ioctl_write_ptr!(siocsifmtu, b'i', 127, ifreq_mtu);
+ioctl_readwrite!(siocgifmtu, b'i', 126, ifreq_mtu);
 
-ioctl_write_ptr!(siocaifaddr, b'i', 43, ifaliasreq);
+ioctl_write_ptr!(siocaifaddr, b'i', 26, ifaliasreq);
 ioctl_write_ptr!(siocdifaddr, b'i', 25, ifreq);
 
-ioctl_write_ptr!(siocifcreate, b'i', 122, ifreq);
-
-ioctl_write_ptr!(siocsifphyaddr, b'i', 70, ifaliasreq);
-
-ioctl_write_ptr!(siocsifname, b'i', 40, ifreq);
-
-ioctl_write_ptr!(siocsiflladdr, b'i', 60, ifreq);
+ioctl_write_ptr!(siocsiflladdr, b'i', 31, ifreq);
 
 ioctl_write_ptr!(siocdifaddr_in6, b'i', 25, in6_ifreq);
 
-ioctl_write_ptr!(siocaifaddr_in6, b'i', 27, in6_ifaliasreq);
+ioctl_write_ptr!(siocaifaddr_in6, b'i', 26, in6_aliasreq);
