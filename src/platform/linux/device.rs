@@ -79,7 +79,11 @@ impl DeviceImpl {
                 | if multi_queue { iff_multi_queue } else { 0 }
                 | if offload { iff_vnet_hdr } else { 0 };
 
-            let fd = libc::open(c"/dev/net/tun".as_ptr() as *const _, O_RDWR, 0);
+            let fd = libc::open(
+                c"/dev/net/tun".as_ptr() as *const _,
+                O_RDWR | libc::O_CLOEXEC,
+                0,
+            );
             let tun_fd = Fd::new(fd)?;
             if let Err(err) = tunsetiff(tun_fd.inner, &mut req as *mut _ as *mut _) {
                 return Err(io::Error::from(err));

@@ -79,13 +79,16 @@ impl DeviceImpl {
                 .map(|v| v + 1)
                 .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
             let device_path = format!("/dev/{device_prefix}{if_index}\0");
-            let fd = unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR) };
+            let fd =
+                unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC) };
             (Fd::new(fd)?, dev_name)
         } else {
             let mut if_index = 0;
             loop {
                 let device_path = format!("/dev/{device_prefix}{if_index}\0");
-                let fd = unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR) };
+                let fd = unsafe {
+                    libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC)
+                };
                 match Fd::new(fd) {
                     Ok(dev) => {
                         break (dev, format!("{device_prefix}{if_index}"));
