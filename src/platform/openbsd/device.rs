@@ -91,7 +91,6 @@ impl DeviceImpl {
                         break (dev, format!("{device_prefix}{if_index}"));
                     }
                     Err(e) => {
-                        println!("open  {e:?} {device_path}");
                         if e.raw_os_error() != Some(libc::EBUSY) {
                             return Err(e);
                         }
