@@ -6,7 +6,7 @@ authors = ["xmh0511, vnt-dev"]
 license = "Apache-2.0"
 description = "Cross-platform Tun and Tap library"
 repository = "https://github.com/tun-rs/tun-rs"
-keywords = ["tun", "tap", "network", "tunnel", "vpn"]
+keywords = ["tun", "tap", "network", "tunnel", "VPN", "net-interface"]
 
 [lib]
 crate-type = ["staticlib", "cdylib", "lib"]
