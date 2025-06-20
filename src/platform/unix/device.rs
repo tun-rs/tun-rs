@@ -3,7 +3,8 @@ use crate::platform::DeviceImpl;
 #[cfg(any(
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 use libc::{AF_INET, AF_INET6, SOCK_DGRAM};
 use std::io;
@@ -12,7 +13,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
 
 impl FromRawFd for DeviceImpl {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        DeviceImpl::from_fd(fd)
+        DeviceImpl::from_fd(fd).unwrap()
     }
 }
 impl AsRawFd for DeviceImpl {
@@ -34,7 +35,7 @@ impl IntoRawFd for DeviceImpl {
 impl DeviceImpl {
     /// # Safety
     /// The fd passed in must be an owned file descriptor; in particular, it must be open.
-    pub(crate) unsafe fn from_fd(fd: RawFd) -> Self {
+    pub(crate) unsafe fn from_fd(fd: RawFd) -> io::Result<Self> {
         let tun = Fd::new_unchecked(fd);
         DeviceImpl::from_tun(Tun::new(tun))
     }
@@ -114,7 +115,8 @@ impl DeviceImpl {
 #[cfg(any(
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 impl DeviceImpl {
     /// Retrieves the interface index for the network interface.
@@ -167,7 +169,8 @@ impl DeviceImpl {
 #[cfg(any(
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 pub(crate) unsafe fn ctl() -> io::Result<Fd> {
     Fd::new(libc::socket(AF_INET, SOCK_DGRAM, 0))
@@ -175,7 +178,8 @@ pub(crate) unsafe fn ctl() -> io::Result<Fd> {
 #[cfg(any(
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
     Fd::new(libc::socket(AF_INET6, SOCK_DGRAM, 0))

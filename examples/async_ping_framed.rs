@@ -12,6 +12,7 @@ use tun_rs::async_framed::{BytesCodec, DeviceFramed};
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 #[allow(unused_imports)]
 use tun_rs::DeviceBuilder;
@@ -24,6 +25,7 @@ mod protocol_handle;
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

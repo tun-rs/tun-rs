@@ -8,14 +8,16 @@ use std::sync::Arc;
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "openbsd",
 ))]
 use tun_rs::DeviceBuilder;
 #[cfg(any(
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "openbsd",
 ))]
 use tun_rs::Layer;
 
@@ -25,7 +27,8 @@ mod protocol_handle;
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
-    target_os = "macos"
+    target_os = "macos",
+    target_os = "openbsd",
 ))]
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -42,6 +45,7 @@ async fn main() -> io::Result<()> {
         .layer(Layer::L2)
         .mtu(1400)
         .build_async()?;
+    println!("mac address = {:?}", dev.mac_address());
     let mut buf = vec![0; 14 + 65536];
     loop {
         tokio::select! {

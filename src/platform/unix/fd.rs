@@ -14,7 +14,8 @@ impl Fd {
         target_os = "windows",
         target_os = "macos",
         all(target_os = "linux", not(target_env = "ohos")),
-        target_os = "freebsd"
+        target_os = "freebsd",
+        target_os = "openbsd",
     ))]
     pub(crate) fn new(value: RawFd) -> io::Result<Self> {
         if value < 0 {
@@ -100,6 +101,7 @@ impl Fd {
 #[cfg(any(
     target_os = "dragonfly",
     target_os = "freebsd",
+    target_os = "openbsd",
     target_os = "netbsd",
     target_os = "openbsd",
     target_vendor = "apple",

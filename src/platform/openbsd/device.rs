@@ -1,6 +1,6 @@
 use crate::{
     builder::{DeviceConfig, Layer},
-    platform::freebsd::sys::*,
+    platform::openbsd::sys::*,
     platform::{
         unix::{sockaddr_union, Fd, Tun},
         ETHER_ADDR_LEN,
@@ -9,25 +9,53 @@ use crate::{
 };
 
 use crate::platform::unix::device::{ctl, ctl_v6};
-use libc::{
-    self, c_char, c_short, fcntl, ifreq, kinfo_file, AF_LINK, F_KINFO, IFF_RUNNING, IFF_UP,
-    IFNAMSIZ, KINFO_FILE_SIZE, O_RDWR,
-};
+use libc::{self, c_char, c_short, ifreq, AF_LINK, IFF_RUNNING, IFF_UP, O_RDWR};
 use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
+use std::os::fd::FromRawFd;
+use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::AtomicBool;
-use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
+    name: String,
     pub(crate) tun: Tun,
     alias_lock: Mutex<()>,
     associate_route: AtomicBool,
 }
 
 impl DeviceImpl {
+    /// Returns whether the TUN device is set to ignore packet information (PI).
+    ///
+    /// When enabled, the device does not prepend the `struct tun_pi` header
+    /// to packets, which can simplify packet processing in some cases.
+    ///
+    /// # Returns
+    /// * `true` - The TUN device ignores packet information.
+    /// * `false` - The TUN device includes packet information.
+    pub fn ignore_packet_info(&self) -> bool {
+        self.tun.ignore_packet_info()
+    }
+    /// Sets whether the TUN device should ignore packet information (PI).
+    ///
+    /// When `ignore_packet_info` is set to `true`, the TUN device does not
+    /// prepend the `struct tun_pi` header to packets. This can be useful
+    /// if the additional metadata is not needed.
+    ///
+    /// # Parameters
+    /// * `ign`
+    ///     - If `true`, the TUN device will ignore packet information.
+    ///     - If `false`, it will include packet information.
+    pub fn set_ignore_packet_info(&self, ign: bool) {
+        if let Ok(name) = self.name() {
+            if name.starts_with("tun") {
+                self.tun.set_ignore_packet_info(ign)
+            }
+        }
+    }
     /// Create a new `Device` for the given `Configuration`.
-    pub(crate) fn new(config: DeviceConfig) -> std::io::Result<Self> {
+    pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
         let layer = config.layer.unwrap_or(Layer::L3);
         let associate_route = if layer == Layer::L3 {
             config.associate_route.unwrap_or(true)
@@ -39,95 +67,76 @@ impl DeviceImpl {
         } else {
             "tap".to_string()
         };
-        let device = unsafe {
-            let dev_index = match config.dev_name.as_ref() {
-                Some(tun_name) => {
-                    let tun_name = tun_name.clone();
-
-                    if tun_name.len() > IFNAMSIZ {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "device name too long",
-                        ));
+        let (dev_fd, dev_name) = if let Some(dev_name) = config.dev_name {
+            if !dev_name.starts_with(&device_prefix) {
+                return Err(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("device name must start with {device_prefix}"),
+                ));
+            }
+            let if_index = dev_name[3..]
+                .parse::<u32>()
+                .map(|v| v + 1)
+                .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+            let device_path = format!("/dev/{device_prefix}{if_index}\0");
+            let fd = unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR) };
+            (Fd::new(fd)?, dev_name)
+        } else {
+            let mut if_index = 0;
+            loop {
+                let device_path = format!("/dev/{device_prefix}{if_index}\0");
+                let fd = unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR) };
+                match Fd::new(fd) {
+                    Ok(dev) => {
+                        break (dev, format!("{device_prefix}{if_index}"));
                     }
-
-                    if layer == Layer::L3 && !tun_name.starts_with("tun") {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "device name must start with tun",
-                        ));
-                    }
-                    if layer == Layer::L2 && !tun_name.starts_with("tap") {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "device name must start with tap",
-                        ));
-                    }
-                    Some(
-                        tun_name[3..]
-                            .parse::<u32>()
-                            .map_err(|e| std::io::Error::new(ErrorKind::InvalidInput, e))?
-                            + 1_u32,
-                    )
-                }
-
-                None => None,
-            };
-
-            let (tun, _tun_name) = {
-                if let Some(name_index) = dev_index.as_ref() {
-                    let device_name = format!("{}{}", device_prefix, name_index);
-                    let device_path = format!("/dev/{}\0", device_name);
-                    let fd = libc::open(device_path.as_ptr() as *const _, O_RDWR);
-                    let tun = Fd::new(fd)?;
-                    (tun, device_name)
-                } else {
-                    let (tun, device_name) = 'End: {
-                        for i in 0..256 {
-                            let device_name = format!("{device_prefix}{i}");
-                            let device_path = format!("/dev/{device_name}\0");
-                            let fd = libc::open(device_path.as_ptr() as *const _, O_RDWR);
-                            if fd > 0 {
-                                let tun = Fd::new(fd)?;
-                                break 'End (tun, device_name);
-                            }
+                    Err(e) => {
+                        if e.raw_os_error() != Some(libc::EBUSY) {
+                            return Err(e);
                         }
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::AlreadyExists,
-                            "no available file descriptor",
-                        ));
-                    };
-                    (tun, device_name)
+                    }
                 }
-            };
-
-            DeviceImpl {
-                tun: Tun::new(tun),
-                alias_lock: Mutex::new(()),
-                associate_route: AtomicBool::new(associate_route),
+                if if_index >= 256 {
+                    return Err(io::Error::last_os_error());
+                }
+                if_index += 1;
             }
         };
-
-        Ok(device)
+        let tun = Tun::new(dev_fd);
+        if layer == Layer::L2 {
+            tun.set_ignore_packet_info(false);
+        }
+        Ok(DeviceImpl {
+            name: dev_name,
+            tun,
+            alias_lock: Mutex::new(()),
+            associate_route: AtomicBool::new(associate_route),
+        })
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        let name = Self::name0(&tun)?;
+        if name.starts_with("tap") {
+            // Tap does not have PI
+            tun.set_ignore_packet_info(false)
+        }
         Ok(Self {
+            name,
             tun,
             alias_lock: Mutex::new(()),
             associate_route: AtomicBool::new(true),
         })
     }
 
-    fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> std::io::Result<IpAddr> {
+    fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<IpAddr> {
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
         Ok(ipnet::IpNet::new(addr, prefix_len)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?
             .broadcast())
     }
 
     /// Set the IPv4 alias of the device.
-    fn set_alias(&self, addr: IpAddr, dest: IpAddr, mask: IpAddr) -> std::io::Result<()> {
+    fn set_alias(&self, addr: IpAddr, dest: IpAddr, mask: IpAddr) -> io::Result<()> {
         let _guard = self.alias_lock.lock().unwrap();
         // let old_route = self.current_route();
         unsafe {
@@ -138,13 +147,14 @@ impl DeviceImpl {
                     let tun_name = self.name()?;
                     ptr::copy_nonoverlapping(
                         tun_name.as_ptr() as *const c_char,
-                        req.ifran.as_mut_ptr(),
+                        req.ifra_name.as_mut_ptr(),
                         tun_name.len(),
                     );
 
-                    req.addr = crate::platform::unix::sockaddr_union::from((addr, 0)).addr;
-                    req.dstaddr = crate::platform::unix::sockaddr_union::from((dest, 0)).addr;
-                    req.mask = crate::platform::unix::sockaddr_union::from((mask, 0)).addr;
+                    req.ifra_ifrau.ifrau_addr =
+                        crate::platform::unix::sockaddr_union::from((addr, 0)).addr;
+                    req.ifra_dstaddr = crate::platform::unix::sockaddr_union::from((dest, 0)).addr;
+                    req.ifra_mask = crate::platform::unix::sockaddr_union::from((mask, 0)).addr;
 
                     if let Err(err) = siocaifaddr(ctl.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
@@ -155,16 +165,16 @@ impl DeviceImpl {
                         return Err(std::io::Error::from(ErrorKind::InvalidInput));
                     };
                     let tun_name = self.name()?;
-                    let mut req: in6_ifaliasreq = mem::zeroed();
+                    let mut req: in6_aliasreq = mem::zeroed();
                     ptr::copy_nonoverlapping(
                         tun_name.as_ptr() as *const c_char,
                         req.ifra_name.as_mut_ptr(),
                         tun_name.len(),
                     );
-                    req.ifra_addr = sockaddr_union::from((addr, 0)).addr6;
+                    req.ifra_ifrau.ifrau_addr = sockaddr_union::from((addr, 0)).addr6;
                     req.ifra_prefixmask = sockaddr_union::from((mask, 0)).addr6;
-                    req.in6_addrlifetime.ia6t_vltime = 0xffffffff_u32;
-                    req.in6_addrlifetime.ia6t_pltime = 0xffffffff_u32;
+                    req.ifra_lifetime.ia6t_vltime = 0xffffffff_u32;
+                    req.ifra_lifetime.ia6t_pltime = 0xffffffff_u32;
                     req.ifra_flags = IN6_IFF_NODAD;
                     if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
@@ -181,7 +191,7 @@ impl DeviceImpl {
     }
 
     /// Prepare a new request.
-    unsafe fn request(&self) -> std::io::Result<ifreq> {
+    unsafe fn request(&self) -> io::Result<ifreq> {
         let mut req: ifreq = mem::zeroed();
         let tun_name = self.name()?;
         ptr::copy_nonoverlapping(
@@ -194,7 +204,7 @@ impl DeviceImpl {
     }
 
     /// # Safety
-    unsafe fn request_v6(&self) -> std::io::Result<in6_ifreq> {
+    unsafe fn request_v6(&self) -> io::Result<in6_ifreq> {
         let tun_name = self.name()?;
         let mut req: in6_ifreq = mem::zeroed();
         ptr::copy_nonoverlapping(
@@ -231,67 +241,32 @@ impl DeviceImpl {
     }
 
     /// Retrieves the name of the network interface.
-    pub fn name(&self) -> std::io::Result<String> {
-        use std::path::PathBuf;
-        unsafe {
-            let mut path_info: kinfo_file = std::mem::zeroed();
-            path_info.kf_structsize = KINFO_FILE_SIZE;
-            if fcntl(self.tun.as_raw_fd(), F_KINFO, &mut path_info as *mut _) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            let dev_path = CStr::from_ptr(path_info.kf_path.as_ptr() as *const c_char)
-                .to_string_lossy()
-                .into_owned();
-            let path = PathBuf::from(dev_path);
-            let device_name = path
-                .file_name()
-                .ok_or(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "invalid device name",
-                ))?
-                .to_string_lossy()
-                .to_string();
-            Ok(device_name)
-        }
+    pub fn name(&self) -> io::Result<String> {
+        Ok(self.name.clone())
     }
-    /// Sets a new name for the network interface.
-    pub fn set_name(&self, value: &str) -> std::io::Result<()> {
-        use std::ffi::CString;
-        unsafe {
-            if value.len() > IFNAMSIZ {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "device name too long",
-                ));
-            }
-            let mut req = self.request()?;
-            let tun_name = CString::new(value)?;
-            let mut tun_name: Vec<c_char> = tun_name
-                .into_bytes_with_nul()
-                .into_iter()
-                .map(|c| c as _)
-                .collect::<_>();
-            req.ifr_ifru.ifru_data = tun_name.as_mut_ptr();
-            if let Err(err) = siocsifname(ctl()?.as_raw_fd(), &req) {
-                return Err(io::Error::from(err));
-            }
+    fn name0(tun: &Tun) -> io::Result<String> {
+        let file = unsafe { std::fs::File::from_raw_fd(tun.as_raw_fd()) };
+        let metadata = file.metadata()?;
+        let rdev = metadata.rdev();
+        let index = rdev % 256;
+        std::mem::forget(file); // prevent fd being closed
+        Ok(format!("tun{}", index))
+    }
 
-            Ok(())
-        }
-    }
     /// Enables or disables the network interface.
-    pub fn enabled(&self, value: bool) -> std::io::Result<()> {
+    pub fn enabled(&self, value: bool) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
             let ctl = ctl()?;
+
             if let Err(err) = siocgifflags(ctl.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
 
             if value {
-                req.ifr_ifru.ifru_flags[0] |= (IFF_UP | IFF_RUNNING) as c_short;
+                req.ifr_ifru.ifru_flags |= (IFF_UP | IFF_RUNNING) as c_short;
             } else {
-                req.ifr_ifru.ifru_flags[0] &= !(IFF_UP as c_short);
+                req.ifr_ifru.ifru_flags &= !(IFF_UP as c_short);
             }
 
             if let Err(err) = siocsifflags(ctl.as_raw_fd(), &req) {
@@ -303,23 +278,34 @@ impl DeviceImpl {
     }
 
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
-    pub fn mtu(&self) -> std::io::Result<u16> {
+    pub fn mtu(&self) -> io::Result<u16> {
         unsafe {
-            let mut req = self.request()?;
-
+            let mut req: ifreq_mtu = mem::zeroed();
+            let tun_name = self.name()?;
+            ptr::copy_nonoverlapping(
+                tun_name.as_ptr() as *const c_char,
+                req.ifr_name.as_mut_ptr(),
+                tun_name.len(),
+            );
             if let Err(err) = siocgifmtu(ctl()?.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
 
-            let r: u16 = req.ifr_ifru.ifru_mtu.try_into().map_err(io::Error::other)?;
+            let r: u16 = req.mtu.try_into().map_err(io::Error::other)?;
             Ok(r)
         }
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
-    pub fn set_mtu(&self, value: u16) -> std::io::Result<()> {
+    pub fn set_mtu(&self, value: u16) -> io::Result<()> {
         unsafe {
-            let mut req = self.request()?;
-            req.ifr_ifru.ifru_mtu = value as i32;
+            let mut req: ifreq_mtu = mem::zeroed();
+            let tun_name = self.name()?;
+            ptr::copy_nonoverlapping(
+                tun_name.as_ptr() as *const c_char,
+                req.ifr_name.as_mut_ptr(),
+                tun_name.len(),
+            );
+            req.mtu = value as _;
 
             if let Err(err) = siocsifmtu(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
@@ -376,19 +362,19 @@ impl DeviceImpl {
         let addr = addr.ipv6()?;
         unsafe {
             let tun_name = self.name()?;
-            let mut req: in6_ifaliasreq = mem::zeroed();
+            let mut req: in6_aliasreq = mem::zeroed();
             ptr::copy_nonoverlapping(
                 tun_name.as_ptr() as *const c_char,
                 req.ifra_name.as_mut_ptr(),
                 tun_name.len(),
             );
-            req.ifra_addr = sockaddr_union::from((addr, 0)).addr6;
+            req.ifra_ifrau.ifrau_addr = sockaddr_union::from((addr, 0)).addr6;
             let network_addr = ipnet::IpNet::new(addr.into(), netmask.prefix()?)
                 .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
             let mask = network_addr.netmask();
             req.ifra_prefixmask = sockaddr_union::from((mask, 0)).addr6;
-            req.in6_addrlifetime.ia6t_vltime = 0xffffffff_u32;
-            req.in6_addrlifetime.ia6t_pltime = 0xffffffff_u32;
+            req.ifra_lifetime.ia6t_vltime = 0xffffffff_u32;
+            req.ifra_lifetime.ia6t_pltime = 0xffffffff_u32;
             req.ifra_flags = IN6_IFF_NODAD;
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
@@ -404,7 +390,7 @@ impl DeviceImpl {
     /// This function constructs an interface request and copies the provided MAC address
     /// into the hardware address field. It then applies the change via a system call.
     /// This operation is typically supported only for TAP devices.
-    pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> std::io::Result<()> {
+    pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_addr.sa_len = ETHER_ADDR_LEN;
@@ -421,11 +407,11 @@ impl DeviceImpl {
     ///
     /// This function queries the MAC address by the interface name using a helper function.
     /// An error is returned if the MAC address cannot be found.
-    pub fn mac_address(&self) -> std::io::Result<[u8; ETHER_ADDR_LEN as usize]> {
+    pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let mac = mac_address_by_name(&self.name()?)
             .map_err(|e| io::Error::other(e.to_string()))?
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
+            .ok_or(io::Error::new(
+                ErrorKind::InvalidInput,
                 "invalid mac address",
             ))?;
         Ok(mac.bytes())

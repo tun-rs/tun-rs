@@ -8,6 +8,7 @@ use std::sync::Arc;
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 use tun_rs::DeviceBuilder;
 #[allow(unused_imports)]
@@ -21,6 +22,7 @@ mod protocol_handle;
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -35,10 +37,14 @@ async fn main() -> std::io::Result<()> {
     let dev = Arc::new(
         DeviceBuilder::new()
             .ipv4(Ipv4Addr::new(10, 0, 0, 117), 24, None)
+            .ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)
             .build_async()?,
     );
 
+    println!("name:{:?}", dev.name()?);
+    println!("addresses:{:?}", dev.addresses()?);
     let size = dev.mtu()? as usize;
+    println!("mtu:{:?}", size);
     let mut buf = vec![0; size];
     loop {
         tokio::select! {
@@ -63,6 +69,7 @@ async fn main() -> std::io::Result<()> {
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 #[async_std::main]
 async fn main() -> std::io::Result<()> {

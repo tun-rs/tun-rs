@@ -30,6 +30,7 @@ cross-platform.
 | Linux    | ✅   | ✅   |
 | macOS    | ✅   | ✅*  |
 | FreeBSD  | ✅   | ✅   |
+| OpenBSD  | ✅   | ✅   |
 | Android  | ✅   |     |
 | iOS      | ✅   |     |
 | Other*   | ✅   |     |

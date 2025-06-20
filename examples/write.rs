@@ -8,6 +8,7 @@ use std::sync::{mpsc::Receiver, Arc};
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 use tun_rs::DeviceBuilder;
 #[allow(unused_imports)]
@@ -41,6 +42,7 @@ fn main_entry(_quit: Receiver<()>) -> std::io::Result<()> {
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
     target_os = "freebsd",
+    target_os = "openbsd",
 ))]
 fn main_entry(quit: Receiver<()>) -> std::io::Result<()> {
     let dev = Arc::new(

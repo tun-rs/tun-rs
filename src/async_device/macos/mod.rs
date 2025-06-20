@@ -54,7 +54,7 @@ impl AsyncDevice {
     /// This method is safe if the provided fd is valid
     /// Construct a AsyncDevice from an existing file descriptor
     pub unsafe fn from_fd(fd: RawFd) -> io::Result<AsyncDevice> {
-        AsyncDevice::new_dev(DeviceImpl::from_fd(fd))
+        AsyncDevice::new_dev(DeviceImpl::from_fd(fd)?)
     }
     pub fn into_fd(self) -> io::Result<RawFd> {
         match self.async_model {
