@@ -34,6 +34,9 @@ impl IntoRawFd for DeviceImpl {
 }
 impl Drop for DeviceImpl {
     fn drop(&mut self) {
+        if self.tun.fd.inner < 0 {
+            return;
+        }
         unsafe {
             if let (Ok(ctl), Ok(req)) = (ctl(), self.request()) {
                 libc::close(self.tun.fd.inner);
