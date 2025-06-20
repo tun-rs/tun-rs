@@ -27,9 +27,8 @@ impl AsFd for DeviceImpl {
     }
 }
 #[cfg(not(target_os = "freebsd"))]
-impl IntoRawFd for DeviceImpl {
+impl std::os::unix::io::IntoRawFd for DeviceImpl {
     fn into_raw_fd(self) -> RawFd {
-        use std::os::unix::io::IntoRawFd;
         self.tun.into_raw_fd()
     }
 }
