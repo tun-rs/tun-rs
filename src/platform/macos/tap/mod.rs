@@ -64,9 +64,8 @@ pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<()> {
 pub struct Tap {
     s_bpf_fd: Fd,
     s_ndrv_fd: Fd,
-    dev_feth: Feth,
-    #[allow(dead_code)]
     peer_feth: Feth,
+    dev_feth: Feth,
     buffer: Mutex<VecDeque<BytesMut>>,
 }
 struct Feth {
