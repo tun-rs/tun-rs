@@ -2,7 +2,7 @@ use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::{io, ptr};
-
+use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::{
     GetLastError, ERROR_BUFFER_OVERFLOW, ERROR_HANDLE_EOF, ERROR_INVALID_DATA, ERROR_NO_MORE_ITEMS,
     WAIT_FAILED, WAIT_OBJECT_0,
@@ -416,12 +416,15 @@ impl TunDevice {
             //SAFETY: guid is a unique integer so transmuting either all zeroes or the user's preferred
             //guid to the wintun_raw guid type is safe and will allow the windows kernel to see our GUID
 
-            let guid_ptr = guid
-                .map(|guid| {
-                    let guid_struct: wintun_raw::GUID = std::mem::transmute(guid);
-                    &guid_struct as *const wintun_raw::GUID
-                })
-                .unwrap_or(ptr::null());
+            let guid = guid.map(|guid| {
+                let guid = GUID::from_u128(guid);
+                wintun_raw::GUID {
+                    Data1: guid.data1,
+                    Data2: guid.data2,
+                    Data3: guid.data3,
+                    Data4: guid.data4,
+                }
+            });
 
             //SAFETY: the function is loaded from the wintun dll properly, we are providing valid
             //pointers, and all the strings are correct null terminated UTF-16. This safety rationale
@@ -429,7 +432,7 @@ impl TunDevice {
             let adapter = win_tun.WintunCreateAdapter(
                 name_utf16.as_ptr(),
                 description_utf16.as_ptr(),
-                guid_ptr,
+                guid.as_ref().map_or(ptr::null(), |guid| guid as *const _),
             );
             if adapter.is_null() {
                 Err(io::Error::last_os_error())?
