@@ -44,7 +44,7 @@ async fn main() -> std::io::Result<()> {
     println!("name:{:?}", dev.name()?);
     println!("addresses:{:?}", dev.addresses()?);
     let size = dev.mtu()? as usize;
-    println!("mtu:{:?}", size);
+    println!("mtu:{size:?}",);
     let mut buf = vec![0; size];
     loop {
         tokio::select! {

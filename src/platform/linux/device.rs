@@ -421,8 +421,7 @@ impl DeviceImpl {
                 }
             }
             ip_version => Err(io::Error::other(format!(
-                "invalid ip header version: {}",
-                ip_version
+                "invalid ip header version: {ip_version}"
             )))?,
         }
         // Don't trust hdr.hdrLen from the kernel as it can be equal to the length

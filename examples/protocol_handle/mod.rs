@@ -86,6 +86,6 @@ pub fn arp(buf: &[u8]) -> Option<Vec<u8>> {
     arp_packet.set_sender_hw_addr(MAC.into());
     ethernet_packet.set_destination(sender_h);
     ethernet_packet.set_source(MAC.into());
-    println!("arp query {}", target_p);
+    println!("arp query {target_p}");
     Some(buf)
 }

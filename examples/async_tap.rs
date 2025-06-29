@@ -67,7 +67,7 @@ async fn main() -> io::Result<()> {
                                 }
                             }
                             protocol=>{
-                                 println!("ignore ether protocol: {}", protocol)
+                                 println!("ignore ether protocol: {protocol}", )
                             }
                         }
                 }

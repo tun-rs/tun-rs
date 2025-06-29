@@ -288,7 +288,7 @@ pub fn delete_interface(component_id: &str, luid: &NET_LUID_LH) -> io::Result<()
 pub fn open_interface(luid: &NET_LUID_LH) -> io::Result<OwnedHandle> {
     let guid = ffi::luid_to_guid(luid).and_then(|guid| ffi::string_from_guid(&guid))?;
 
-    let path = format!(r"\\.\Global\{}.tap", guid);
+    let path = format!(r"\\.\Global\{guid}.tap");
 
     let handle = ffi::create_file(
         &path,
@@ -308,7 +308,7 @@ pub fn set_adapter_mac_by_guid(adapter_guid: &str, new_mac: &str) -> io::Result<
 
     let mut found = false;
     for i in 0..256 {
-        let subkey_name = format!("{:04}", i);
+        let subkey_name = format!("{i:04}");
         if let Ok(subkey) = class.open_subkey_with_flags(&subkey_name, KEY_READ | KEY_WRITE) {
             let guid: String = subkey.get_value("NetCfgInstanceId").unwrap_or_default();
             if guid.eq_ignore_ascii_case(adapter_guid) {
@@ -336,7 +336,7 @@ pub fn enable_adapter(adapter_name: &str, val: bool) -> io::Result<()> {
             "path",
             "win32_networkadapter",
             "where",
-            &format!("NetConnectionID='{}'", adapter_name),
+            &format!("NetConnectionID='{adapter_name}'",),
             "call",
             if val { "enable" } else { "disable" },
         ])

@@ -7,17 +7,11 @@ use encoding_rs::GBK;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 pub fn set_interface_name(old_name: &str, new_name: &str) -> io::Result<()> {
-    let cmd = format!(
-        " netsh interface set interface name={:?} newname={:?}",
-        old_name, new_name
-    );
+    let cmd = format!(" netsh interface set interface name={old_name:?} newname={new_name:?}");
     exe_cmd(&cmd)
 }
 pub fn set_interface_metric(index: u32, metric: u16) -> io::Result<()> {
-    let cmd = format!(
-        "netsh interface ip set interface {} metric={}",
-        index, metric
-    );
+    let cmd = format!("netsh interface ip set interface {index} metric={metric}");
     exe_cmd(&cmd)
 }
 pub fn exe_cmd(cmd: &str) -> io::Result<()> {
@@ -48,8 +42,7 @@ fn output(cmd: &str, out: Output) -> io::Result<()> {
             String::new()
         };
         return Err(io::Error::other(format!(
-            "cmd=\"{}\",out=\"{}\"",
-            cmd,
+            "cmd=\"{cmd}\",out=\"{}\"",
             msg.trim()
         )));
     }
@@ -88,8 +81,8 @@ pub fn set_interface_ip(
             .arg("address")
             .arg(index.to_string().as_str())
             .arg("source=static")
-            .arg(format!("address={}", address).as_str())
-            .arg(format!("mask={}", netmask).as_str())
+            .arg(format!("address={address}",).as_str())
+            .arg(format!("mask={netmask}",).as_str())
     } else {
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
@@ -99,26 +92,20 @@ pub fn set_interface_ip(
             .arg("set")
             .arg("address")
             .arg(index.to_string().as_str())
-            .arg(format!("address={}/{}", address, prefix_len).as_str())
+            .arg(format!("address={address}/{prefix_len}").as_str())
     };
 
     if let Some(gateway) = gateway {
-        _ = cmd.arg(format!("gateway={}", gateway).as_str());
+        _ = cmd.arg(format!("gateway={gateway}",).as_str());
     }
     exe_command(cmd)
 }
 
 pub fn set_interface_mtu(index: u32, mtu: u32) -> io::Result<()> {
-    let cmd = format!(
-        "netsh interface ipv4 set subinterface {}  mtu={} store=persistent",
-        index, mtu
-    );
+    let cmd = format!("netsh interface ipv4 set subinterface {index}  mtu={mtu} store=persistent",);
     exe_cmd(&cmd)
 }
 pub fn set_interface_mtu_v6(index: u32, mtu: u32) -> io::Result<()> {
-    let cmd = format!(
-        "netsh interface ipv6 set subinterface {}  mtu={} store=persistent",
-        index, mtu
-    );
+    let cmd = format!("netsh interface ipv6 set subinterface {index}  mtu={mtu} store=persistent",);
     exe_cmd(&cmd)
 }

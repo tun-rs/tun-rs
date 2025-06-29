@@ -85,7 +85,7 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
                     return;
                 }
                 Err(e) => {
-                    println!("Error: {:?}", e);
+                    println!("Error: {e:?}");
                     return;
                 }
             }

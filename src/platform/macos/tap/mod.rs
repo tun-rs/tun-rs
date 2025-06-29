@@ -55,7 +55,7 @@ pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<()> {
         } else {
             &out.stderr
         });
-        let info = format!("{} failed with: \"{}\"", command, err);
+        let info = format!("{command} failed with: \"{err}\"");
         return Err(io::Error::other(info));
     }
     Ok(())
@@ -393,7 +393,7 @@ impl AsRawFd for Tap {
 
 fn open_bpf() -> io::Result<Fd> {
     for i in 1..5000 {
-        let path = CString::new(format!("/dev/bpf{}", i).into_bytes())?;
+        let path = CString::new(format!("/dev/bpf{i}").into_bytes())?;
         let bpf_fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR) };
         match Fd::new(bpf_fd) {
             Ok(fd) => {
