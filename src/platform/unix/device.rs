@@ -168,19 +168,29 @@ impl DeviceImpl {
 }
 #[cfg(any(
     all(target_os = "linux", not(target_env = "ohos")),
-    target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
 ))]
 pub(crate) unsafe fn ctl() -> io::Result<Fd> {
-    Fd::new(libc::socket(AF_INET, SOCK_DGRAM, 0))
+    Fd::new(libc::socket(AF_INET, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0))
+}
+#[cfg(target_os = "macos")]
+pub(crate) unsafe fn ctl() -> io::Result<Fd> {
+    let fd = Fd::new(libc::socket(AF_INET, SOCK_DGRAM, 0))?;
+    _ = fd.set_cloexec();
+    Ok(fd)
 }
 #[cfg(any(
     all(target_os = "linux", not(target_env = "ohos")),
-    target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
 ))]
 pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
-    Fd::new(libc::socket(AF_INET6, SOCK_DGRAM, 0))
+    Fd::new(libc::socket(AF_INET6, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0))
+}
+#[cfg(target_os = "macos")]
+pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
+    let fd = Fd::new(libc::socket(AF_INET6, SOCK_DGRAM, 0))?;
+    _ = fd.set_cloexec();
+    Ok(fd)
 }

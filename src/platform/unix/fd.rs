@@ -35,6 +35,19 @@ impl Fd {
             Ok((flags & O_NONBLOCK) != 0)
         }
     }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn set_cloexec(&self) -> io::Result<()> {
+        unsafe {
+            let flags = fcntl(self.inner, libc::F_GETFD);
+            if flags < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if fcntl(self.inner, libc::F_SETFD, flags | libc::FD_CLOEXEC) < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        }
+    }
     /// Enable non-blocking mode
     pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
         let mut nonblocking = nonblocking as libc::c_int;

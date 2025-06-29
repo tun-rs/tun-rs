@@ -92,6 +92,7 @@ impl Tap {
         unsafe {
             let s_ndrv_fd = libc::socket(libc::AF_NDRV, libc::SOCK_RAW, 0);
             let s_ndrv_fd = Fd::new(s_ndrv_fd)?;
+            _ = s_ndrv_fd.set_cloexec();
             let mut ifr = new_ifreq(config.dev_name.as_ref())?;
             if let Err(e) = siocifcreate(s_ndrv_fd.inner, &mut ifr) {
                 if e != Errno::EEXIST || !config.reuse_dev.unwrap_or(true) {
@@ -396,6 +397,7 @@ fn open_bpf() -> io::Result<Fd> {
         let bpf_fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR) };
         match Fd::new(bpf_fd) {
             Ok(fd) => {
+                _ = fd.set_cloexec();
                 return Ok(fd);
             }
             Err(e) => {

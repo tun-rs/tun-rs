@@ -56,7 +56,7 @@ impl TunTap {
                 unsafe {
                     let fd = libc::socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
                     let tun = crate::platform::unix::Fd::new(fd)?;
-
+                    _ = tun.set_cloexec();
                     let mut info = ctl_info {
                         ctl_id: 0,
                         ctl_name: {

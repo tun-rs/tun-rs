@@ -154,7 +154,10 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_flags = flags;
-            let fd = libc::open(c"/dev/net/tun".as_ptr() as *const _, O_RDWR);
+            let fd = libc::open(
+                c"/dev/net/tun".as_ptr() as *const _,
+                O_RDWR | libc::O_CLOEXEC,
+            );
             let tun_fd = Fd::new(fd)?;
             if let Err(err) = tunsetiff(tun_fd.inner, &mut req as *mut _ as *mut _) {
                 return Err(io::Error::from(err));
