@@ -97,8 +97,8 @@ impl DeviceImpl {
 
             let (tun, _tun_name) = {
                 if let Some(name_index) = dev_index.as_ref() {
-                    let device_name = format!("{}{}", device_prefix, name_index);
-                    let device_path = format!("/dev/{}\0", device_name);
+                    let device_name = format!("{device_prefix}{name_index}");
+                    let device_path = format!("/dev/{device_name}\0");
                     let fd = libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC);
                     let tun = Fd::new(fd)?;
                     (tun, device_name)
