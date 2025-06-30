@@ -30,12 +30,6 @@ mod protocol_handle;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
-
-    ctrlc2::set_async_handler(async move {
-        tx.send(()).await.expect("Signal error");
-    })
-    .await;
 
     let dev = DeviceBuilder::new()
         .ipv4(Ipv4Addr::new(10, 0, 0, 21), 24, None)
@@ -43,7 +37,7 @@ async fn main() -> std::io::Result<()> {
     let mut framed = DeviceFramed::new(dev, BytesCodec::new());
     loop {
         tokio::select! {
-            _ = rx.recv() => {
+            _ = tokio::signal::ctrl_c() => {
                 log::info!("Quit...");
                 break;
             }
