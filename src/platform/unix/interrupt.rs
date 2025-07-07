@@ -71,73 +71,76 @@ impl Fd {
         interrupted_event: &InterruptEvent,
     ) -> io::Result<()> {
         let fd = self.as_raw_fd() as libc::c_int;
-
         let event_fd = interrupted_event.as_event_fd();
-        let mut readfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let mut errorfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        unsafe {
-            libc::FD_SET(fd, &mut readfds);
-            libc::FD_SET(fd, &mut errorfds);
-            libc::FD_SET(event_fd, &mut readfds);
-        }
-        let result = unsafe {
-            libc::select(
-                fd.max(event_fd) + 1,
-                &mut readfds,
-                std::ptr::null_mut(),
-                &mut errorfds,
-                std::ptr::null_mut(),
-            )
-        };
+
+        let mut fds = [
+            libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: event_fd,
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+
+        let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+
         if result == -1 {
             return Err(io::Error::last_os_error());
         }
-        unsafe {
-            if libc::FD_ISSET(event_fd, &readfds) {
-                return Err(io::Error::new(
-                    io::ErrorKind::Interrupted,
-                    "trigger interrupt",
-                ));
-            }
+        if fds[0].revents & libc::POLLIN != 0 {
+            return Ok(());
         }
-        Ok(())
+
+        if fds[1].revents & libc::POLLIN != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "trigger interrupt",
+            ));
+        }
+
+        Err(io::Error::other("fd error"))
     }
     pub fn wait_writable_interruptible(
         &self,
         interrupted_event: &InterruptEvent,
     ) -> io::Result<()> {
         let fd = self.as_raw_fd() as libc::c_int;
-
         let event_fd = interrupted_event.as_event_fd();
-        let mut readfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let mut writefds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let mut errorfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        unsafe {
-            libc::FD_SET(fd, &mut writefds);
-            libc::FD_SET(fd, &mut errorfds);
-            libc::FD_SET(event_fd, &mut readfds);
-        }
-        let result = unsafe {
-            libc::select(
-                fd.max(event_fd) + 1,
-                &mut readfds,
-                &mut writefds,
-                &mut errorfds,
-                std::ptr::null_mut(),
-            )
-        };
+
+        let mut fds = [
+            libc::pollfd {
+                fd,
+                events: libc::POLLOUT,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: event_fd,
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+
+        let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+
         if result == -1 {
             return Err(io::Error::last_os_error());
         }
-        unsafe {
-            if libc::FD_ISSET(event_fd, &readfds) {
-                return Err(io::Error::new(
-                    io::ErrorKind::Interrupted,
-                    "trigger interrupt",
-                ));
-            }
+        if fds[0].revents & libc::POLLOUT != 0 {
+            return Ok(());
         }
-        Ok(())
+
+        if fds[1].revents & libc::POLLIN != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "trigger interrupt",
+            ));
+        }
+
+        Err(io::Error::other("fd error"))
     }
 }
 
