@@ -201,7 +201,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 #[no_mangle]
 pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
     // This is safe if the provided fd is valid
-    let tun = unsafe { tun_rs::SyncDevice::from_raw_fd(fd) };
+    let tun = unsafe { tun_rs::SyncDevice::from_fd(fd).unwrap() };
     let mut buf = [0u8; 1500];
     while let Ok(packet) = tun.recv(&mut buf) {
         // ...
