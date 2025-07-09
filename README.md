@@ -223,7 +223,7 @@ private void startVpn(DeviceConfig config) {
                  .establish();
     int fd = vpnInterface.getFd();
     // Pass the fd to tun-rs using JNI
-    // example: let tun = unsafe { tun_rs::SyncDevice::from_raw_fd(fd) };
+    // example: let tun = unsafe { tun_rs::SyncDevice::from_fd(fd).unwrap() };
 }
 ```
 
