@@ -112,7 +112,7 @@ impl DeviceImpl {
                 driver: Driver::Tap(tap),
             }
         } else {
-            panic!("unknown layer {:?}", layer);
+            panic!("unknown layer {layer:?}");
         };
         Ok(device)
     }

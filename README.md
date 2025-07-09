@@ -213,8 +213,9 @@ Android
 -----
 
 ```java
+// JAVA
 // use android.net.VpnService
-private void startVpn(DeviceConfig config) {
+private void startVpn() {
     Builder builder = new Builder();
     builder
        .allowFamily(OsConstants.AF_INET)
@@ -223,6 +224,7 @@ private void startVpn(DeviceConfig config) {
                  .establish();
     int fd = vpnInterface.getFd();
     // Pass the fd to tun-rs using JNI
+    // This is safe if the provided fd is valid
     // example: let tun = unsafe { tun_rs::SyncDevice::from_fd(fd).unwrap() };
 }
 ```

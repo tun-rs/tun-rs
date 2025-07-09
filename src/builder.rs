@@ -373,7 +373,7 @@ impl DeviceBuilder {
                 use std::fmt::Write;
                 v.iter()
                     .fold(String::with_capacity(v.len() * 2), |mut s, b| {
-                        write!(&mut s, "{:02X}", b).unwrap();
+                        write!(&mut s, "{b:02X}").unwrap();
                         s
                     })
             }),

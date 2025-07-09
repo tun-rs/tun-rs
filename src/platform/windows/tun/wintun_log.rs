@@ -47,10 +47,10 @@ fn default_logger_(level: wintun_raw::WINTUN_LOGGER_LEVEL, message: *const wintu
     let msg = unsafe { U16CStr::from_ptr_str(message) };
     let utf8_msg = msg.to_string_lossy();
     match level {
-        wintun_raw::WINTUN_LOGGER_LEVEL_WINTUN_LOG_INFO => info!("WinTun: {}", utf8_msg),
-        wintun_raw::WINTUN_LOGGER_LEVEL_WINTUN_LOG_WARN => warn!("WinTun: {}", utf8_msg),
-        wintun_raw::WINTUN_LOGGER_LEVEL_WINTUN_LOG_ERR => error!("WinTun: {}", utf8_msg),
-        _ => error!("WinTun: {} (with invalid log level {})", utf8_msg, level),
+        wintun_raw::WINTUN_LOGGER_LEVEL_WINTUN_LOG_INFO => info!("WinTun: {utf8_msg}"),
+        wintun_raw::WINTUN_LOGGER_LEVEL_WINTUN_LOG_WARN => warn!("WinTun: {utf8_msg}"),
+        wintun_raw::WINTUN_LOGGER_LEVEL_WINTUN_LOG_ERR => error!("WinTun: {utf8_msg}"),
+        _ => error!("WinTun: {utf8_msg} (with invalid log level {level})"),
     }
 }
 
