@@ -11,6 +11,7 @@ use crate::platform::{DeviceImpl, SyncDevice};
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Layer {
+    /// Data Link Layer.
     #[cfg(any(
         target_os = "windows",
         target_os = "linux",
@@ -19,6 +20,7 @@ pub enum Layer {
         target_os = "openbsd",
     ))]
     L2,
+    /// Network Layer (default for TUN interfaces).
     #[default]
     L3,
 }

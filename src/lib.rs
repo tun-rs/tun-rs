@@ -61,4 +61,5 @@ pub use async_device::*;
 ))]
 mod builder;
 mod platform;
+/// Length of the protocol info header
 pub const PACKET_INFORMATION_LENGTH: usize = 4;

@@ -4,8 +4,8 @@ Tun/Tap interfaces
 [![tun-rs](https://docs.rs/tun-rs/badge.svg)](https://docs.rs/tun-rs/latest/tun_rs)
 [![Apache-2.0](https://img.shields.io/github/license/tun-rs/tun-rs?style=flat)](https://github.com/tun-rs/tun-rs/blob/master/LICENSE)
 
-This crate allows the creation and usage of Tun and Tap interfaces(**supporting both Ipv4 and ipv6**), aiming to make this
-cross-platform.
+This crate allows the creation and usage of Tun and Tap interfaces(**supporting both Ipv4 and ipv6**), aiming to make
+this cross-platform.
 
 [benchmark](https://github.com/tun-rs/tun-benchmark2)
 
@@ -160,19 +160,24 @@ fn main() -> std::io::Result<()> {
 }
 ````
 
-macOS | *BSD  
+macOS | *BSD
 -----
 `tun-rs` will automatically set up a route according to the provided configuration, which does a similar thing like
 this:
 > sudo route -n add -net 10.0.0.0/24 10.0.0.1
 
-Tap for macOS 
+Tap for macOS
 -----
-Implement TAP mode on macOS using a pair of `feth` interfaces. This approach differs from TAP on other Unix platforms—please pay special attention to the following points:
+Implement TAP mode on macOS using a pair of `feth` interfaces. This approach differs from TAP on other Unix
+platforms—please pay special attention to the following points:
 
-1. The system will not automatically destroy `feth` interfaces (they rely on the destructor to execute the `ifconfig destroy` command), so killing the process may leave behind residual feth interfaces. This is similar to TAP behavior on Windows.
+1. The system will not automatically destroy `feth` interfaces (they rely on the destructor to execute the
+   `ifconfig destroy` command), so killing the process may leave behind residual feth interfaces. This is similar to TAP
+   behavior on Windows.
 
-2. Of the `feth` pair, one is used for basic operations such as IP configuration, while the other is used for I/O operations and is accessed via BPF. As a result, multiple file descriptors are involved, so caution is needed when using AsRawFd or IntoRawFd.
+2. Of the `feth` pair, one is used for basic operations such as IP configuration, while the other is used for I/O
+   operations and is accessed via BPF. As a result, multiple file descriptors are involved, so caution is needed when
+   using AsRawFd or IntoRawFd.
 
 iOS
 ----

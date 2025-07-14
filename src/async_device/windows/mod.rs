@@ -39,6 +39,7 @@ impl Drop for AsyncDevice {
     }
 }
 impl AsyncDevice {
+    /// Creates a new async wrapper around a TUN/TAP device
     pub fn new(device: SyncDevice) -> io::Result<AsyncDevice> {
         AsyncDevice::new_dev(device.0)
     }
@@ -193,6 +194,7 @@ impl AsyncDevice {
             self.readable().await?;
         }
     }
+    /// Attempts to read a packet without blocking.
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.inner.try_recv(buf)
     }
@@ -220,6 +222,7 @@ impl AsyncDevice {
         std::mem::forget(cancel_guard);
         result
     }
+    /// Attempts to write a packet without blocking.
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.try_send(buf)
     }
