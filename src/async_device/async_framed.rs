@@ -67,7 +67,7 @@ pub struct DeviceFramed<C, T = AsyncDevice> {
     recv_buffer_size: usize,
     send_buffer_size: usize,
     rd: BytesMut,
-    wr: Vec<BytesMut>,
+    wr: BytesMutVec,
     #[cfg(target_os = "linux")]
     gro_table: Option<GROTable>,
     #[cfg(target_os = "linux")]
@@ -158,7 +158,7 @@ where
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         #[cfg(target_os = "linux")]
         if let Some(table) = &self.gro_table {
-            if self.wr.len() < IDEAL_BATCH_SIZE && table.to_write.is_empty() {
+            if self.wr.has_capacity() && table.to_write.is_empty() {
                 return Poll::Ready(Ok(()));
             }
         }
@@ -168,20 +168,12 @@ where
 
     fn start_send(self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
         let pin = self.get_mut();
-        #[allow(unused_mut)]
-        let mut capacity = pin.send_buffer_size;
-
-        #[cfg(target_os = "linux")]
-        if pin.gro_table.is_some() {
-            capacity = 65536;
-        }
-        let mut buf = BytesMut::with_capacity(capacity);
+        let buf = pin.wr.get();
         #[cfg(target_os = "linux")]
         if pin.gro_table.is_some() {
             buf.resize(VIRTIO_NET_HDR_LEN, 0)
         }
-        pin.codec.encode(item, &mut buf)?;
-        pin.wr.push(buf);
+        pin.codec.encode(item, buf)?;
         Ok(())
     }
 
@@ -193,10 +185,11 @@ where
             ready!(self.poll_send_bufs(cx))?;
             return Poll::Ready(Ok(()));
         }
+        assert!(self.wr.len() <= 1);
         // On non-Linux systems or when GSO is disabled on Linux, `wr` will contain at most one element
         if let Some(frame) = self.wr.first() {
             let rs = ready!(self.dev.borrow().poll_send(cx, frame));
-            _ = self.wr.clear();
+            self.wr.reset();
             rs?;
         }
         Poll::Ready(Ok(()))
@@ -223,7 +216,7 @@ where
             unreachable!()
         };
         crate::platform::offload::handle_gro(
-            &mut self.wr,
+            self.wr.mut_bufs(),
             VIRTIO_NET_HDR_LEN,
             &mut gro_table.tcp_gro_table,
             &mut gro_table.udp_gro_table,
@@ -244,8 +237,9 @@ where
         if gro_table.to_write.is_empty() {
             return Poll::Ready(Ok(()));
         }
+        let bufs = self.wr.as_bufs();
         for buf_idx in &gro_table.to_write[self.send_index..] {
-            let rs = self.dev.borrow().poll_send(cx, &self.wr[*buf_idx]);
+            let rs = self.dev.borrow().poll_send(cx, &bufs[*buf_idx]);
             match rs {
                 Poll::Ready(Ok(_)) => {
                     self.send_index += 1;
@@ -254,8 +248,8 @@ where
                     self.send_index += 1;
                     if self.send_index == gro_table.to_write.len() {
                         self.send_index = 0;
-                        self.wr.clear();
                         gro_table.reset();
+                        self.wr.reset();
                     }
                     return Poll::Ready(Err(e));
                 }
@@ -265,8 +259,8 @@ where
             }
         }
         self.send_index = 0;
-        self.wr.clear();
         gro_table.reset();
+        self.wr.reset();
         Poll::Ready(Ok(()))
     }
 }
@@ -277,16 +271,17 @@ where
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
         // The MTU of the network interface cannot be greater than this value.
         let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
-        let send_buffer_size = recv_buffer_size;
         #[cfg(target_os = "linux")]
-        let (gro_table, rds, sizes) = if dev.borrow().tcp_gso() {
+        let (gro_table, rds, sizes, capacity, send_buffer_size) = if dev.borrow().tcp_gso() {
             (
                 Some(GROTable::new()),
                 vec![BytesMut::zeroed(recv_buffer_size); IDEAL_BATCH_SIZE],
                 vec![0; IDEAL_BATCH_SIZE],
+                IDEAL_BATCH_SIZE,
+                VIRTIO_NET_HDR_LEN + 65536,
             )
         } else {
-            (None, Vec::new(), Vec::new())
+            (None, Vec::new(), Vec::new(), 1, recv_buffer_size)
         };
         DeviceFramed {
             dev,
@@ -294,7 +289,7 @@ where
             recv_buffer_size,
             send_buffer_size,
             rd: BytesMut::with_capacity(recv_buffer_size),
-            wr: Vec::with_capacity(128),
+            wr: BytesMutVec::new(capacity, send_buffer_size),
             #[cfg(target_os = "linux")]
             gro_table,
             #[cfg(target_os = "linux")]
@@ -323,8 +318,28 @@ where
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.recv_buffer_size = read_buffer_size;
     }
+    /// Sets the size of the write buffer in bytes.
+    ///
+    /// This value determines the initial capacity of each outgoing buffer.
+    /// On Linux, if GSO (Generic Segmentation Offload) is enabled, this setting is ignored,
+    /// and the send buffer size is fixed to a larger value to accommodate large TCP segments.
+    ///
+    /// If the current buffer size is already greater than or equal to the requested size,
+    /// this call has no effect.
+    ///
+    /// # Parameters
+    /// - `write_buffer_size`: Desired size in bytes for the write buffer.
     pub fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
+        #[cfg(target_os = "linux")]
+        if self.gro_table.is_some() {
+            // When GSO is enabled, send_buffer_size is no longer controlled by this parameter.
+            return;
+        }
+        if self.send_buffer_size >= write_buffer_size {
+            return;
+        }
         self.send_buffer_size = write_buffer_size;
+        self.wr.reserve_buffer_size(write_buffer_size);
     }
     /// Returns a reference to the read buffer.
     pub fn read_buffer(&self) -> &BytesMut {
@@ -381,5 +396,57 @@ impl Encoder<BytesMut> for BytesCodec {
         buf.reserve(data.len());
         buf.put(data);
         Ok(())
+    }
+}
+
+struct BytesMutVec {
+    offset: usize,
+    bufs: Vec<BytesMut>,
+}
+impl BytesMutVec {
+    pub fn new(capacity: usize, buffer_size: usize) -> BytesMutVec {
+        let mut bufs = Vec::with_capacity(capacity);
+        for _ in 0..capacity {
+            bufs.push(BytesMut::with_capacity(buffer_size));
+        }
+        BytesMutVec { offset: 0, bufs }
+    }
+    pub fn get(&mut self) -> &mut BytesMut {
+        let buf = &mut self.bufs[self.offset];
+        self.offset += 1;
+        buf
+    }
+    pub fn reset(&mut self) {
+        for buf in self.mut_bufs() {
+            buf.clear();
+        }
+        self.offset = 0;
+    }
+    pub fn mut_bufs(&mut self) -> &mut [BytesMut] {
+        &mut self.bufs[..self.offset]
+    }
+    pub fn as_bufs(&self) -> &[BytesMut] {
+        &self.bufs[..self.offset]
+    }
+    pub fn first(&self) -> Option<&BytesMut> {
+        if self.offset == 0 {
+            None
+        } else {
+            Some(&self.bufs[0])
+        }
+    }
+    pub fn len(&self) -> usize {
+        self.offset
+    }
+    pub fn is_empty(&self) -> bool {
+        self.offset == 0
+    }
+    pub fn has_capacity(&self) -> bool {
+        self.bufs.len() > self.offset
+    }
+    pub fn reserve_buffer_size(&mut self, buffer_size: usize) {
+        for buf in &mut self.bufs {
+            buf.reserve(buffer_size);
+        }
     }
 }
