@@ -67,19 +67,11 @@ pub struct DeviceFramed<C, T = AsyncDevice> {
     recv_buffer_size: usize,
     send_buffer_size: usize,
     rd: BytesMut,
-    wr: BytesMutVec,
+    wr: Option<BytesMut>,
     #[cfg(target_os = "linux")]
-    gro_table: Option<GROTable>,
+    packet_aggregator: Option<PacketAggregator>,
     #[cfg(target_os = "linux")]
-    send_index: usize,
-    #[cfg(target_os = "linux")]
-    rds: Vec<BytesMut>,
-    #[cfg(target_os = "linux")]
-    recv_index: usize,
-    #[cfg(target_os = "linux")]
-    recv_num: usize,
-    #[cfg(target_os = "linux")]
-    sizes: Vec<usize>,
+    packet_splitter: Option<PacketSplitter>,
 }
 impl<C, T> Unpin for DeviceFramed<C, T> {}
 impl<C, T> Stream for DeviceFramed<C, T>
@@ -91,16 +83,17 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let pin = self.get_mut();
         #[cfg(target_os = "linux")]
-        if pin.gro_table.is_some() && pin.recv_index < pin.recv_num {
-            let buf = &mut pin.rds[pin.recv_index];
-            pin.recv_index += 1;
-            if let Some(frame) = pin.codec.decode_eof(buf)? {
-                return Poll::Ready(Some(Ok(frame)));
+        if let Some(packet_splitter) = &mut pin.packet_splitter {
+            if let Some(buf) = packet_splitter.next() {
+                if let Some(frame) = pin.codec.decode_eof(buf)? {
+                    return Poll::Ready(Some(Ok(frame)));
+                }
             }
         }
+
         pin.rd.clear();
         #[cfg(target_os = "linux")]
-        if pin.gro_table.is_some() {
+        if pin.packet_splitter.is_some() {
             pin.rd.reserve(VIRTIO_NET_HDR_LEN + 65536);
         }
         pin.rd.reserve(pin.recv_buffer_size);
@@ -110,35 +103,12 @@ where
         unsafe { pin.rd.advance_mut(len) };
 
         #[cfg(target_os = "linux")]
-        if pin.gro_table.is_some() {
-            pin.recv_index = 0;
-            pin.recv_num = 0;
-            if len <= VIRTIO_NET_HDR_LEN {
-                Err(io::Error::other(format!(
-                    "length of packet ({len}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
-                )))?
-            }
-            for buf in &mut pin.rds {
-                buf.resize(pin.recv_buffer_size, 0);
-            }
-            let hdr = VirtioNetHdr::decode(&pin.rd[..VIRTIO_NET_HDR_LEN])?;
-            let num = pin.dev.borrow().handle_virtio_read(
-                hdr,
-                &mut pin.rd[VIRTIO_NET_HDR_LEN..len],
-                &mut pin.rds,
-                &mut pin.sizes,
-                0,
-            )?;
-            if num == 0 {
-                return Poll::Ready(None);
-            }
-            for i in 0..num {
-                pin.rds[i].truncate(pin.sizes[i]);
-            }
-            pin.recv_num = num;
-            pin.recv_index = 1;
-            if let Some(frame) = pin.codec.decode_eof(&mut pin.rds[0])? {
-                return Poll::Ready(Some(Ok(frame)));
+        if let Some(packet_splitter) = &mut pin.packet_splitter {
+            packet_splitter.handle(pin.dev.borrow(), &mut pin.rd)?;
+            if let Some(buf) = packet_splitter.next() {
+                if let Some(frame) = pin.codec.decode_eof(buf)? {
+                    return Poll::Ready(Some(Ok(frame)));
+                }
             }
             return Poll::Ready(None);
         }
@@ -157,8 +127,8 @@ where
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         #[cfg(target_os = "linux")]
-        if let Some(table) = &self.gro_table {
-            if self.wr.has_capacity() && table.to_write.is_empty() {
+        if let Some(packet_aggregator) = &self.packet_aggregator {
+            if packet_aggregator.has_capacity() {
                 return Poll::Ready(Ok(()));
             }
         }
@@ -168,99 +138,45 @@ where
 
     fn start_send(self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
         let pin = self.get_mut();
-        let buf = pin.wr.get();
         #[cfg(target_os = "linux")]
-        if pin.gro_table.is_some() {
-            buf.resize(VIRTIO_NET_HDR_LEN, 0)
+        if let Some(packet_aggregator) = &mut pin.packet_aggregator {
+            let buf = packet_aggregator.get();
+            buf.resize(VIRTIO_NET_HDR_LEN, 0);
+            pin.codec.encode(item, buf)?;
+            return Ok(());
         }
+        let buf = pin
+            .wr
+            .get_or_insert_with(|| BytesMut::with_capacity(pin.send_buffer_size));
+        buf.clear();
         pin.codec.encode(item, buf)?;
         Ok(())
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let pin = self.get_mut();
+        let dev = pin.dev.borrow();
+
         #[cfg(target_os = "linux")]
-        if self.gro_table.is_some() {
-            ready!(self.poll_send_bufs(cx))?;
-            self.handle_gro()?;
-            ready!(self.poll_send_bufs(cx))?;
+        if let Some(packet_aggregator) = &mut pin.packet_aggregator {
+            packet_aggregator.handle(dev)?;
+            ready!(packet_aggregator.poll_send_bufs(cx, dev))?;
             return Poll::Ready(Ok(()));
         }
-        assert!(self.wr.len() <= 1);
+
         // On non-Linux systems or when GSO is disabled on Linux, `wr` will contain at most one element
-        if let Some(frame) = self.wr.first() {
-            let rs = ready!(self.dev.borrow().poll_send(cx, frame));
-            self.wr.reset();
-            rs?;
+        if let Some(frame) = &mut pin.wr {
+            if !frame.is_empty() {
+                let rs = ready!(dev.poll_send(cx, frame));
+                frame.clear();
+                rs?;
+            }
         }
         Poll::Ready(Ok(()))
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         ready!(self.poll_flush(cx))?;
-        Poll::Ready(Ok(()))
-    }
-}
-#[cfg(target_os = "linux")]
-impl<C, T> DeviceFramed<C, T>
-where
-    T: Borrow<AsyncDevice>,
-{
-    fn handle_gro(&mut self) -> io::Result<()> {
-        if self.wr.is_empty() {
-            return Ok(());
-        }
-        let tun = self.dev.borrow();
-        let gro_table = if let Some(gro_table) = &mut self.gro_table {
-            gro_table
-        } else {
-            unreachable!()
-        };
-        crate::platform::offload::handle_gro(
-            self.wr.mut_bufs(),
-            VIRTIO_NET_HDR_LEN,
-            &mut gro_table.tcp_gro_table,
-            &mut gro_table.udp_gro_table,
-            tun.udp_gso,
-            &mut gro_table.to_write,
-        )
-    }
-
-    fn poll_send_bufs(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.wr.is_empty() {
-            return Poll::Ready(Ok(()));
-        }
-        let gro_table = if let Some(gro_table) = &mut self.gro_table {
-            gro_table
-        } else {
-            unreachable!()
-        };
-        if gro_table.to_write.is_empty() {
-            return Poll::Ready(Ok(()));
-        }
-        let bufs = self.wr.as_bufs();
-        for buf_idx in &gro_table.to_write[self.send_index..] {
-            let rs = self.dev.borrow().poll_send(cx, &bufs[*buf_idx]);
-            match rs {
-                Poll::Ready(Ok(_)) => {
-                    self.send_index += 1;
-                }
-                Poll::Ready(Err(e)) => {
-                    self.send_index += 1;
-                    if self.send_index == gro_table.to_write.len() {
-                        self.send_index = 0;
-                        gro_table.reset();
-                        self.wr.reset();
-                    }
-                    return Poll::Ready(Err(e));
-                }
-                Poll::Pending => {
-                    return Poll::Pending;
-                }
-            }
-        }
-        self.send_index = 0;
-        gro_table.reset();
-        self.wr.reset();
         Poll::Ready(Ok(()))
     }
 }
@@ -272,36 +188,26 @@ where
         // The MTU of the network interface cannot be greater than this value.
         let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
         #[cfg(target_os = "linux")]
-        let (gro_table, rds, sizes, capacity, send_buffer_size) = if dev.borrow().tcp_gso() {
+        let (packet_splitter, packet_aggregator) = if dev.borrow().tcp_gso() {
             (
-                Some(GROTable::new()),
-                vec![BytesMut::zeroed(recv_buffer_size); IDEAL_BATCH_SIZE],
-                vec![0; IDEAL_BATCH_SIZE],
-                IDEAL_BATCH_SIZE,
-                VIRTIO_NET_HDR_LEN + 65536,
+                Some(PacketSplitter::new(recv_buffer_size)),
+                Some(PacketAggregator::new()),
             )
         } else {
-            (None, Vec::new(), Vec::new(), 1, recv_buffer_size)
+            (None, None)
         };
+
         DeviceFramed {
             dev,
             codec,
             recv_buffer_size,
-            send_buffer_size,
+            send_buffer_size: recv_buffer_size,
             rd: BytesMut::with_capacity(recv_buffer_size),
-            wr: BytesMutVec::new(capacity, send_buffer_size),
+            wr: None,
             #[cfg(target_os = "linux")]
-            gro_table,
+            packet_aggregator,
             #[cfg(target_os = "linux")]
-            send_index: 0,
-            #[cfg(target_os = "linux")]
-            rds,
-            #[cfg(target_os = "linux")]
-            recv_index: 0,
-            #[cfg(target_os = "linux")]
-            recv_num: 0,
-            #[cfg(target_os = "linux")]
-            sizes,
+            packet_splitter,
         }
     }
     pub fn read_buffer_size(&self) -> usize {
@@ -317,10 +223,13 @@ where
     /// to ensure optimal packet reading performance.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.recv_buffer_size = read_buffer_size;
+        #[cfg(target_os = "linux")]
+        if let Some(packet_splitter) = &mut self.packet_splitter {
+            packet_splitter.set_recv_buffer_size(read_buffer_size);
+        }
     }
     /// Sets the size of the write buffer in bytes.
     ///
-    /// This value determines the initial capacity of each outgoing buffer.
     /// On Linux, if GSO (Generic Segmentation Offload) is enabled, this setting is ignored,
     /// and the send buffer size is fixed to a larger value to accommodate large TCP segments.
     ///
@@ -331,7 +240,7 @@ where
     /// - `write_buffer_size`: Desired size in bytes for the write buffer.
     pub fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
         #[cfg(target_os = "linux")]
-        if self.gro_table.is_some() {
+        if self.packet_aggregator.is_some() {
             // When GSO is enabled, send_buffer_size is no longer controlled by this parameter.
             return;
         }
@@ -339,7 +248,6 @@ where
             return;
         }
         self.send_buffer_size = write_buffer_size;
-        self.wr.reserve_buffer_size(write_buffer_size);
     }
     /// Returns a reference to the read buffer.
     pub fn read_buffer(&self) -> &BytesMut {
@@ -399,54 +307,150 @@ impl Encoder<BytesMut> for BytesCodec {
     }
 }
 
-struct BytesMutVec {
+#[cfg(target_os = "linux")]
+struct PacketSplitter {
+    bufs: Vec<BytesMut>,
+    sizes: Vec<usize>,
+    recv_index: usize,
+    recv_num: usize,
+    recv_buffer_size: usize,
+}
+#[cfg(target_os = "linux")]
+impl PacketSplitter {
+    fn new(recv_buffer_size: usize) -> PacketSplitter {
+        let bufs = vec![BytesMut::zeroed(recv_buffer_size); IDEAL_BATCH_SIZE];
+        let sizes = vec![0usize; IDEAL_BATCH_SIZE];
+        Self {
+            bufs,
+            sizes,
+            recv_index: 0,
+            recv_num: 0,
+            recv_buffer_size,
+        }
+    }
+    fn handle(&mut self, dev: &AsyncDevice, input: &mut [u8]) -> io::Result<()> {
+        if input.len() <= VIRTIO_NET_HDR_LEN {
+            Err(io::Error::other(format!(
+                "length of packet ({}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
+                input.len(),
+            )))?
+        }
+        for buf in &mut self.bufs {
+            buf.resize(self.recv_buffer_size, 0);
+        }
+        let hdr = VirtioNetHdr::decode(&input[..VIRTIO_NET_HDR_LEN])?;
+        let num = dev.handle_virtio_read(
+            hdr,
+            &mut input[VIRTIO_NET_HDR_LEN..],
+            &mut self.bufs,
+            &mut self.sizes,
+            0,
+        )?;
+
+        for i in 0..num {
+            self.bufs[i].truncate(self.sizes[i]);
+        }
+        self.recv_num = num;
+        self.recv_index = 0;
+        Ok(())
+    }
+    fn next(&mut self) -> Option<&mut BytesMut> {
+        if self.recv_index >= self.recv_num {
+            None
+        } else {
+            let buf = &mut self.bufs[self.recv_index];
+            self.recv_index += 1;
+            Some(buf)
+        }
+    }
+    fn set_recv_buffer_size(&mut self, recv_buffer_size: usize) {
+        self.recv_buffer_size = recv_buffer_size;
+    }
+}
+#[cfg(target_os = "linux")]
+struct PacketAggregator {
+    gro_table: GROTable,
     offset: usize,
     bufs: Vec<BytesMut>,
+    send_index: usize,
 }
-impl BytesMutVec {
-    pub fn new(capacity: usize, buffer_size: usize) -> BytesMutVec {
-        let mut bufs = Vec::with_capacity(capacity);
-        for _ in 0..capacity {
-            bufs.push(BytesMut::with_capacity(buffer_size));
+#[cfg(target_os = "linux")]
+impl PacketAggregator {
+    fn new() -> PacketAggregator {
+        Self {
+            gro_table: Default::default(),
+            offset: 0,
+            bufs: Vec::with_capacity(IDEAL_BATCH_SIZE),
+            send_index: 0,
         }
-        BytesMutVec { offset: 0, bufs }
     }
-    pub fn get(&mut self) -> &mut BytesMut {
-        let buf = &mut self.bufs[self.offset];
+    fn get(&mut self) -> &mut BytesMut {
+        if self.offset < self.bufs.len() {
+            let buf = &mut self.bufs[self.offset];
+            self.offset += 1;
+            buf.clear();
+            buf.reserve(VIRTIO_NET_HDR_LEN + 65536);
+            return buf;
+        }
+        assert_eq!(self.offset, self.bufs.len());
+        self.bufs
+            .push(BytesMut::with_capacity(VIRTIO_NET_HDR_LEN + 65536));
+        let idx = self.offset;
         self.offset += 1;
-        buf
+        &mut self.bufs[idx]
     }
-    pub fn reset(&mut self) {
-        for buf in self.mut_bufs() {
+    fn handle(&mut self, dev: &AsyncDevice) -> io::Result<()> {
+        if self.offset == 0 {
+            return Ok(());
+        }
+        if !self.gro_table.to_write.is_empty() {
+            return Ok(());
+        }
+        crate::platform::offload::handle_gro(
+            &mut self.bufs[..self.offset],
+            VIRTIO_NET_HDR_LEN,
+            &mut self.gro_table.tcp_gro_table,
+            &mut self.gro_table.udp_gro_table,
+            dev.udp_gso,
+            &mut self.gro_table.to_write,
+        )
+    }
+    fn poll_send_bufs(&mut self, cx: &mut Context<'_>, dev: &AsyncDevice) -> Poll<io::Result<()>> {
+        if self.offset == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        let gro_table = &mut self.gro_table;
+        let bufs = &self.bufs[..self.offset];
+        for buf_idx in &gro_table.to_write[self.send_index..] {
+            let rs = dev.poll_send(cx, &bufs[*buf_idx]);
+            match rs {
+                Poll::Ready(Ok(_)) => {
+                    self.send_index += 1;
+                }
+                Poll::Ready(Err(e)) => {
+                    self.send_index += 1;
+                    if self.send_index >= gro_table.to_write.len() {
+                        self.reset();
+                    }
+                    return Poll::Ready(Err(e));
+                }
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
+            }
+        }
+        self.reset();
+        Poll::Ready(Ok(()))
+    }
+    fn reset(&mut self) {
+        self.gro_table.reset();
+        for buf in self.bufs[..self.offset].iter_mut() {
             buf.clear();
         }
         self.offset = 0;
+        self.send_index = 0;
     }
-    pub fn mut_bufs(&mut self) -> &mut [BytesMut] {
-        &mut self.bufs[..self.offset]
-    }
-    pub fn as_bufs(&self) -> &[BytesMut] {
-        &self.bufs[..self.offset]
-    }
-    pub fn first(&self) -> Option<&BytesMut> {
-        if self.offset == 0 {
-            None
-        } else {
-            Some(&self.bufs[0])
-        }
-    }
-    pub fn len(&self) -> usize {
-        self.offset
-    }
-    pub fn is_empty(&self) -> bool {
-        self.offset == 0
-    }
-    pub fn has_capacity(&self) -> bool {
-        self.bufs.len() > self.offset
-    }
-    pub fn reserve_buffer_size(&mut self, buffer_size: usize) {
-        for buf in &mut self.bufs {
-            buf.reserve(buffer_size);
-        }
+    fn has_capacity(&self) -> bool {
+        IDEAL_BATCH_SIZE > self.offset && self.gro_table.to_write.is_empty()
     }
 }
