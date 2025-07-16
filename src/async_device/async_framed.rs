@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::collections::VecDeque;
 use std::io;
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
@@ -68,11 +67,9 @@ pub struct DeviceFramed<C, T = AsyncDevice> {
     recv_buffer_size: usize,
     send_buffer_size: usize,
     rd: BytesMut,
-    wr: VecDeque<BytesMut>,
+    wr: Vec<BytesMut>,
     #[cfg(target_os = "linux")]
     gro_table: Option<GROTable>,
-    #[cfg(target_os = "linux")]
-    send_bufs: Vec<BytesMut>,
     #[cfg(target_os = "linux")]
     send_index: usize,
     #[cfg(target_os = "linux")]
@@ -160,8 +157,10 @@ where
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         #[cfg(target_os = "linux")]
-        if self.gro_table.is_some() && self.wr.len() < IDEAL_BATCH_SIZE {
-            return Poll::Ready(Ok(()));
+        if let Some(table) = &self.gro_table {
+            if self.wr.len() < IDEAL_BATCH_SIZE && table.to_write.is_empty() {
+                return Poll::Ready(Ok(()));
+            }
         }
         ready!(self.poll_flush(cx))?;
         Poll::Ready(Ok(()))
@@ -182,29 +181,22 @@ where
             buf.resize(VIRTIO_NET_HDR_LEN, 0)
         }
         pin.codec.encode(item, &mut buf)?;
-        pin.wr.push_back(buf);
+        pin.wr.push(buf);
         Ok(())
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         #[cfg(target_os = "linux")]
         if self.gro_table.is_some() {
-            if !self.send_bufs.is_empty() {
-                ready!(self.poll_send_bufs(cx))?;
-            }
-            while let Some(frame) = self.wr.pop_front() {
-                self.send_bufs.push(frame);
-                if self.send_bufs.len() == IDEAL_BATCH_SIZE {
-                    break;
-                }
-            }
+            ready!(self.poll_send_bufs(cx))?;
             self.handle_gro()?;
             ready!(self.poll_send_bufs(cx))?;
             return Poll::Ready(Ok(()));
         }
-        while let Some(frame) = self.wr.front() {
+        // On non-Linux systems or when GSO is disabled on Linux, `wr` will contain at most one element
+        if let Some(frame) = self.wr.first() {
             let rs = ready!(self.dev.borrow().poll_send(cx, frame));
-            _ = self.wr.pop_front();
+            _ = self.wr.clear();
             rs?;
         }
         Poll::Ready(Ok(()))
@@ -221,7 +213,7 @@ where
     T: Borrow<AsyncDevice>,
 {
     fn handle_gro(&mut self) -> io::Result<()> {
-        if self.send_bufs.is_empty() {
+        if self.wr.is_empty() {
             return Ok(());
         }
         let tun = self.dev.borrow();
@@ -230,9 +222,8 @@ where
         } else {
             unreachable!()
         };
-        gro_table.reset();
         crate::platform::offload::handle_gro(
-            &mut self.send_bufs,
+            &mut self.wr,
             VIRTIO_NET_HDR_LEN,
             &mut gro_table.tcp_gro_table,
             &mut gro_table.udp_gro_table,
@@ -242,7 +233,7 @@ where
     }
 
     fn poll_send_bufs(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.send_bufs.is_empty() {
+        if self.wr.is_empty() {
             return Poll::Ready(Ok(()));
         }
         let gro_table = if let Some(gro_table) = &mut self.gro_table {
@@ -250,17 +241,21 @@ where
         } else {
             unreachable!()
         };
+        if gro_table.to_write.is_empty() {
+            return Poll::Ready(Ok(()));
+        }
         for buf_idx in &gro_table.to_write[self.send_index..] {
-            let rs = self.dev.borrow().poll_send(cx, &self.send_bufs[*buf_idx]);
+            let rs = self.dev.borrow().poll_send(cx, &self.wr[*buf_idx]);
             match rs {
                 Poll::Ready(Ok(_)) => {
                     self.send_index += 1;
                 }
                 Poll::Ready(Err(e)) => {
                     self.send_index += 1;
-                    if self.send_index == self.send_bufs.len() {
+                    if self.send_index == gro_table.to_write.len() {
                         self.send_index = 0;
-                        self.send_bufs.clear();
+                        self.wr.clear();
+                        gro_table.reset();
                     }
                     return Poll::Ready(Err(e));
                 }
@@ -270,7 +265,8 @@ where
             }
         }
         self.send_index = 0;
-        self.send_bufs.clear();
+        self.wr.clear();
+        gro_table.reset();
         Poll::Ready(Ok(()))
     }
 }
@@ -283,15 +279,14 @@ where
         let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
         let send_buffer_size = recv_buffer_size;
         #[cfg(target_os = "linux")]
-        let (gro_table, send_bufs, rds, sizes) = if dev.borrow().tcp_gso() {
+        let (gro_table, rds, sizes) = if dev.borrow().tcp_gso() {
             (
                 Some(GROTable::new()),
-                Vec::with_capacity(IDEAL_BATCH_SIZE),
                 vec![BytesMut::zeroed(recv_buffer_size); IDEAL_BATCH_SIZE],
                 vec![0; IDEAL_BATCH_SIZE],
             )
         } else {
-            (None, Vec::new(), Vec::new(), Vec::new())
+            (None, Vec::new(), Vec::new())
         };
         DeviceFramed {
             dev,
@@ -299,11 +294,9 @@ where
             recv_buffer_size,
             send_buffer_size,
             rd: BytesMut::with_capacity(recv_buffer_size),
-            wr: VecDeque::with_capacity(128),
+            wr: Vec::with_capacity(128),
             #[cfg(target_os = "linux")]
             gro_table,
-            #[cfg(target_os = "linux")]
-            send_bufs,
             #[cfg(target_os = "linux")]
             send_index: 0,
             #[cfg(target_os = "linux")]
