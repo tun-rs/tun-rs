@@ -27,7 +27,7 @@ pub trait Decoder {
                 if buf.is_empty() {
                     Ok(None)
                 } else {
-                    Err(io::Error::new(io::ErrorKind::Other, "bytes remaining on stream").into())
+                    Err(io::Error::other("bytes remaining on stream").into())
                 }
             }
         }
@@ -291,6 +291,8 @@ impl ReadState {
             packet_splitter,
         }
     }
+
+    #[allow(dead_code)]
     pub fn read_buffer_size(&self) -> usize {
         self.recv_buffer_size
     }
