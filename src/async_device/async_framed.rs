@@ -6,7 +6,6 @@ use std::task::{ready, Context, Poll};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::Sink;
 use futures_core::Stream;
-use std::sync::Arc;
 
 #[cfg(target_os = "linux")]
 use crate::platform::offload::VirtioNetHdr;
@@ -172,6 +171,102 @@ where
         self.dev
     }
 }
+
+pub struct DeviceFramedRead<C, T = AsyncDevice> {
+    dev: T,
+    codec: C,
+    state: ReadState,
+}
+impl<C, T> DeviceFramedRead<C, T>
+where
+    T: Borrow<AsyncDevice>,
+{
+    pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
+        DeviceFramedRead {
+            state: ReadState::new(&dev),
+            dev,
+            codec,
+        }
+    }
+    pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
+        self.state.set_read_buffer_size(read_buffer_size);
+    }
+    /// Consumes the `Framed`, returning its underlying I/O stream.
+    pub fn into_inner(self) -> T {
+        self.dev
+    }
+}
+impl<C, T> Unpin for DeviceFramedRead<C, T> {}
+impl<C, T> Stream for DeviceFramedRead<C, T>
+where
+    T: Borrow<AsyncDevice>,
+    C: Decoder,
+{
+    type Item = Result<C::Item, C::Error>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let pin = self.get_mut();
+        DeviceFramedReadInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_next(cx)
+    }
+}
+
+pub struct DeviceFramedWrite<C, T = AsyncDevice> {
+    dev: T,
+    codec: C,
+    state: WriteState,
+}
+impl<C, T> DeviceFramedWrite<C, T>
+where
+    T: Borrow<AsyncDevice>,
+{
+    pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
+        DeviceFramedWrite {
+            state: WriteState::new(&dev),
+            dev,
+            codec,
+        }
+    }
+    pub fn write_buffer_size(&self) -> usize {
+        self.state.send_buffer_size
+    }
+    pub fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
+        self.state.set_write_buffer_size(write_buffer_size);
+    }
+
+    /// Consumes the `Framed`, returning its underlying I/O stream.
+    pub fn into_inner(self) -> T {
+        self.dev
+    }
+}
+
+impl<C, T> Unpin for DeviceFramedWrite<C, T> {}
+impl<I, C, T> Sink<I> for DeviceFramedWrite<C, T>
+where
+    T: Borrow<AsyncDevice>,
+    C: Encoder<I>,
+{
+    type Error = C::Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let pin = self.get_mut();
+        DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_ready(cx)
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
+        let pin = self.get_mut();
+        DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).start_send(item)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let pin = self.get_mut();
+        DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_flush(cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let pin = self.get_mut();
+        DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_close(cx)
+    }
+}
+
 struct ReadState {
     recv_buffer_size: usize,
     rd: BytesMut,
