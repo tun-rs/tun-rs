@@ -119,10 +119,10 @@ where
         }
     }
     pub fn read_buffer_size(&self) -> usize {
-        self.r_state.recv_buffer_size
+        self.r_state.read_buffer_size()
     }
     pub fn write_buffer_size(&self) -> usize {
-        self.w_state.send_buffer_size
+        self.w_state.write_buffer_size()
     }
 
     /// Sets the size of the read buffer in bytes.
@@ -130,11 +130,7 @@ where
     /// It is recommended to set this value to the MTU (Maximum Transmission Unit)
     /// to ensure optimal packet reading performance.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
-        self.r_state.recv_buffer_size = read_buffer_size;
-        #[cfg(target_os = "linux")]
-        if let Some(packet_splitter) = &mut self.r_state.packet_splitter {
-            packet_splitter.set_recv_buffer_size(read_buffer_size);
-        }
+        self.r_state.set_read_buffer_size(read_buffer_size);
     }
     /// Sets the size of the write buffer in bytes.
     ///
@@ -147,15 +143,7 @@ where
     /// # Parameters
     /// - `write_buffer_size`: Desired size in bytes for the write buffer.
     pub fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
-        #[cfg(target_os = "linux")]
-        if self.w_state.packet_aggregator.is_some() {
-            // When GSO is enabled, send_buffer_size is no longer controlled by this parameter.
-            return;
-        }
-        if self.w_state.send_buffer_size >= write_buffer_size {
-            return;
-        }
-        self.w_state.send_buffer_size = write_buffer_size;
+        self.w_state.set_write_buffer_size(write_buffer_size);
     }
     /// Returns a reference to the read buffer.
     pub fn read_buffer(&self) -> &BytesMut {
