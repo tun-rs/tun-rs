@@ -59,26 +59,25 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
     }
 }
 
-/// A unified `Stream` and `Sink` interface to an underlying `AsyncDevice`,
-/// using the `Encoder` and `Decoder` traits to encode and decode frames.
+/// A unified `Stream` and `Sink` interface over an `AsyncDevice`,
+/// using `Encoder` and `Decoder` traits to frame packets as higher-level messages.
 ///
-/// Raw device interfaces work with packets, but higher-level code usually
-/// wants to batch these into meaningful chunks, called "frames".
-/// This struct layers framing on top of the device by using the `Encoder`
-/// and `Decoder` traits to handle encoding and decoding of message frames.
-/// Note that the incoming and outgoing frame types may be distinct.
+/// Raw device interfaces (such as TUN/TAP) operate on individual packets,
+/// but higher-level protocols often work with logical frames. This struct
+/// provides an abstraction layer that decodes incoming packets into frames,
+/// and encodes outgoing frames into packet buffers.
 ///
-/// This function returns a single object that is both `Stream` and `Sink`;
-/// grouping this into a single object is often useful for layering things
-/// which require both read and write access to the underlying device.
+/// On Linux, this struct also supports Generic Segmentation Offload (GSO) for sending
+/// and Generic Receive Offload (GRO) for receiving, allowing multiple small packets
+/// to be aggregated or split transparently for performance optimization.
 ///
-/// If you want to work more directly with the stream and sink, consider
-/// calling `split` on the `DeviceFramed` returned by this method, which
-/// will break them into separate objects, allowing them to interact more easily.
+/// This struct combines both reading and writing into a single object. If separate
+/// control over read/write is needed, consider calling `.split()` to obtain
+/// [`DeviceFramedRead`] and [`DeviceFramedWrite`] separately.
 ///
-/// Additionally, you can create multiple framing tools using
-/// `DeviceFramed::new(dev.clone(), BytesCodec::new())`(use `Arc<AsyncDevice>`), allowing multiple
-/// independent framed streams to operate on the same device.
+/// You can also create multiple independent framing streams using:
+/// `DeviceFramed::new(dev.clone(), BytesCodec::new())`, with the device wrapped
+/// in `Arc<AsyncDevice>`.
 pub struct DeviceFramed<C, T = AsyncDevice> {
     dev: T,
     codec: C,
@@ -129,9 +128,18 @@ where
     T: Borrow<AsyncDevice>,
 {
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
+        let buffer_size = compute_buffer_size(&dev);
         DeviceFramed {
-            r_state: ReadState::new(&dev),
-            w_state: WriteState::new(&dev),
+            r_state: ReadState::new(
+                buffer_size,
+                #[cfg(target_os = "linux")]
+                dev.borrow().tcp_gso(),
+            ),
+            w_state: WriteState::new(
+                buffer_size,
+                #[cfg(target_os = "linux")]
+                dev.borrow().tcp_gso(),
+            ),
             dev,
             codec,
         }
@@ -145,8 +153,7 @@ where
 
     /// Sets the size of the read buffer in bytes.
     ///
-    /// It is recommended to set this value to the MTU (Maximum Transmission Unit)
-    /// to ensure optimal packet reading performance.
+    /// Must be at least as large as the MTU to ensure complete packet reception.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.r_state.set_read_buffer_size(read_buffer_size);
     }
@@ -193,6 +200,17 @@ where
     }
 }
 
+/// A `Stream`-only abstraction over an `AsyncDevice`, using a `Decoder` to
+/// extract frames from raw packet input.
+///
+/// This struct provides a read-only framing interface for the underlying device,
+/// decoupled from writing. It is useful when the reading and writing logic
+/// need to be handled independently, such as in split or concurrent tasks.
+///
+/// Internally, it maintains a receive buffer and optional packet splitter
+/// for GRO (Generic Receive Offload) support on Linux.
+///
+/// See [`DeviceFramed`] for a unified read/write interface.
 pub struct DeviceFramedRead<C, T = AsyncDevice> {
     dev: T,
     codec: C,
@@ -203,12 +221,23 @@ where
     T: Borrow<AsyncDevice>,
 {
     pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
+        let buffer_size = compute_buffer_size(&dev);
         DeviceFramedRead {
-            state: ReadState::new(&dev),
+            state: ReadState::new(
+                buffer_size,
+                #[cfg(target_os = "linux")]
+                dev.borrow().tcp_gso(),
+            ),
             dev,
             codec,
         }
     }
+    pub fn read_buffer_size(&self) -> usize {
+        self.state.read_buffer_size()
+    }
+    /// Sets the size of the read buffer in bytes.
+    ///
+    /// Must be at least as large as the MTU to ensure complete packet reception.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.state.set_read_buffer_size(read_buffer_size);
     }
@@ -230,6 +259,17 @@ where
     }
 }
 
+/// A `Sink`-only abstraction over an `AsyncDevice`, using an `Encoder` to
+/// serialize outbound frames into raw packets.
+///
+/// This struct provides a write-only framing interface for the underlying device,
+/// allowing decoupled and concurrent handling of outbound data. It is especially
+/// useful in async contexts where reads and writes occur in different tasks.
+///
+/// Internally, it manages a send buffer and optional packet aggregator
+/// for GSO (Generic Segmentation Offload) support on Linux.
+///
+/// See [`DeviceFramed`] for a unified read/write interface.
 pub struct DeviceFramedWrite<C, T = AsyncDevice> {
     dev: T,
     codec: C,
@@ -240,8 +280,13 @@ where
     T: Borrow<AsyncDevice>,
 {
     pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
+        let buffer_size = compute_buffer_size(&dev);
         DeviceFramedWrite {
-            state: WriteState::new(&dev),
+            state: WriteState::new(
+                buffer_size,
+                #[cfg(target_os = "linux")]
+                dev.borrow().tcp_gso(),
+            ),
             dev,
             codec,
         }
@@ -249,6 +294,16 @@ where
     pub fn write_buffer_size(&self) -> usize {
         self.state.send_buffer_size
     }
+    /// Sets the size of the write buffer in bytes.
+    ///
+    /// On Linux, if GSO (Generic Segmentation Offload) is enabled, this setting is ignored,
+    /// and the send buffer size is fixed to a larger value to accommodate large TCP segments.
+    ///
+    /// If the current buffer size is already greater than or equal to the requested size,
+    /// this call has no effect.
+    ///
+    /// # Parameters
+    /// - `write_buffer_size`: Desired size in bytes for the write buffer.
     pub fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
         self.state.set_write_buffer_size(write_buffer_size);
     }
@@ -287,7 +342,16 @@ where
         DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_close(cx)
     }
 }
-
+fn compute_buffer_size<T: Borrow<AsyncDevice>>(dev: &T) -> usize {
+    let mtu = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+    #[cfg(windows)]
+    {
+        let mtu_v6 = dev.borrow().mtu_v6().map(|m| m as usize).unwrap_or(4096);
+        mtu.max(mtu_v6)
+    }
+    #[cfg(not(windows))]
+    mtu
+}
 struct ReadState {
     recv_buffer_size: usize,
     rd: BytesMut,
@@ -295,11 +359,12 @@ struct ReadState {
     packet_splitter: Option<PacketSplitter>,
 }
 impl ReadState {
-    pub(crate) fn new<T: Borrow<AsyncDevice>>(dev: &T) -> ReadState {
-        // The MTU of the network interface cannot be greater than this value.
-        let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+    pub(crate) fn new(
+        recv_buffer_size: usize,
+        #[cfg(target_os = "linux")] tcp_gso: bool,
+    ) -> ReadState {
         #[cfg(target_os = "linux")]
-        let packet_splitter = if dev.borrow().tcp_gso() {
+        let packet_splitter = if tcp_gso {
             Some(PacketSplitter::new(recv_buffer_size))
         } else {
             None
@@ -313,14 +378,10 @@ impl ReadState {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn read_buffer_size(&self) -> usize {
         self.recv_buffer_size
     }
-    /// Sets the size of the read buffer in bytes.
-    ///
-    /// It is recommended to set this value to the MTU (Maximum Transmission Unit)
-    /// to ensure optimal packet reading performance.
+
     pub(crate) fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.recv_buffer_size = read_buffer_size;
         #[cfg(target_os = "linux")]
@@ -336,18 +397,19 @@ struct WriteState {
     packet_aggregator: Option<PacketArena>,
 }
 impl WriteState {
-    pub(crate) fn new<T: Borrow<AsyncDevice>>(dev: &T) -> WriteState {
-        // The MTU of the network interface cannot be greater than this value.
-        let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+    pub(crate) fn new(
+        send_buffer_size: usize,
+        #[cfg(target_os = "linux")] tcp_gso: bool,
+    ) -> WriteState {
         #[cfg(target_os = "linux")]
-        let packet_aggregator = if dev.borrow().tcp_gso() {
+        let packet_aggregator = if tcp_gso {
             Some(PacketArena::new())
         } else {
             None
         };
 
         WriteState {
-            send_buffer_size: recv_buffer_size,
+            send_buffer_size,
             wr: BytesMut::new(),
             #[cfg(target_os = "linux")]
             packet_aggregator,
@@ -356,16 +418,7 @@ impl WriteState {
     pub(crate) fn write_buffer_size(&self) -> usize {
         self.send_buffer_size
     }
-    /// Sets the size of the write buffer in bytes.
-    ///
-    /// On Linux, if GSO (Generic Segmentation Offload) is enabled, this setting is ignored,
-    /// and the send buffer size is fixed to a larger value to accommodate large TCP segments.
-    ///
-    /// If the current buffer size is already greater than or equal to the requested size,
-    /// this call has no effect.
-    ///
-    /// # Parameters
-    /// - `write_buffer_size`: Desired size in bytes for the write buffer.
+
     pub(crate) fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
         #[cfg(target_os = "linux")]
         if self.packet_aggregator.is_some() {
@@ -586,16 +639,7 @@ where
     ) -> DeviceFramedReadInner<'a, C, T> {
         DeviceFramedReadInner { dev, codec, state }
     }
-    // fn from_framed_read(framed: &'a mut DeviceFramedRead<C, T>) -> DeviceFramedReadInner<'a, C, T> {
-    //     DeviceFramedReadInner {
-    //         dev: &framed.dev,
-    //         codec: &mut framed.codec,
-    //         recv_buffer_size: framed.recv_buffer_size,
-    //         rd: &mut framed.rd,
-    //         #[cfg(target_os = "linux")]
-    //         packet_splitter: &mut framed.packet_splitter,
-    //     }
-    // }
+
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<C::Item, C::Error>>> {
         #[cfg(target_os = "linux")]
         if let Some(packet_splitter) = &mut self.state.packet_splitter {
