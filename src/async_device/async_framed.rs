@@ -33,12 +33,30 @@ pub trait Decoder {
         }
     }
 }
+
+impl<T: Decoder> Decoder for &mut T {
+    type Item = T::Item;
+    type Error = T::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        T::decode(self, src)
+    }
+}
+
 pub trait Encoder<Item> {
     /// The type of encoding errors.
     type Error: From<io::Error>;
 
     /// Encodes a frame into the buffer provided.
     fn encode(&mut self, item: Item, dst: &mut BytesMut) -> Result<(), Self::Error>;
+}
+
+impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
+    type Error = T::Error;
+
+    fn encode(&mut self, item: Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        T::encode(self, item, dst)
+    }
 }
 
 /// A unified `Stream` and `Sink` interface to an underlying `AsyncDevice`,
