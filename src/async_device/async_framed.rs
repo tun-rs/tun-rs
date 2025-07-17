@@ -262,7 +262,7 @@ struct ReadState {
     packet_splitter: Option<PacketSplitter>,
 }
 impl ReadState {
-    pub fn new<T: Borrow<AsyncDevice>>(dev: &T) -> ReadState {
+    pub(crate) fn new<T: Borrow<AsyncDevice>>(dev: &T) -> ReadState {
         // The MTU of the network interface cannot be greater than this value.
         let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
         #[cfg(target_os = "linux")]
@@ -281,14 +281,14 @@ impl ReadState {
     }
 
     #[allow(dead_code)]
-    pub fn read_buffer_size(&self) -> usize {
+    pub(crate) fn read_buffer_size(&self) -> usize {
         self.recv_buffer_size
     }
     /// Sets the size of the read buffer in bytes.
     ///
     /// It is recommended to set this value to the MTU (Maximum Transmission Unit)
     /// to ensure optimal packet reading performance.
-    pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
+    pub(crate) fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.recv_buffer_size = read_buffer_size;
         #[cfg(target_os = "linux")]
         if let Some(packet_splitter) = &mut self.packet_splitter {
@@ -296,14 +296,14 @@ impl ReadState {
         }
     }
 }
-pub struct WriteState {
+struct WriteState {
     send_buffer_size: usize,
     wr: BytesMut,
     #[cfg(target_os = "linux")]
     packet_aggregator: Option<PacketArena>,
 }
 impl WriteState {
-    pub fn new<T: Borrow<AsyncDevice>>(dev: &T) -> WriteState {
+    pub(crate) fn new<T: Borrow<AsyncDevice>>(dev: &T) -> WriteState {
         // The MTU of the network interface cannot be greater than this value.
         let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
         #[cfg(target_os = "linux")]
@@ -320,7 +320,7 @@ impl WriteState {
             packet_aggregator,
         }
     }
-    pub fn write_buffer_size(&self) -> usize {
+    pub(crate) fn write_buffer_size(&self) -> usize {
         self.send_buffer_size
     }
     /// Sets the size of the write buffer in bytes.
@@ -333,7 +333,7 @@ impl WriteState {
     ///
     /// # Parameters
     /// - `write_buffer_size`: Desired size in bytes for the write buffer.
-    pub fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
+    pub(crate) fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
         #[cfg(target_os = "linux")]
         if self.packet_aggregator.is_some() {
             // When GSO is enabled, send_buffer_size is no longer controlled by this parameter.
