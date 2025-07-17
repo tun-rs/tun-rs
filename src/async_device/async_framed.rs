@@ -160,6 +160,21 @@ where
     }
 }
 
+impl<C, T> DeviceFramed<C, T>
+where
+    T: Borrow<AsyncDevice> + Clone,
+    C: Clone,
+{
+    pub fn split(self) -> (DeviceFramedRead<C, T>, DeviceFramedWrite<C, T>) {
+        let dev = self.dev;
+        let codec = self.codec;
+        (
+            DeviceFramedRead::new(dev.clone(), codec.clone()),
+            DeviceFramedWrite::new(dev, codec),
+        )
+    }
+}
+
 pub struct DeviceFramedRead<C, T = AsyncDevice> {
     dev: T,
     codec: C,
