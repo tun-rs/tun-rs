@@ -6,6 +6,7 @@ use std::task::{ready, Context, Poll};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::Sink;
 use futures_core::Stream;
+use std::sync::Arc;
 
 #[cfg(target_os = "linux")]
 use crate::platform::offload::VirtioNetHdr;
@@ -64,14 +65,8 @@ pub trait Encoder<Item> {
 pub struct DeviceFramed<C, T = AsyncDevice> {
     dev: T,
     codec: C,
-    recv_buffer_size: usize,
-    send_buffer_size: usize,
-    rd: BytesMut,
-    wr: BytesMut,
-    #[cfg(target_os = "linux")]
-    packet_aggregator: Option<PacketAggregator>,
-    #[cfg(target_os = "linux")]
-    packet_splitter: Option<PacketSplitter>,
+    r_state: ReadState,
+    w_state: WriteState,
 }
 impl<C, T> Unpin for DeviceFramed<C, T> {}
 impl<C, T> Stream for DeviceFramed<C, T>
@@ -82,8 +77,7 @@ where
     type Item = Result<C::Item, C::Error>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let pin = self.get_mut();
-        let mut inner = DeviceFramedReadInner::from_framed(pin);
-        inner.poll_next(cx)
+        DeviceFramedReadInner::new(&pin.dev, &mut pin.codec, &mut pin.r_state).poll_next(cx)
     }
 }
 impl<I, C, T> Sink<I> for DeviceFramed<C, T>
@@ -95,22 +89,22 @@ where
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let pin = self.get_mut();
-        DeviceFramedWriteInner::from_framed(pin).poll_ready(cx)
+        DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.w_state).poll_ready(cx)
     }
 
     fn start_send(self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
         let pin = self.get_mut();
-        DeviceFramedWriteInner::from_framed(pin).start_send(item)
+        DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.w_state).start_send(item)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let pin = self.get_mut();
-        DeviceFramedWriteInner::from_framed(pin).poll_flush(cx)
+        DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.w_state).poll_flush(cx)
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let pin = self.get_mut();
-        DeviceFramedWriteInner::from_framed(pin).poll_close(cx)
+        DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.w_state).poll_close(cx)
     }
 }
 impl<C, T> DeviceFramed<C, T>
@@ -118,36 +112,18 @@ where
     T: Borrow<AsyncDevice>,
 {
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
-        // The MTU of the network interface cannot be greater than this value.
-        let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
-        #[cfg(target_os = "linux")]
-        let (packet_splitter, packet_aggregator) = if dev.borrow().tcp_gso() {
-            (
-                Some(PacketSplitter::new(recv_buffer_size)),
-                Some(PacketAggregator::new()),
-            )
-        } else {
-            (None, None)
-        };
-
         DeviceFramed {
+            r_state: ReadState::new(&dev),
+            w_state: WriteState::new(&dev),
             dev,
             codec,
-            recv_buffer_size,
-            send_buffer_size: recv_buffer_size,
-            rd: BytesMut::with_capacity(recv_buffer_size),
-            wr: BytesMut::new(),
-            #[cfg(target_os = "linux")]
-            packet_aggregator,
-            #[cfg(target_os = "linux")]
-            packet_splitter,
         }
     }
     pub fn read_buffer_size(&self) -> usize {
-        self.recv_buffer_size
+        self.r_state.recv_buffer_size
     }
     pub fn write_buffer_size(&self) -> usize {
-        self.send_buffer_size
+        self.w_state.send_buffer_size
     }
 
     /// Sets the size of the read buffer in bytes.
@@ -155,9 +131,9 @@ where
     /// It is recommended to set this value to the MTU (Maximum Transmission Unit)
     /// to ensure optimal packet reading performance.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
-        self.recv_buffer_size = read_buffer_size;
+        self.r_state.recv_buffer_size = read_buffer_size;
         #[cfg(target_os = "linux")]
-        if let Some(packet_splitter) = &mut self.packet_splitter {
+        if let Some(packet_splitter) = &mut self.r_state.packet_splitter {
             packet_splitter.set_recv_buffer_size(read_buffer_size);
         }
     }
@@ -173,42 +149,37 @@ where
     /// - `write_buffer_size`: Desired size in bytes for the write buffer.
     pub fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
         #[cfg(target_os = "linux")]
-        if self.packet_aggregator.is_some() {
+        if self.w_state.packet_aggregator.is_some() {
             // When GSO is enabled, send_buffer_size is no longer controlled by this parameter.
             return;
         }
-        if self.send_buffer_size >= write_buffer_size {
+        if self.w_state.send_buffer_size >= write_buffer_size {
             return;
         }
-        self.send_buffer_size = write_buffer_size;
+        self.w_state.send_buffer_size = write_buffer_size;
     }
     /// Returns a reference to the read buffer.
     pub fn read_buffer(&self) -> &BytesMut {
-        &self.rd
+        &self.r_state.rd
     }
 
     /// Returns a mutable reference to the read buffer.
     pub fn read_buffer_mut(&mut self) -> &mut BytesMut {
-        &mut self.rd
+        &mut self.r_state.rd
     }
     /// Consumes the `Framed`, returning its underlying I/O stream.
     pub fn into_inner(self) -> T {
         self.dev
     }
 }
-pub struct DeviceFramedRead<C, T = AsyncDevice> {
-    dev: T,
-    codec: C,
+struct ReadState {
     recv_buffer_size: usize,
     rd: BytesMut,
     #[cfg(target_os = "linux")]
     packet_splitter: Option<PacketSplitter>,
 }
-impl<C, T> DeviceFramedRead<C, T>
-where
-    T: Borrow<AsyncDevice>,
-{
-    pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
+impl ReadState {
+    pub fn new<T: Borrow<AsyncDevice>>(dev: &T) -> ReadState {
         // The MTU of the network interface cannot be greater than this value.
         let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
         #[cfg(target_os = "linux")]
@@ -218,9 +189,7 @@ where
             None
         };
 
-        DeviceFramedRead {
-            dev,
-            codec,
+        ReadState {
             recv_buffer_size,
             rd: BytesMut::with_capacity(recv_buffer_size),
             #[cfg(target_os = "linux")]
@@ -241,49 +210,25 @@ where
             packet_splitter.set_recv_buffer_size(read_buffer_size);
         }
     }
-    /// Consumes the `Framed`, returning its underlying I/O stream.
-    pub fn into_inner(self) -> T {
-        self.dev
-    }
 }
-impl<C, T> Unpin for DeviceFramedRead<C, T> {}
-impl<C, T> Stream for DeviceFramedRead<C, T>
-where
-    T: Borrow<AsyncDevice>,
-    C: Decoder,
-{
-    type Item = Result<C::Item, C::Error>;
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let pin = self.get_mut();
-        let mut inner = DeviceFramedReadInner::from_framed_read(pin);
-        inner.poll_next(cx)
-    }
-}
-pub struct DeviceFramedWrite<C, T = AsyncDevice> {
-    dev: T,
-    codec: C,
+pub struct WriteState {
     send_buffer_size: usize,
     wr: BytesMut,
     #[cfg(target_os = "linux")]
-    packet_aggregator: Option<PacketAggregator>,
+    packet_aggregator: Option<PacketArena>,
 }
-impl<C, T> DeviceFramedWrite<C, T>
-where
-    T: Borrow<AsyncDevice>,
-{
-    pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
+impl WriteState {
+    pub fn new<T: Borrow<AsyncDevice>>(dev: &T) -> WriteState {
         // The MTU of the network interface cannot be greater than this value.
         let recv_buffer_size = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
         #[cfg(target_os = "linux")]
         let packet_aggregator = if dev.borrow().tcp_gso() {
-            Some(PacketAggregator::new())
+            Some(PacketArena::new())
         } else {
             None
         };
 
-        DeviceFramedWrite {
-            dev,
-            codec,
+        WriteState {
             send_buffer_size: recv_buffer_size,
             wr: BytesMut::new(),
             #[cfg(target_os = "linux")]
@@ -313,38 +258,6 @@ where
             return;
         }
         self.send_buffer_size = write_buffer_size;
-    }
-    /// Consumes the `Framed`, returning its underlying I/O stream.
-    pub fn into_inner(self) -> T {
-        self.dev
-    }
-}
-impl<C, T> Unpin for DeviceFramedWrite<C, T> {}
-impl<I, C, T> Sink<I> for DeviceFramedWrite<C, T>
-where
-    T: Borrow<AsyncDevice>,
-    C: Encoder<I>,
-{
-    type Error = C::Error;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let pin = self.get_mut();
-        DeviceFramedWriteInner::from_framed_write(pin).poll_ready(cx)
-    }
-
-    fn start_send(self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
-        let pin = self.get_mut();
-        DeviceFramedWriteInner::from_framed_write(pin).start_send(item)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let pin = self.get_mut();
-        DeviceFramedWriteInner::from_framed_write(pin).poll_flush(cx)
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let pin = self.get_mut();
-        DeviceFramedWriteInner::from_framed_write(pin).poll_close(cx)
     }
 }
 
@@ -452,15 +365,15 @@ impl PacketSplitter {
     }
 }
 #[cfg(target_os = "linux")]
-struct PacketAggregator {
+struct PacketArena {
     gro_table: GROTable,
     offset: usize,
     bufs: Vec<BytesMut>,
     send_index: usize,
 }
 #[cfg(target_os = "linux")]
-impl PacketAggregator {
-    fn new() -> PacketAggregator {
+impl PacketArena {
+    fn new() -> PacketArena {
         Self {
             gro_table: Default::default(),
             offset: 0,
@@ -541,39 +454,33 @@ impl PacketAggregator {
 struct DeviceFramedReadInner<'a, C, T = AsyncDevice> {
     dev: &'a T,
     codec: &'a mut C,
-    recv_buffer_size: usize,
-    rd: &'a mut BytesMut,
-    #[cfg(target_os = "linux")]
-    packet_splitter: &'a mut Option<PacketSplitter>,
+    state: &'a mut ReadState,
 }
 impl<'a, C, T> DeviceFramedReadInner<'a, C, T>
 where
     T: Borrow<AsyncDevice>,
     C: Decoder,
 {
-    fn from_framed(framed: &'a mut DeviceFramed<C, T>) -> DeviceFramedReadInner<'a, C, T> {
-        DeviceFramedReadInner {
-            dev: &framed.dev,
-            codec: &mut framed.codec,
-            recv_buffer_size: framed.recv_buffer_size,
-            rd: &mut framed.rd,
-            #[cfg(target_os = "linux")]
-            packet_splitter: &mut framed.packet_splitter,
-        }
+    fn new(
+        dev: &'a T,
+        codec: &'a mut C,
+        state: &'a mut ReadState,
+    ) -> DeviceFramedReadInner<'a, C, T> {
+        DeviceFramedReadInner { dev, codec, state }
     }
-    fn from_framed_read(framed: &'a mut DeviceFramedRead<C, T>) -> DeviceFramedReadInner<'a, C, T> {
-        DeviceFramedReadInner {
-            dev: &framed.dev,
-            codec: &mut framed.codec,
-            recv_buffer_size: framed.recv_buffer_size,
-            rd: &mut framed.rd,
-            #[cfg(target_os = "linux")]
-            packet_splitter: &mut framed.packet_splitter,
-        }
-    }
+    // fn from_framed_read(framed: &'a mut DeviceFramedRead<C, T>) -> DeviceFramedReadInner<'a, C, T> {
+    //     DeviceFramedReadInner {
+    //         dev: &framed.dev,
+    //         codec: &mut framed.codec,
+    //         recv_buffer_size: framed.recv_buffer_size,
+    //         rd: &mut framed.rd,
+    //         #[cfg(target_os = "linux")]
+    //         packet_splitter: &mut framed.packet_splitter,
+    //     }
+    // }
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<C::Item, C::Error>>> {
         #[cfg(target_os = "linux")]
-        if let Some(packet_splitter) = &mut self.packet_splitter {
+        if let Some(packet_splitter) = &mut self.state.packet_splitter {
             if let Some(buf) = packet_splitter.next() {
                 if let Some(frame) = self.codec.decode_eof(buf)? {
                     return Poll::Ready(Some(Ok(frame)));
@@ -581,20 +488,20 @@ where
             }
         }
 
-        self.rd.clear();
+        self.state.rd.clear();
         #[cfg(target_os = "linux")]
-        if self.packet_splitter.is_some() {
-            self.rd.reserve(VIRTIO_NET_HDR_LEN + 65536);
+        if self.state.packet_splitter.is_some() {
+            self.state.rd.reserve(VIRTIO_NET_HDR_LEN + 65536);
         }
-        self.rd.reserve(self.recv_buffer_size);
-        let buf = unsafe { &mut *(self.rd.chunk_mut() as *mut _ as *mut [u8]) };
+        self.state.rd.reserve(self.state.recv_buffer_size);
+        let buf = unsafe { &mut *(self.state.rd.chunk_mut() as *mut _ as *mut [u8]) };
 
         let len = ready!(self.dev.borrow().poll_recv(cx, buf))?;
-        unsafe { self.rd.advance_mut(len) };
+        unsafe { self.state.rd.advance_mut(len) };
 
         #[cfg(target_os = "linux")]
-        if let Some(packet_splitter) = &mut self.packet_splitter {
-            packet_splitter.handle(self.dev.borrow(), self.rd)?;
+        if let Some(packet_splitter) = &mut self.state.packet_splitter {
+            packet_splitter.handle(self.dev.borrow(), &mut self.state.rd)?;
             if let Some(buf) = packet_splitter.next() {
                 if let Some(frame) = self.codec.decode_eof(buf)? {
                     return Poll::Ready(Some(Ok(frame)));
@@ -602,7 +509,7 @@ where
             }
             return Poll::Ready(None);
         }
-        if let Some(frame) = self.codec.decode_eof(self.rd)? {
+        if let Some(frame) = self.codec.decode_eof(&mut self.state.rd)? {
             return Poll::Ready(Some(Ok(frame)));
         }
         Poll::Ready(None)
@@ -611,36 +518,18 @@ where
 struct DeviceFramedWriteInner<'a, C, T = AsyncDevice> {
     dev: &'a T,
     codec: &'a mut C,
-    send_buffer_size: usize,
-    wr: &'a mut BytesMut,
-    #[cfg(target_os = "linux")]
-    packet_aggregator: &'a mut Option<PacketAggregator>,
+    state: &'a mut WriteState,
 }
 impl<'a, C, T> DeviceFramedWriteInner<'a, C, T>
 where
     T: Borrow<AsyncDevice>,
 {
-    fn from_framed(framed: &'a mut DeviceFramed<C, T>) -> DeviceFramedWriteInner<'a, C, T> {
-        DeviceFramedWriteInner {
-            dev: &framed.dev,
-            codec: &mut framed.codec,
-            send_buffer_size: framed.send_buffer_size,
-            wr: &mut framed.wr,
-            #[cfg(target_os = "linux")]
-            packet_aggregator: &mut framed.packet_aggregator,
-        }
-    }
-    fn from_framed_write(
-        framed: &'a mut DeviceFramedWrite<C, T>,
+    fn new(
+        dev: &'a T,
+        codec: &'a mut C,
+        state: &'a mut WriteState,
     ) -> DeviceFramedWriteInner<'a, C, T> {
-        DeviceFramedWriteInner {
-            dev: &framed.dev,
-            codec: &mut framed.codec,
-            send_buffer_size: framed.send_buffer_size,
-            wr: &mut framed.wr,
-            #[cfg(target_os = "linux")]
-            packet_aggregator: &mut framed.packet_aggregator,
-        }
+        DeviceFramedWriteInner { dev, codec, state }
     }
 
     fn poll_ready<I>(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), C::Error>>
@@ -648,7 +537,7 @@ where
         C: Encoder<I>,
     {
         #[cfg(target_os = "linux")]
-        if let Some(packet_aggregator) = &self.packet_aggregator {
+        if let Some(packet_aggregator) = &self.state.packet_aggregator {
             if packet_aggregator.has_capacity() {
                 return Poll::Ready(Ok(()));
             }
@@ -662,15 +551,15 @@ where
         C: Encoder<I>,
     {
         #[cfg(target_os = "linux")]
-        if let Some(packet_aggregator) = &mut self.packet_aggregator {
+        if let Some(packet_aggregator) = &mut self.state.packet_aggregator {
             let buf = packet_aggregator.get();
             buf.resize(VIRTIO_NET_HDR_LEN, 0);
             self.codec.encode(item, buf)?;
             return Ok(());
         }
-        let buf = &mut self.wr;
+        let buf = &mut self.state.wr;
         buf.clear();
-        buf.reserve(self.send_buffer_size);
+        buf.reserve(self.state.send_buffer_size);
         self.codec.encode(item, buf)?;
         Ok(())
     }
@@ -682,16 +571,16 @@ where
         let dev = self.dev.borrow();
 
         #[cfg(target_os = "linux")]
-        if let Some(packet_aggregator) = &mut self.packet_aggregator {
+        if let Some(packet_aggregator) = &mut self.state.packet_aggregator {
             packet_aggregator.handle(dev)?;
             ready!(packet_aggregator.poll_send_bufs(cx, dev))?;
             return Poll::Ready(Ok(()));
         }
 
         // On non-Linux systems or when GSO is disabled on Linux, `wr` will contain at most one element
-        if !self.wr.is_empty() {
-            let rs = ready!(dev.poll_send(cx, self.wr));
-            self.wr.clear();
+        if !self.state.wr.is_empty() {
+            let rs = ready!(dev.poll_send(cx, &self.state.wr));
+            self.state.wr.clear();
             rs?;
         }
         Poll::Ready(Ok(()))
