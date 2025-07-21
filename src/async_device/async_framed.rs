@@ -7,10 +7,10 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::Sink;
 use futures_core::Stream;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::platform::offload::VirtioNetHdr;
 use crate::AsyncDevice;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
 
 pub trait Decoder {
@@ -132,12 +132,12 @@ where
         DeviceFramed {
             r_state: ReadState::new(
                 buffer_size,
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
                 dev.borrow().tcp_gso(),
             ),
             w_state: WriteState::new(
                 buffer_size,
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
                 dev.borrow().tcp_gso(),
             ),
             dev,
@@ -225,7 +225,7 @@ where
         DeviceFramedRead {
             state: ReadState::new(
                 buffer_size,
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
                 dev.borrow().tcp_gso(),
             ),
             dev,
@@ -284,7 +284,7 @@ where
         DeviceFramedWrite {
             state: WriteState::new(
                 buffer_size,
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
                 dev.borrow().tcp_gso(),
             ),
             dev,
@@ -342,11 +342,28 @@ where
         DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_close(cx)
     }
 }
-fn compute_buffer_size<T: Borrow<AsyncDevice>>(dev: &T) -> usize {
-    let mtu = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
+    #[cfg(any(
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos")),
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+    ))]
+    let mtu = _dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+
+    #[cfg(not(any(
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos")),
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+    )))]
+    let mtu = 4096usize;
+
     #[cfg(windows)]
     {
-        let mtu_v6 = dev.borrow().mtu_v6().map(|m| m as usize).unwrap_or(4096);
+        let mtu_v6 = _dev.borrow().mtu_v6().map(|m| m as usize).unwrap_or(4096);
         mtu.max(mtu_v6)
     }
     #[cfg(not(windows))]
@@ -355,15 +372,15 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(dev: &T) -> usize {
 struct ReadState {
     recv_buffer_size: usize,
     rd: BytesMut,
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     packet_splitter: Option<PacketSplitter>,
 }
 impl ReadState {
     pub(crate) fn new(
         recv_buffer_size: usize,
-        #[cfg(target_os = "linux")] tcp_gso: bool,
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))] tcp_gso: bool,
     ) -> ReadState {
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         let packet_splitter = if tcp_gso {
             Some(PacketSplitter::new(recv_buffer_size))
         } else {
@@ -373,7 +390,7 @@ impl ReadState {
         ReadState {
             recv_buffer_size,
             rd: BytesMut::with_capacity(recv_buffer_size),
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
             packet_splitter,
         }
     }
@@ -384,7 +401,7 @@ impl ReadState {
 
     pub(crate) fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.recv_buffer_size = read_buffer_size;
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.packet_splitter {
             packet_splitter.set_recv_buffer_size(read_buffer_size);
         }
@@ -393,15 +410,15 @@ impl ReadState {
 struct WriteState {
     send_buffer_size: usize,
     wr: BytesMut,
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     packet_aggregator: Option<PacketArena>,
 }
 impl WriteState {
     pub(crate) fn new(
         send_buffer_size: usize,
-        #[cfg(target_os = "linux")] tcp_gso: bool,
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))] tcp_gso: bool,
     ) -> WriteState {
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         let packet_aggregator = if tcp_gso {
             Some(PacketArena::new())
         } else {
@@ -411,7 +428,7 @@ impl WriteState {
         WriteState {
             send_buffer_size,
             wr: BytesMut::new(),
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
             packet_aggregator,
         }
     }
@@ -420,7 +437,7 @@ impl WriteState {
     }
 
     pub(crate) fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if self.packet_aggregator.is_some() {
             // When GSO is enabled, send_buffer_size is no longer controlled by this parameter.
             return;
@@ -475,7 +492,7 @@ impl Encoder<BytesMut> for BytesCodec {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 struct PacketSplitter {
     bufs: Vec<BytesMut>,
     sizes: Vec<usize>,
@@ -483,7 +500,7 @@ struct PacketSplitter {
     recv_num: usize,
     recv_buffer_size: usize,
 }
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 impl PacketSplitter {
     fn new(recv_buffer_size: usize) -> PacketSplitter {
         let bufs = vec![BytesMut::zeroed(recv_buffer_size); IDEAL_BATCH_SIZE];
@@ -535,14 +552,14 @@ impl PacketSplitter {
         self.recv_buffer_size = recv_buffer_size;
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 struct PacketArena {
     gro_table: GROTable,
     offset: usize,
     bufs: Vec<BytesMut>,
     send_index: usize,
 }
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 impl PacketArena {
     fn new() -> PacketArena {
         Self {
@@ -641,7 +658,7 @@ where
     }
 
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<C::Item, C::Error>>> {
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.state.packet_splitter {
             if let Some(buf) = packet_splitter.next() {
                 if let Some(frame) = self.codec.decode_eof(buf)? {
@@ -651,7 +668,7 @@ where
         }
 
         self.state.rd.clear();
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if self.state.packet_splitter.is_some() {
             self.state.rd.reserve(VIRTIO_NET_HDR_LEN + 65536);
         }
@@ -661,7 +678,7 @@ where
         let len = ready!(self.dev.borrow().poll_recv(cx, buf))?;
         unsafe { self.state.rd.advance_mut(len) };
 
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.state.packet_splitter {
             packet_splitter.handle(self.dev.borrow(), &mut self.state.rd)?;
             if let Some(buf) = packet_splitter.next() {
@@ -698,7 +715,7 @@ where
     where
         C: Encoder<I>,
     {
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_aggregator) = &self.state.packet_aggregator {
             if packet_aggregator.has_capacity() {
                 return Poll::Ready(Ok(()));
@@ -712,7 +729,7 @@ where
     where
         C: Encoder<I>,
     {
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_aggregator) = &mut self.state.packet_aggregator {
             let buf = packet_aggregator.get();
             buf.resize(VIRTIO_NET_HDR_LEN, 0);
@@ -732,7 +749,7 @@ where
     {
         let dev = self.dev.borrow();
 
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_aggregator) = &mut self.state.packet_aggregator {
             packet_aggregator.handle(dev)?;
             ready!(packet_aggregator.poll_send_bufs(cx, dev))?;
