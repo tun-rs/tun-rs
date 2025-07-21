@@ -342,11 +342,28 @@ where
         DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_close(cx)
     }
 }
-fn compute_buffer_size<T: Borrow<AsyncDevice>>(dev: &T) -> usize {
-    let mtu = dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
+    #[cfg(any(
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos")),
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+    ))]
+    let mtu = _dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+
+    #[cfg(not(any(
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos")),
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+    )))]
+    let mtu = 4096usize;
+
     #[cfg(windows)]
     {
-        let mtu_v6 = dev.borrow().mtu_v6().map(|m| m as usize).unwrap_or(4096);
+        let mtu_v6 = _dev.borrow().mtu_v6().map(|m| m as usize).unwrap_or(4096);
         mtu.max(mtu_v6)
     }
     #[cfg(not(windows))]
