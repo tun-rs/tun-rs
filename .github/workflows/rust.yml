@@ -7,6 +7,33 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: check
+        run: |
+          rustup target add x86_64-linux-android
+          cargo check --target x86_64-linux-android
+          cargo check --features async_tokio --target x86_64-linux-android
+          cargo check --features async_tokio,async_framed --target x86_64-linux-android
+          cargo check --features async_io,async_framed --target x86_64-linux-android
+          cargo check --features interruptible --target x86_64-linux-android
+          
+          rustup target add x86_64-apple-ios
+          cargo check --target x86_64-apple-ios
+          cargo check --features async_tokio --target x86_64-apple-ios
+          cargo check --features async_tokio,async_framed --target x86_64-apple-ios
+          cargo check --features async_io,async_framed --target x86_64-apple-ios
+          cargo check --features interruptible --target x86_64-apple-ios
+          
+          rustup target add x86_64-unknown-linux-ohos
+          cargo check --target x86_64-unknown-linux-ohos
+          cargo check --features async_tokio --target x86_64-unknown-linux-ohos
+          cargo check --features async_tokio,async_framed --target x86_64-unknown-linux-ohos
+          cargo check --features async_io,async_framed --target x86_64-unknown-linux-ohos
+          cargo check --features interruptible --target x86_64-unknown-linux-ohos
+
   build_n_test:
     strategy:
       fail-fast: false
@@ -22,7 +49,12 @@ jobs:
         run: cargo fmt --all -- --check
       - name: check
         if: ${{ !cancelled() }}
-        run: cargo check --verbose
+        run: |
+          cargo check
+          cargo check --features async_tokio
+          cargo check --features async_tokio,async_framed
+          cargo check --features async_io,async_framed
+          cargo check --features interruptible
       - name: clippy
         if: ${{ !cancelled() }}
         run: |
@@ -71,6 +103,11 @@ jobs:
             export CXX=clang++
             export CARGO_TERM_COLOR=always
             find ./
+            cargo check --target x86_64-unknown-freebsd
+            cargo check --features async_tokio --target x86_64-unknown-freebsd
+            cargo check --features async_tokio,async_framed --target x86_64-unknown-freebsd
+            cargo check --features async_io,async_framed --target x86_64-unknown-freebsd
+            cargo check --features interruptible --target x86_64-unknown-freebsd
             cargo clippy --all-targets -- -D warnings
             cargo build --verbose --examples --tests
             cargo build --verbose --examples --tests --features async_io
