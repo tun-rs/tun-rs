@@ -90,6 +90,70 @@ type IPV4 = (
 ///
 /// This builder allows you to set parameters such as device name, MTU,
 /// IPv4/IPv6 addresses, MAC address, and other platform-specific options.
+///
+/// # Examples
+///
+/// Creating a basic IPv4 TUN interface:
+///
+/// ```no_run
+/// use tun_rs::DeviceBuilder;
+/// use std::net::Ipv4Addr;
+///
+/// fn main() -> std::io::Result<()> {
+///     let tun = DeviceBuilder::new()
+///         .name("my-tun")
+///         .mtu(1500)
+///         .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
+///         .build_sync()?;
+///     Ok(())
+/// }
+/// ```
+///
+/// Creating an IPv6 TUN interface:
+///
+/// ```no_run
+/// use tun_rs::DeviceBuilder;
+/// use std::net::Ipv6Addr;
+///
+/// fn main() -> std::io::Result<()> {
+///     let tun = DeviceBuilder::new()
+///         .name("my-tun6")
+///         .mtu(1500)
+///         .ipv6(Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1), 64)
+///         .build_sync()?;
+///     Ok(())
+/// }
+/// ```
+///
+/// Creating an L2 TAP interface (platform-dependent):
+///
+/// ```no_run
+/// #[cfg(any(
+///     target_os = "windows",
+///     all(target_os = "linux", not(target_env = "ohos")),
+///     target_os = "freebsd",
+///     target_os = "macos",
+///     target_os = "openbsd"
+/// ))]
+/// use tun_rs::{DeviceBuilder, Layer};
+///
+/// #[cfg(any(
+///     target_os = "windows",
+///     all(target_os = "linux", not(target_env = "ohos")),
+///     target_os = "freebsd",
+///     target_os = "macos",
+///     target_os = "openbsd"
+/// ))]
+/// fn main() -> std::io::Result<()> {
+///     let tap = DeviceBuilder::new()
+///         .name("my-tap")
+///         .layer(Layer::L2)
+///         .mac_addr([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
+///         .mtu(1500)
+///         .build_sync()?;
+///     Ok(())
+/// }
+/// ```
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,

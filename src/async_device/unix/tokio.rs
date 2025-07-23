@@ -16,6 +16,33 @@ use ::tokio::io::Interest;
 /// **Note:** `DeviceFramed` is only available when the `async_framed` feature is enabled.
 ///
 /// [`Stream`]: https://docs.rs/futures/0.3/futures/stream/trait.Stream.html
+///
+/// # Examples
+///
+/// ```no_run
+/// use tun_rs::{AsyncDevice, DeviceBuilder};
+///
+/// #[tokio::main]
+/// async fn main() ->  std::io::Result<()> {
+///     // Create a TUN device with basic configuration
+///     let dev = DeviceBuilder::new()
+///         .name("tun0")
+///         .mtu(1500)
+///         .ipv4("10.0.0.1", "255.255.255.0", None)
+///         .build_async()?;
+///
+///     // Send a simple packet (Replace with real IP message)
+///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, Async TUN!";
+///     dev.send(packet).await?;
+///
+///     // Receive a packet
+///     let mut buf = [0u8; 1500];
+///     let n = dev.recv(&mut buf).await?;
+///     println!("Received {} bytes: {:?}", n, &buf[..n]);
+///
+///     Ok(())
+/// }
+/// ```
 pub struct AsyncDevice(pub(crate) TokioAsyncFd<DeviceImpl>);
 impl AsyncDevice {
     /// Polls the I/O handle for readability.

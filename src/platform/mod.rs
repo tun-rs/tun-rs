@@ -60,6 +60,36 @@ pub(crate) fn get_if_addrs_by_name(if_name: String) -> std::io::Result<Vec<Inter
 }
 
 /// A transparent wrapper around DeviceImpl, providing synchronous I/O operations.
+///
+/// # Examples
+///
+/// Basic read/write operation:
+///
+/// ```no_run
+/// use tun_rs::DeviceBuilder;
+/// use std::net::Ipv4Addr;
+///
+/// fn main() -> std::io::Result<()> {
+///     // Create a TUN device using the builder
+///     let mut tun = DeviceBuilder::new()
+///         .name("my-tun")
+///         .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
+///         .build_sync()?;
+///     
+///     // Send a packet
+///     // Example IP packet (Replace with real IP message)
+///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, TUN!";
+///     tun.send(packet)?;
+///     println!("Sent {} bytes IP packet", packet.len());
+///     
+///     // Receive a packet
+///     let mut buf = [0u8; 1500];
+///     let n = tun.recv(&mut buf)?;
+///     println!("Received {} bytes: {:?}", n, &buf[..n]);
+///     
+///     Ok(())
+/// }
+/// ```
 #[repr(transparent)]
 pub struct SyncDevice(pub(crate) DeviceImpl);
 
