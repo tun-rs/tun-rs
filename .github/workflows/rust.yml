@@ -78,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build x86_64-FreeBSD
-        uses: cross-platform-actions/action@v0.28.0
+        uses: cross-platform-actions/action@v0.29.0
         env:
           TARGET: x86_64-unknown-freebsd
         with:
