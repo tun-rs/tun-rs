@@ -235,17 +235,7 @@ mod tests {
                     assert_eq!(
                         actual,
                         expected,
-                        "Output Mismatch! Length: {}, Initial: {}, Data: {:?}\nAVX2 Result: {}\nScalar Result: {}",
-                        len,
-                        initial,
-                        data,
-                        actual,
-                        expected
-                    );
-
-                    println!(
-                        "Test Passed: Len: {:<4}, Initial: {:<10}, AVX2 Output: {:<20} == Scalar Output: {:<20}",
-                        len, initial, actual, expected
+                        "Output Mismatch! Length: {len}, Initial: {initial}, Data: {data:?}\nAVX2 Result: {actual}\nScalar Result: {expected}",
                     );
                 }
                 if is_x86_feature_detected!("sse4.1") {
@@ -255,17 +245,7 @@ mod tests {
                     assert_eq!(
                         actual,
                         expected,
-                        "Output Mismatch! Length: {}, Initial: {}, Data: {:?}\nsse41 Result: {}\nScalar Result: {}",
-                        len,
-                        initial,
-                        data,
-                        actual,
-                        expected
-                    );
-
-                    println!(
-                        "Test Passed: Len: {:<4}, Initial: {:<10}, sse41 Output: {:<20} == Scalar Output: {:<20}",
-                        len, initial, actual, expected
+                        "Output Mismatch! Length: {len}, Initial: {initial}, Data: {data:?}\nsse41 Result: {actual}\nScalar Result: {expected}",
                     );
                 }
             }
