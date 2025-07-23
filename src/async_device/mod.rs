@@ -1,7 +1,17 @@
 #[cfg(unix)]
 pub(crate) mod unix;
 #[cfg(all(unix, not(target_os = "macos")))]
-pub use unix::AsyncDevice;
+#[cfg(feature = "async_io")]
+pub use unix::AsyncIoDevice;
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(feature = "async_tokio")]
+pub use unix::TokioDevice;
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(feature = "async_tokio")]
+pub type AsyncDevice = TokioDevice;
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]

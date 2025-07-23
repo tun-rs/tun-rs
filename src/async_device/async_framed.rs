@@ -1,5 +1,5 @@
-use std::borrow::Borrow;
 use std::io;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
@@ -9,7 +9,7 @@ use futures_core::Stream;
 
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::platform::offload::VirtioNetHdr;
-use crate::AsyncDevice;
+use crate::DeviceImpl;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
 
@@ -78,7 +78,7 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 /// You can also create multiple independent framing streams using:
 /// `DeviceFramed::new(dev.clone(), BytesCodec::new())`, with the device wrapped
 /// in `Arc<AsyncDevice>`.
-pub struct DeviceFramed<C, T = AsyncDevice> {
+pub struct DeviceFramed<C, T> {
     dev: T,
     codec: C,
     r_state: ReadState,
@@ -87,7 +87,7 @@ pub struct DeviceFramed<C, T = AsyncDevice> {
 impl<C, T> Unpin for DeviceFramed<C, T> {}
 impl<C, T> Stream for DeviceFramed<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
     C: Decoder,
 {
     type Item = Result<C::Item, C::Error>;
@@ -98,7 +98,7 @@ where
 }
 impl<I, C, T> Sink<I> for DeviceFramed<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
     C: Encoder<I>,
 {
     type Error = C::Error;
@@ -125,7 +125,7 @@ where
 }
 impl<C, T> DeviceFramed<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
 {
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
         let buffer_size = compute_buffer_size(&dev);
@@ -133,12 +133,12 @@ where
             r_state: ReadState::new(
                 buffer_size,
                 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                dev.borrow().tcp_gso(),
+                dev.tcp_gso(),
             ),
             w_state: WriteState::new(
                 buffer_size,
                 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                dev.borrow().tcp_gso(),
+                dev.tcp_gso(),
             ),
             dev,
             codec,
@@ -187,7 +187,7 @@ where
 
 impl<C, T> DeviceFramed<C, T>
 where
-    T: Borrow<AsyncDevice> + Clone,
+    T: Deref<Target = DeviceImpl> + Clone,
     C: Clone,
 {
     pub fn split(self) -> (DeviceFramedRead<C, T>, DeviceFramedWrite<C, T>) {
@@ -211,14 +211,14 @@ where
 /// for GRO (Generic Receive Offload) support on Linux.
 ///
 /// See [`DeviceFramed`] for a unified read/write interface.
-pub struct DeviceFramedRead<C, T = AsyncDevice> {
+pub struct DeviceFramedRead<C, T> {
     dev: T,
     codec: C,
     state: ReadState,
 }
 impl<C, T> DeviceFramedRead<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
 {
     pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
         let buffer_size = compute_buffer_size(&dev);
@@ -226,7 +226,7 @@ where
             state: ReadState::new(
                 buffer_size,
                 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                dev.borrow().tcp_gso(),
+                dev.tcp_gso(),
             ),
             dev,
             codec,
@@ -249,7 +249,7 @@ where
 impl<C, T> Unpin for DeviceFramedRead<C, T> {}
 impl<C, T> Stream for DeviceFramedRead<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
     C: Decoder,
 {
     type Item = Result<C::Item, C::Error>;
@@ -270,14 +270,14 @@ where
 /// for GSO (Generic Segmentation Offload) support on Linux.
 ///
 /// See [`DeviceFramed`] for a unified read/write interface.
-pub struct DeviceFramedWrite<C, T = AsyncDevice> {
+pub struct DeviceFramedWrite<C, T> {
     dev: T,
     codec: C,
     state: WriteState,
 }
 impl<C, T> DeviceFramedWrite<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
 {
     pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
         let buffer_size = compute_buffer_size(&dev);
@@ -285,7 +285,7 @@ where
             state: WriteState::new(
                 buffer_size,
                 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                dev.borrow().tcp_gso(),
+                dev.tcp_gso(),
             ),
             dev,
             codec,
@@ -317,7 +317,7 @@ where
 impl<C, T> Unpin for DeviceFramedWrite<C, T> {}
 impl<I, C, T> Sink<I> for DeviceFramedWrite<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
     C: Encoder<I>,
 {
     type Error = C::Error;
@@ -342,7 +342,7 @@ where
         DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_close(cx)
     }
 }
-fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
+fn compute_buffer_size<T: Deref<Target = DeviceImpl>>(_dev: &T) -> usize {
     #[cfg(any(
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos")),
@@ -350,7 +350,7 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
         target_os = "freebsd",
         target_os = "openbsd",
     ))]
-    let mtu = _dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+    let mtu = _dev.mtu().map(|m| m as usize).unwrap_or(4096);
 
     #[cfg(not(any(
         target_os = "windows",
@@ -363,7 +363,7 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
 
     #[cfg(windows)]
     {
-        let mtu_v6 = _dev.borrow().mtu_v6().map(|m| m as usize).unwrap_or(4096);
+        let mtu_v6 = _dev.mtu_v6().map(|m| m as usize).unwrap_or(4096);
         mtu.max(mtu_v6)
     }
     #[cfg(not(windows))]
@@ -513,7 +513,7 @@ impl PacketSplitter {
             recv_buffer_size,
         }
     }
-    fn handle(&mut self, dev: &AsyncDevice, input: &mut [u8]) -> io::Result<()> {
+    fn handle(&mut self, dev: &DeviceImpl, input: &mut [u8]) -> io::Result<()> {
         if input.len() <= VIRTIO_NET_HDR_LEN {
             Err(io::Error::other(format!(
                 "length of packet ({}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
@@ -584,7 +584,7 @@ impl PacketArena {
         self.offset += 1;
         &mut self.bufs[idx]
     }
-    fn handle(&mut self, dev: &AsyncDevice) -> io::Result<()> {
+    fn handle(&mut self, dev: &DeviceImpl) -> io::Result<()> {
         if self.offset == 0 {
             return Ok(());
         }
@@ -639,14 +639,14 @@ impl PacketArena {
         IDEAL_BATCH_SIZE > self.offset && self.gro_table.to_write.is_empty()
     }
 }
-struct DeviceFramedReadInner<'a, C, T = AsyncDevice> {
+struct DeviceFramedReadInner<'a, C, T> {
     dev: &'a T,
     codec: &'a mut C,
     state: &'a mut ReadState,
 }
 impl<'a, C, T> DeviceFramedReadInner<'a, C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
     C: Decoder,
 {
     fn new(
@@ -675,12 +675,12 @@ where
         self.state.rd.reserve(self.state.recv_buffer_size);
         let buf = unsafe { &mut *(self.state.rd.chunk_mut() as *mut _ as *mut [u8]) };
 
-        let len = ready!(self.dev.borrow().poll_recv(cx, buf))?;
+        let len = ready!(self.dev.poll_recv(cx, buf))?;
         unsafe { self.state.rd.advance_mut(len) };
 
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.state.packet_splitter {
-            packet_splitter.handle(self.dev.borrow(), &mut self.state.rd)?;
+            packet_splitter.handle(&self.dev, &mut self.state.rd)?;
             if let Some(buf) = packet_splitter.next() {
                 if let Some(frame) = self.codec.decode_eof(buf)? {
                     return Poll::Ready(Some(Ok(frame)));
@@ -694,14 +694,14 @@ where
         Poll::Ready(None)
     }
 }
-struct DeviceFramedWriteInner<'a, C, T = AsyncDevice> {
+struct DeviceFramedWriteInner<'a, C, T> {
     dev: &'a T,
     codec: &'a mut C,
     state: &'a mut WriteState,
 }
 impl<'a, C, T> DeviceFramedWriteInner<'a, C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: Deref<Target = DeviceImpl>,
 {
     fn new(
         dev: &'a T,
