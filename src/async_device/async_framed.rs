@@ -78,6 +78,48 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 /// You can also create multiple independent framing streams using:
 /// `DeviceFramed::new(dev.clone(), BytesCodec::new())`, with the device wrapped
 /// in `Arc<AsyncDevice>`.
+///
+/// A unified async read/write interface for TUN/TAP devices using framed I/O
+///
+/// Combines an async device with a codec to provide `Stream` and `Sink` implementations
+/// for reading and writing framed packets.
+///
+/// # Examples
+///
+/// ## Basic usage with BytesCodec
+///
+/// ```no_run
+/// use bytes::BytesMut;
+/// use futures::{SinkExt, StreamExt};
+/// use tun_rs::async_framed::{BytesCodec, DeviceFramed};
+/// use tun_rs::DeviceBuilder;
+///
+/// #[tokio::main]
+/// async fn main() -> std::io::Result<()> {
+///     // Create a TUN device with IPv4 configuration
+///     let dev = DeviceBuilder::new()
+///         .name("tun0")
+///         .mtu(1500)
+///         .ipv4("10.0.0.1", "255.255.255.0", None)
+///         .build_async()?;
+///
+///     // Create a framed device with BytesCodec
+///     let mut framed = DeviceFramed::new(dev, BytesCodec::new());
+///
+///     // Send a frame (Replace with real IP message)
+///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, TUN!";
+///     framed.send(BytesMut::from(packet)).await?;
+///
+///     // Receive frames
+///     while let Some(frame) = framed.next().await {
+///         match frame {
+///             Ok(bytes) => println!("Received: {:?}", bytes),
+///             Err(e) => eprintln!("Error receiving frame: {}", e),
+///         }
+///     }
+///     Ok(())
+/// }
+/// ```
 pub struct DeviceFramed<C, T = AsyncDevice> {
     dev: T,
     codec: C,
@@ -127,6 +169,7 @@ impl<C, T> DeviceFramed<C, T>
 where
     T: Borrow<AsyncDevice>,
 {
+    /// Construct from a [`AsyncDevice`] with a specific codec
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramed {
@@ -190,6 +233,23 @@ where
     T: Borrow<AsyncDevice> + Clone,
     C: Clone,
 {
+    /// Split the framed device to read-half and write-half
+    ///
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use std::sync::Arc;
+    /// use tun_rs::{
+    ///     async_framed::{BytesCodec, DeviceFramed},
+    ///     DeviceBuilder,
+    /// };
+    /// let dev = Arc::new(
+    ///     DeviceBuilder::new()
+    ///         .ipv4(Ipv4Addr::new(10, 0, 0, 21), 24, None)
+    ///         .build_async()?,
+    /// );
+    /// let (r, w) = DeviceFramed::new(dev, BytesCodec::new()).split();
+    /// ```
     pub fn split(self) -> (DeviceFramedRead<C, T>, DeviceFramedWrite<C, T>) {
         let dev = self.dev;
         let codec = self.codec;
@@ -201,6 +261,37 @@ where
 }
 
 /// A `Stream`-only abstraction over an `AsyncDevice`, using a `Decoder` to
+///
+/// # Examples
+///
+/// ```no_run
+/// use futures::StreamExt;
+/// use tun_rs::async_framed::{BytesCodec, DeviceFramedRead};
+/// use tun_rs::DeviceBuilder;
+///
+/// #[tokio::main]
+/// async fn main() -> std::io::Result<()> {
+///     // Create a TUN device with IPv4 configuration
+///     let dev = DeviceBuilder::new()
+///         .name("tun0")
+///         .mtu(1500)
+///         .ipv4("10.0.0.1", "255.255.255.0", None)
+///         .build_async()?;
+///
+///     // Create a read-only framed device
+///     let mut framed_read = DeviceFramedRead::new(dev, BytesCodec::new());
+///
+///     // Receive frames
+///     while let Some(frame) = framed_read.next().await {
+///         match frame {
+///             Ok(bytes) => println!("Received: {:?}", bytes),
+///             Err(e) => eprintln!("Error receiving frame: {}", e),
+///         }
+///     }
+///     Ok(())
+/// }
+/// ```
+///
 /// extract frames from raw packet input.
 ///
 /// This struct provides a read-only framing interface for the underlying device,
@@ -220,6 +311,26 @@ impl<C, T> DeviceFramedRead<C, T>
 where
     T: Borrow<AsyncDevice>,
 {
+    /// Construct from a [`AsyncDevice`] with a specific codec
+    /// Read side of the framed device
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use std::sync::Arc;
+    /// use tun_rs::{
+    ///     async_framed::{BytesCodec, DeviceFramedRead, DeviceFramedWrite},
+    ///     DeviceBuilder,
+    /// };
+    /// let dev = Arc::new(
+    ///     DeviceBuilder::new()
+    ///         .ipv4(Ipv4Addr::new(10, 0, 0, 21), 24, None)
+    ///         .build_async()?,
+    /// );
+    /// let mut w = DeviceFramedWrite::new(dev.clone(), BytesCodec::new());
+    /// let mut r = DeviceFramedRead::new(dev, BytesCodec::new());
+    /// ```
+    /// # Note
+    /// An efficient way is to directly use [`DeviceFramed::split`] if the device is cloneable
     pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedRead {
@@ -260,6 +371,35 @@ where
 }
 
 /// A `Sink`-only abstraction over an `AsyncDevice`, using an `Encoder` to
+///
+/// # Examples
+///
+/// ```no_run
+/// use bytes::BytesMut;
+/// use futures::SinkExt;
+/// use tun_rs::async_framed::{BytesCodec, DeviceFramedWrite};
+/// use tun_rs::DeviceBuilder;
+///
+/// #[tokio::main]
+/// async fn main() -> std::io::Result<()> {
+///     // Create a TUN device with IPv4 configuration
+///     let dev = DeviceBuilder::new()
+///         .name("tun0")
+///         .mtu(1500)
+///         .ipv4("10.0.0.1", "255.255.255.0", None)
+///         .build_async()?;
+///
+///     // Create a write-only framed device
+///     let mut framed_write = DeviceFramedWrite::new(dev, BytesCodec::new());
+///
+///     // Send a frame (Replace with real IP message)
+///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, TUN!";
+///     framed_write.send(BytesMut::from(packet)).await?;
+///
+///     Ok(())
+/// }
+/// ```
+///
 /// serialize outbound frames into raw packets.
 ///
 /// This struct provides a write-only framing interface for the underlying device,
@@ -279,6 +419,26 @@ impl<C, T> DeviceFramedWrite<C, T>
 where
     T: Borrow<AsyncDevice>,
 {
+    /// Construct from a [`AsyncDevice`] with a specific codec
+    /// Write side of the framed device
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use std::sync::Arc;
+    /// use tun_rs::{
+    ///     async_framed::{BytesCodec, DeviceFramedRead, DeviceFramedWrite},
+    ///     DeviceBuilder,
+    /// };
+    /// let dev = Arc::new(
+    ///     DeviceBuilder::new()
+    ///         .ipv4(Ipv4Addr::new(10, 0, 0, 21), 24, None)
+    ///         .build_async()?,
+    /// );
+    /// let mut w = DeviceFramedWrite::new(dev.clone(), BytesCodec::new());
+    /// let mut r = DeviceFramedRead::new(dev, BytesCodec::new());
+    /// ```
+    /// # Note
+    /// An efficient way is to directly use [`DeviceFramed::split`] if the device is cloneable
     pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedWrite {

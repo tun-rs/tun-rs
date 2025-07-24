@@ -81,6 +81,7 @@ pnet_packet = "0.35.0"
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 async-std = { version = "1", features = ["attributes", "unstable"] }
 async-ctrlc = "1.2.0"
+rand = "0.9"
 
 [features]
 async = ["async_tokio"]

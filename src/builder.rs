@@ -90,6 +90,70 @@ type IPV4 = (
 ///
 /// This builder allows you to set parameters such as device name, MTU,
 /// IPv4/IPv6 addresses, MAC address, and other platform-specific options.
+///
+/// # Examples
+///
+/// Creating a basic IPv4 TUN interface:
+///
+/// ```no_run
+/// use std::net::Ipv4Addr;
+/// use tun_rs::DeviceBuilder;
+///
+/// fn main() -> std::io::Result<()> {
+///     let tun = DeviceBuilder::new()
+///         .name("my-tun")
+///         .mtu(1500)
+///         .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
+///         .build_sync()?;
+///     Ok(())
+/// }
+/// ```
+///
+/// Creating an IPv6 TUN interface:
+///
+/// ```no_run
+/// use std::net::Ipv6Addr;
+/// use tun_rs::DeviceBuilder;
+///
+/// fn main() -> std::io::Result<()> {
+///     let tun = DeviceBuilder::new()
+///         .name("my-tun6")
+///         .mtu(1500)
+///         .ipv6(Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1), 64)
+///         .build_sync()?;
+///     Ok(())
+/// }
+/// ```
+///
+/// Creating an L2 TAP interface (platform-dependent):
+///
+/// ```no_run
+/// #[cfg(any(
+///     target_os = "windows",
+///     all(target_os = "linux", not(target_env = "ohos")),
+///     target_os = "freebsd",
+///     target_os = "macos",
+///     target_os = "openbsd"
+/// ))]
+/// use tun_rs::{DeviceBuilder, Layer};
+///
+/// #[cfg(any(
+///     target_os = "windows",
+///     all(target_os = "linux", not(target_env = "ohos")),
+///     target_os = "freebsd",
+///     target_os = "macos",
+///     target_os = "openbsd"
+/// ))]
+/// fn main() -> std::io::Result<()> {
+///     let tap = DeviceBuilder::new()
+///         .name("my-tap")
+///         .layer(Layer::L2)
+///         .mac_addr([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
+///         .mtu(1500)
+///         .build_sync()?;
+///     Ok(())
+/// }
+/// ```
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,
@@ -206,10 +270,15 @@ impl DeviceBuilder {
         self.ipv4 = Some((address.ipv4(), mask.prefix(), destination.map(|v| v.ipv4())));
         self
     }
-    /// Configures an IPv6 address for the device.
+    /// Configures a single IPv6 address for the device.
     ///
     /// - `address`: The IPv6 address.
     /// - `mask`: The subnet mask or prefix length.
+    /// # Example
+    /// ```
+    /// use tun_rs::DeviceBuilder;
+    /// DeviceBuilder::new().ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64);
+    /// ```
     pub fn ipv6<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         mut self,
         address: IPv6,
@@ -226,6 +295,14 @@ impl DeviceBuilder {
     /// Configures multiple IPv6 addresses in batch.
     ///
     /// Accepts a slice of (IPv6 address, netmask) tuples.
+    /// # Example
+    /// ```rust
+    /// use tun_rs::DeviceBuilder;
+    /// DeviceBuilder::new().ipv6_tuple(&[
+    ///     ("CDCD:910A:2222:5498:8475:1111:3900:2022", 64),
+    ///     ("CDCD:910A:2222:5498:8475:1111:3900:2023", 64),
+    /// ]);
+    /// ```
     pub fn ipv6_tuple<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         mut self,
         addrs: &[(IPv6, Netmask)],
@@ -245,6 +322,9 @@ impl DeviceBuilder {
         self
     }
     /// Sets the operating layer (L2 or L3) for the device.
+    ///
+    /// * L2 corresponds to TAP
+    /// * L3 corresponds to TUN
     pub fn layer(mut self, layer: Layer) -> Self {
         self.layer = Some(layer);
         self
@@ -256,7 +336,7 @@ impl DeviceBuilder {
         self.device_guid = Some(device_guid);
         self
     }
-    /// Sets the wintun file path on Windows.
+    /// Sets the `wintun.dll` file path on Windows.
     #[cfg(windows)]
     pub fn wintun_file(mut self, wintun_file: String) -> Self {
         self.wintun_file = Some(wintun_file);
@@ -276,9 +356,12 @@ impl DeviceBuilder {
         self.metric = Some(metric);
         self
     }
-    /// Whether to call WintunDeleteDriver to remove the driver.
-    /// Default: false.
     #[cfg(windows)]
+    /// Whether to call `WintunDeleteDriver` to remove the driver.
+    /// Default: false.
+    /// # Note
+    /// The clean-up work closely depends on whether the destructor can be normally executed
+    ///
     pub fn delete_driver(mut self, delete_driver: bool) -> Self {
         self.delete_driver = Some(delete_driver);
         self
@@ -311,7 +394,7 @@ impl DeviceBuilder {
         self.packet_information = Some(packet_information);
         self
     }
-    /// Available with Layer::L2;
+    /// Available on Layer::L2;
     /// creates a pair of feth devices, with peer_feth as the IO interface name.
     #[cfg(target_os = "macos")]
     pub fn peer_feth<S: Into<String>>(mut self, peer_feth: S) -> Self {
@@ -320,13 +403,13 @@ impl DeviceBuilder {
     }
     /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
-    /// Set this to false to obtain the platform's default routing behavior.
+    /// Set this to be false to obtain the platform's default routing behavior.
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
     pub fn associate_route(mut self, associate_route: bool) -> Self {
         self.associate_route = Some(associate_route);
         self
     }
-    /// Only effective in TAP mode.
+    /// Only works in TAP mode.
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -334,7 +417,7 @@ impl DeviceBuilder {
         self.reuse_dev = Some(reuse);
         self
     }
-    /// Only effective in TAP mode.
+    /// Only works in TAP mode.
     /// If true, the feth device will be kept after the program exits;
     /// if false (default), the device will be destroyed automatically.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -343,7 +426,7 @@ impl DeviceBuilder {
         self
     }
     /// Enables or disables the device.
-    /// Defaults to enabled.
+    /// Defaults to be enabled.
     pub fn enable(mut self, enable: bool) -> Self {
         self.enabled = Some(enable);
         self

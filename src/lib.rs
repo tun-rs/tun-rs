@@ -24,7 +24,7 @@ loop {
     use tun_rs::SyncDevice;
     // use PacketTunnelProvider/VpnService create tun fd
     let fd = 7799;
-    let dev = unsafe{SyncDevice::from_fd(fd)};
+    let dev = unsafe{SyncDevice::from_fd(fd).unwrap()};
     let mut buf = [0;65535];
     loop {
         let len = dev.recv(&mut buf).unwrap();
