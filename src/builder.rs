@@ -356,9 +356,12 @@ impl DeviceBuilder {
         self.metric = Some(metric);
         self
     }
-    /// Whether to call WintunDeleteDriver to remove the driver.
-    /// Default: false.
     #[cfg(windows)]
+    /// Whether to call `WintunDeleteDriver` to remove the driver.
+    /// Default: false.
+    /// # Note
+    /// The clean-up work closely depends on whether the destructor can be normally executed
+    ///
     pub fn delete_driver(mut self, delete_driver: bool) -> Self {
         self.delete_driver = Some(delete_driver);
         self
