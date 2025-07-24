@@ -439,9 +439,36 @@ impl DeviceBuilder {
     ///
     /// This method is available only when the async_io or async_tokio features are enabled.
     #[cfg(any(feature = "async_io", feature = "async_tokio"))]
+    #[cfg(any(windows, target_os = "macos"))]
     pub fn build_async(self) -> io::Result<crate::AsyncDevice> {
         let sync_device = self.build_sync()?;
         let device = crate::AsyncDevice::new_dev(sync_device.0)?;
+        Ok(device)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(any(
+        all(feature = "async_io", not(feature = "async_tokio")),
+        all(feature = "async_tokio", not(feature = "async_io"))
+    ))]
+    pub fn build_async(self) -> io::Result<crate::AsyncDevice> {
+        let sync_device = self.build_sync()?;
+        let device = crate::AsyncDevice::new_dev(sync_device.0)?;
+        Ok(device)
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(feature = "async_tokio", feature = "async_io"))]
+    pub fn build_async_io(self) -> io::Result<crate::AsyncIoDevice> {
+        let sync_device = self.build_sync()?;
+        let device = crate::AsyncIoDevice::new_dev(sync_device.0)?;
+        Ok(device)
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(feature = "async_tokio", feature = "async_io"))]
+    pub fn build_async_tokio(self) -> io::Result<crate::TokioDevice> {
+        let sync_device = self.build_sync()?;
+        let device = crate::TokioDevice::new_dev(sync_device.0)?;
         Ok(device)
     }
 }

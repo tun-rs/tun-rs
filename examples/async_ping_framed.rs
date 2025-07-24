@@ -7,6 +7,7 @@ use std::net::Ipv4Addr;
 #[allow(unused_imports)]
 use std::sync::Arc;
 use tun_rs::async_framed::{BytesCodec, DeviceFramed};
+
 #[cfg(any(
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
@@ -66,7 +67,10 @@ fn main() -> std::io::Result<()> {
 }
 
 #[allow(dead_code)]
-async fn handle_pkt(pkt: &[u8], framed: &mut DeviceFramed<BytesCodec>) -> std::io::Result<()> {
+async fn handle_pkt(
+    pkt: &[u8],
+    framed: &mut DeviceFramed<BytesCodec, AsyncDevice>,
+) -> std::io::Result<()> {
     if let Some(buf) = protocol_handle::ping(pkt) {
         framed.send(BytesMut::from(buf.as_slice())).await?;
     }

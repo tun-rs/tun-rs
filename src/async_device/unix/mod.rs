@@ -9,6 +9,8 @@ use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 
+#[cfg(any(feature = "async_io", feature = "async_tokio"))]
+use std::task::{Context, Poll};
 #[cfg(feature = "async_tokio")]
 mod tokio;
 
@@ -250,6 +252,14 @@ macro_rules! impl_device {
                 Ok(total)
             }
         }
+        impl Pollable for $device {
+            fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+                <$device>::poll_recv(self, cx, buf)
+            }
+            fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+                <$device>::poll_send(self, cx, buf)
+            }
+        }
     };
 }
 #[cfg(feature = "async_tokio")]
@@ -258,6 +268,8 @@ pub use tokio::AsyncDevice as TokioDevice;
 impl_device! {TokioDevice}
 
 #[cfg(feature = "async_io")]
-pub use async_io::AsyncDevice as AsyncIODevice;
+pub use async_io::AsyncDevice as AsyncIoDevice;
 #[cfg(feature = "async_io")]
-impl_device! {AsyncIODevice}
+impl_device! {AsyncIoDevice}
+
+use crate::async_device::Pollable;

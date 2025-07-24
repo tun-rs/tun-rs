@@ -13,6 +13,8 @@ use crate::DeviceImpl;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
 
+use super::Pollable;
+
 pub trait Decoder {
     /// The type of decoded frames.
     type Item;
@@ -87,7 +89,7 @@ pub struct DeviceFramed<C, T> {
 impl<C, T> Unpin for DeviceFramed<C, T> {}
 impl<C, T> Stream for DeviceFramed<C, T>
 where
-    T: Deref<Target = DeviceImpl>,
+    T: Deref<Target = DeviceImpl> + Pollable,
     C: Decoder,
 {
     type Item = Result<C::Item, C::Error>;
@@ -98,7 +100,7 @@ where
 }
 impl<I, C, T> Sink<I> for DeviceFramed<C, T>
 where
-    T: Deref<Target = DeviceImpl>,
+    T: Deref<Target = DeviceImpl> + Pollable,
     C: Encoder<I>,
 {
     type Error = C::Error;
@@ -249,7 +251,7 @@ where
 impl<C, T> Unpin for DeviceFramedRead<C, T> {}
 impl<C, T> Stream for DeviceFramedRead<C, T>
 where
-    T: Deref<Target = DeviceImpl>,
+    T: Deref<Target = DeviceImpl> + Pollable,
     C: Decoder,
 {
     type Item = Result<C::Item, C::Error>;
@@ -317,7 +319,7 @@ where
 impl<C, T> Unpin for DeviceFramedWrite<C, T> {}
 impl<I, C, T> Sink<I> for DeviceFramedWrite<C, T>
 where
-    T: Deref<Target = DeviceImpl>,
+    T: Deref<Target = DeviceImpl> + Pollable,
     C: Encoder<I>,
 {
     type Error = C::Error;
@@ -600,7 +602,11 @@ impl PacketArena {
             &mut self.gro_table.to_write,
         )
     }
-    fn poll_send_bufs(&mut self, cx: &mut Context<'_>, dev: &AsyncDevice) -> Poll<io::Result<()>> {
+    fn poll_send_bufs(
+        &mut self,
+        cx: &mut Context<'_>,
+        dev: &impl Pollable,
+    ) -> Poll<io::Result<()>> {
         if self.offset == 0 {
             return Poll::Ready(Ok(()));
         }
@@ -646,7 +652,7 @@ struct DeviceFramedReadInner<'a, C, T> {
 }
 impl<'a, C, T> DeviceFramedReadInner<'a, C, T>
 where
-    T: Deref<Target = DeviceImpl>,
+    T: Deref<Target = DeviceImpl> + Pollable,
     C: Decoder,
 {
     fn new(
@@ -680,7 +686,7 @@ where
 
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.state.packet_splitter {
-            packet_splitter.handle(&self.dev, &mut self.state.rd)?;
+            packet_splitter.handle(self.dev, &mut self.state.rd)?;
             if let Some(buf) = packet_splitter.next() {
                 if let Some(frame) = self.codec.decode_eof(buf)? {
                     return Poll::Ready(Some(Ok(frame)));
@@ -701,7 +707,7 @@ struct DeviceFramedWriteInner<'a, C, T> {
 }
 impl<'a, C, T> DeviceFramedWriteInner<'a, C, T>
 where
-    T: Deref<Target = DeviceImpl>,
+    T: Deref<Target = DeviceImpl> + Pollable,
 {
     fn new(
         dev: &'a T,
@@ -747,7 +753,7 @@ where
     where
         C: Encoder<I>,
     {
-        let dev = self.dev.borrow();
+        let dev = self.dev;
 
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_aggregator) = &mut self.state.packet_aggregator {
