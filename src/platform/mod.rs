@@ -66,8 +66,8 @@ pub(crate) fn get_if_addrs_by_name(if_name: String) -> std::io::Result<Vec<Inter
 /// Basic read/write operation:
 ///
 /// ```no_run
-/// use tun_rs::DeviceBuilder;
 /// use std::net::Ipv4Addr;
+/// use tun_rs::DeviceBuilder;
 ///
 /// fn main() -> std::io::Result<()> {
 ///     // Create a TUN device using the builder
@@ -75,18 +75,18 @@ pub(crate) fn get_if_addrs_by_name(if_name: String) -> std::io::Result<Vec<Inter
 ///         .name("my-tun")
 ///         .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
 ///         .build_sync()?;
-///     
+///
 ///     // Send a packet
 ///     // Example IP packet (Replace with real IP message)
 ///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, TUN!";
 ///     tun.send(packet)?;
 ///     println!("Sent {} bytes IP packet", packet.len());
-///     
+///
 ///     // Receive a packet
 ///     let mut buf = [0u8; 1500];
 ///     let n = tun.recv(&mut buf)?;
 ///     println!("Received {} bytes: {:?}", n, &buf[..n]);
-///     
+///
 ///     Ok(())
 /// }
 /// ```
@@ -108,12 +108,37 @@ impl SyncDevice {
     /// Receives data from the device into the provided buffer.
     ///
     /// Returns the number of bytes read, or an I/O error.
+    ///
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use tun_rs::DeviceBuilder;
+    /// let mut tun = DeviceBuilder::new()
+    ///     .name("my-tun")
+    ///     .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
+    ///     .build_sync()?;
+    /// let mut buf = [0u8; 1500];
+    /// tun.recv(&mut buf).unwrap();
+    /// ```
+    /// # Note
+    /// Blocking the current thread if no packet is available
     pub fn recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.recv(buf)
     }
     /// Sends data from the provided buffer to the device.
     ///
     /// Returns the number of bytes written, or an I/O error.
+    ///
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use tun_rs::DeviceBuilder;
+    /// let mut tun = DeviceBuilder::new()
+    ///     .name("my-tun")
+    ///     .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
+    ///     .build_sync()?;
+    /// tun.send(b"hello").unwrap();
+    /// ```
     pub fn send(&self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.send(buf)
     }

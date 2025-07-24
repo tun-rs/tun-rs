@@ -23,7 +23,7 @@ use ::tokio::io::Interest;
 /// use tun_rs::{AsyncDevice, DeviceBuilder};
 ///
 /// #[tokio::main]
-/// async fn main() ->  std::io::Result<()> {
+/// async fn main() -> std::io::Result<()> {
 ///     // Create a TUN device with basic configuration
 ///     let dev = DeviceBuilder::new()
 ///         .name("tun0")

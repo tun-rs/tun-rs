@@ -89,11 +89,10 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 /// ## Basic usage with BytesCodec
 ///
 /// ```no_run
-/// use tun_rs::async_framed::{DeviceFramed,BytesCodec};
-/// use tun_rs::DeviceBuilder;
-/// use futures::{SinkExt,StreamExt};
 /// use bytes::BytesMut;
-///
+/// use futures::{SinkExt, StreamExt};
+/// use tun_rs::async_framed::{BytesCodec, DeviceFramed};
+/// use tun_rs::DeviceBuilder;
 ///
 /// #[tokio::main]
 /// async fn main() -> std::io::Result<()> {
@@ -170,6 +169,7 @@ impl<C, T> DeviceFramed<C, T>
 where
     T: Borrow<AsyncDevice>,
 {
+    /// Construct from a [`AsyncDevice`] with a specific codec
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramed {
@@ -233,6 +233,23 @@ where
     T: Borrow<AsyncDevice> + Clone,
     C: Clone,
 {
+    /// Split the framed device to read-half and write-half
+    ///
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use std::sync::Arc;
+    /// use tun_rs::{
+    ///     async_framed::{BytesCodec, DeviceFramed},
+    ///     DeviceBuilder,
+    /// };
+    /// let dev = Arc::new(
+    ///     DeviceBuilder::new()
+    ///         .ipv4(Ipv4Addr::new(10, 0, 0, 21), 24, None)
+    ///         .build_async()?,
+    /// );
+    /// let (r, w) = DeviceFramed::new(dev, BytesCodec::new()).split();
+    /// ```
     pub fn split(self) -> (DeviceFramedRead<C, T>, DeviceFramedWrite<C, T>) {
         let dev = self.dev;
         let codec = self.codec;
@@ -248,9 +265,9 @@ where
 /// # Examples
 ///
 /// ```no_run
-/// use tun_rs::async_framed::{DeviceFramedRead,BytesCodec};
-/// use tun_rs::DeviceBuilder;
 /// use futures::StreamExt;
+/// use tun_rs::async_framed::{BytesCodec, DeviceFramedRead};
+/// use tun_rs::DeviceBuilder;
 ///
 /// #[tokio::main]
 /// async fn main() -> std::io::Result<()> {
@@ -294,6 +311,26 @@ impl<C, T> DeviceFramedRead<C, T>
 where
     T: Borrow<AsyncDevice>,
 {
+    /// Construct from a [`AsyncDevice`] with a specific codec
+    /// Read side of the framed device
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use std::sync::Arc;
+    /// use tun_rs::{
+    ///     async_framed::{BytesCodec, DeviceFramedRead, DeviceFramedWrite},
+    ///     DeviceBuilder,
+    /// };
+    /// let dev = Arc::new(
+    ///     DeviceBuilder::new()
+    ///         .ipv4(Ipv4Addr::new(10, 0, 0, 21), 24, None)
+    ///         .build_async()?,
+    /// );
+    /// let mut w = DeviceFramedWrite::new(dev.clone(), BytesCodec::new());
+    /// let mut r = DeviceFramedRead::new(dev, BytesCodec::new());
+    /// ```
+    /// # Note
+    /// An efficient way is to directly use [`DeviceFramed::split`] if the device is cloneable
     pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedRead {
@@ -338,10 +375,10 @@ where
 /// # Examples
 ///
 /// ```no_run
-/// use tun_rs::async_framed::{DeviceFramedWrite,BytesCodec};
-/// use tun_rs::DeviceBuilder;
-/// use futures::SinkExt;
 /// use bytes::BytesMut;
+/// use futures::SinkExt;
+/// use tun_rs::async_framed::{BytesCodec, DeviceFramedWrite};
+/// use tun_rs::DeviceBuilder;
 ///
 /// #[tokio::main]
 /// async fn main() -> std::io::Result<()> {
@@ -382,6 +419,26 @@ impl<C, T> DeviceFramedWrite<C, T>
 where
     T: Borrow<AsyncDevice>,
 {
+    /// Construct from a [`AsyncDevice`] with a specific codec
+    /// Write side of the framed device
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use std::sync::Arc;
+    /// use tun_rs::{
+    ///     async_framed::{BytesCodec, DeviceFramedRead, DeviceFramedWrite},
+    ///     DeviceBuilder,
+    /// };
+    /// let dev = Arc::new(
+    ///     DeviceBuilder::new()
+    ///         .ipv4(Ipv4Addr::new(10, 0, 0, 21), 24, None)
+    ///         .build_async()?,
+    /// );
+    /// let mut w = DeviceFramedWrite::new(dev.clone(), BytesCodec::new());
+    /// let mut r = DeviceFramedRead::new(dev, BytesCodec::new());
+    /// ```
+    /// # Note
+    /// An efficient way is to directly use [`DeviceFramed::split`] if the device is cloneable
     pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedWrite {

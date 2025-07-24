@@ -116,7 +116,7 @@ impl DeviceImpl {
     }
     /// System behavior:
     /// On macOS, adding an IP to a feth interface will automatically add a route,
-    /// while adding an IP to a utun interface will not.
+    /// while adding an IP to an utun interface will not.
     ///
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
@@ -125,6 +125,7 @@ impl DeviceImpl {
         self.associate_route
             .store(associate_route, Ordering::Relaxed);
     }
+    /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
         self.associate_route.load(Ordering::Relaxed)
     }
@@ -250,7 +251,7 @@ impl DeviceImpl {
         self.set_alias(address, dest, netmask)?;
         Ok(())
     }
-    /// Removes an IP address from the interface.
+    /// Remove an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         unsafe {
             match addr {
@@ -282,7 +283,7 @@ impl DeviceImpl {
             Ok(())
         }
     }
-    /// Adds an IPv6 address to the interface.
+    /// Add an IPv6 address to the interface.
     pub fn add_address_v6<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         &self,
         addr: IPv6,
@@ -315,9 +316,11 @@ impl DeviceImpl {
         }
         Ok(())
     }
+    /// Set MAC address on L2 layer
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
         self.tun.set_mac_address(eth_addr)
     }
+    /// Retrieve MAC address for the device
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         self.tun.mac_address()
     }
