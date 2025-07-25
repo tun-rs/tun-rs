@@ -11,8 +11,17 @@ mod windows;
 #[cfg(windows)]
 pub use windows::AsyncDevice;
 
-#[cfg(any(feature = "async_io", feature = "async_tokio"))]
-#[cfg(feature = "async_framed")]
+#[cfg(all(
+    any(feature = "async_io", feature = "async_tokio"),
+    feature = "async_framed"
+))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        any(feature = "async_io", feature = "async_tokio"),
+        feature = "async_framed"
+    )))
+)]
 pub mod async_framed;
 
 #[cfg(all(feature = "async_tokio", feature = "async_io", not(doc)))]

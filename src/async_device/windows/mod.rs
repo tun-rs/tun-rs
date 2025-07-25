@@ -11,7 +11,7 @@ use std::task::{Context, Poll};
 
 /// An async Tun/Tap device wrapper around a Tun/Tap device.
 ///
-/// This type does not provide a split method, because this functionality can be achieved by instead wrapping the socket in an Arc.
+/// This type does not provide a split method, because this functionality can be achieved by instead wrapping the device in an Arc.
 ///
 /// # Streams
 ///

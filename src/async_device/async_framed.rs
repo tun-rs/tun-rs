@@ -173,16 +173,8 @@ where
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramed {
-            r_state: ReadState::new(
-                buffer_size,
-                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                dev.borrow().tcp_gso(),
-            ),
-            w_state: WriteState::new(
-                buffer_size,
-                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                dev.borrow().tcp_gso(),
-            ),
+            r_state: ReadState::new(buffer_size, dev.borrow()),
+            w_state: WriteState::new(buffer_size, dev.borrow()),
             dev,
             codec,
         }
@@ -298,7 +290,7 @@ where
 /// decoupled from writing. It is useful when the reading and writing logic
 /// need to be handled independently, such as in split or concurrent tasks.
 ///
-/// Internally, it maintains a receive buffer and optional packet splitter
+/// Internally, it maintains a receipt buffer and optional packet splitter
 /// for GRO (Generic Receive Offload) support on Linux.
 ///
 /// See [`DeviceFramed`] for a unified read/write interface.
@@ -311,8 +303,9 @@ impl<C, T> DeviceFramedRead<C, T>
 where
     T: Borrow<AsyncDevice>,
 {
-    /// Construct from a [`AsyncDevice`] with a specific codec
-    /// Read side of the framed device
+    /// Construct from a [`AsyncDevice`] with a specific codec.
+    ///
+    /// The read side of the framed device.
     /// # Example
     /// ```
     /// use std::net::Ipv4Addr;
@@ -334,11 +327,7 @@ where
     pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedRead {
-            state: ReadState::new(
-                buffer_size,
-                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                dev.borrow().tcp_gso(),
-            ),
+            state: ReadState::new(buffer_size, dev.borrow()),
             dev,
             codec,
         }
@@ -419,8 +408,9 @@ impl<C, T> DeviceFramedWrite<C, T>
 where
     T: Borrow<AsyncDevice>,
 {
-    /// Construct from a [`AsyncDevice`] with a specific codec
-    /// Write side of the framed device
+    /// Construct from a [`AsyncDevice`] with a specific codec.
+    ///
+    /// The write side of the framed device.
     /// # Example
     /// ```
     /// use std::net::Ipv4Addr;
@@ -442,11 +432,7 @@ where
     pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedWrite {
-            state: WriteState::new(
-                buffer_size,
-                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                dev.borrow().tcp_gso(),
-            ),
+            state: WriteState::new(buffer_size, dev.borrow()),
             dev,
             codec,
         }
@@ -536,12 +522,9 @@ struct ReadState {
     packet_splitter: Option<PacketSplitter>,
 }
 impl ReadState {
-    pub(crate) fn new(
-        recv_buffer_size: usize,
-        #[cfg(all(target_os = "linux", not(target_env = "ohos")))] tcp_gso: bool,
-    ) -> ReadState {
+    pub(crate) fn new(recv_buffer_size: usize, _device: &AsyncDevice) -> ReadState {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-        let packet_splitter = if tcp_gso {
+        let packet_splitter = if _device.tcp_gso() {
             Some(PacketSplitter::new(recv_buffer_size))
         } else {
             None
@@ -574,12 +557,9 @@ struct WriteState {
     packet_aggregator: Option<PacketArena>,
 }
 impl WriteState {
-    pub(crate) fn new(
-        send_buffer_size: usize,
-        #[cfg(all(target_os = "linux", not(target_env = "ohos")))] tcp_gso: bool,
-    ) -> WriteState {
+    pub(crate) fn new(send_buffer_size: usize, _device: &AsyncDevice) -> WriteState {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-        let packet_aggregator = if tcp_gso {
+        let packet_aggregator = if _device.tcp_gso() {
             Some(PacketArena::new())
         } else {
             None
