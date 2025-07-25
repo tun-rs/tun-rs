@@ -521,6 +521,10 @@ impl DeviceBuilder {
     /// Builds an asynchronous device instance.
     ///
     /// This method is available only when the async_io or async_tokio features are enabled.
+    ///
+    /// # Note
+    /// Choose one of the two async runtimes; otherwise, a compile error will be incurred if both are enabled.
+    ///
     #[cfg(any(feature = "async_io", feature = "async_tokio"))]
     pub fn build_async(self) -> io::Result<crate::AsyncDevice> {
         let sync_device = self.build_sync()?;
