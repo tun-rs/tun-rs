@@ -32,54 +32,54 @@ pub enum Layer {
 #[derive(Clone, Default, Debug)]
 pub(crate) struct DeviceConfig {
     /// The name of the device/interface.
-    pub dev_name: Option<String>,
+    pub(crate) dev_name: Option<String>,
     /// The description of the device/interface.
     #[cfg(windows)]
-    pub description: Option<String>,
+    pub(crate) description: Option<String>,
     /// Available with Layer::L2; creates a pair of feth devices, with peer_feth as the IO interface name.
     #[cfg(target_os = "macos")]
-    pub peer_feth: Option<String>,
+    pub(crate) peer_feth: Option<String>,
     /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to be false to obtain the platform's default routing behavior.
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
-    pub associate_route: Option<bool>,
+    pub(crate) associate_route: Option<bool>,
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    pub reuse_dev: Option<bool>,
+    pub(crate) reuse_dev: Option<bool>,
     /// If true, the feth device will be kept after the program exits;
     /// if false (default), the device will be destroyed automatically.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    pub persist: Option<bool>,
+    pub(crate) persist: Option<bool>,
     /// Specifies whether the interface operates at L2 or L3.
     #[allow(dead_code)]
-    pub layer: Option<Layer>,
+    pub(crate) layer: Option<Layer>,
     /// Device GUID on Windows.
     #[cfg(windows)]
-    pub device_guid: Option<u128>,
+    pub(crate) device_guid: Option<u128>,
     /// Path to the wintun file on Windows.
     #[cfg(windows)]
-    pub wintun_file: Option<String>,
+    pub(crate) wintun_file: Option<String>,
     /// Capacity of the ring buffer on Windows.
     #[cfg(windows)]
-    pub ring_capacity: Option<u32>,
+    pub(crate) ring_capacity: Option<u32>,
     /// Whether to call WintunDeleteDriver to remove the driver.
     /// Default: false.
     #[cfg(windows)]
-    pub delete_driver: Option<bool>,
+    pub(crate) delete_driver: Option<bool>,
     #[cfg(windows)]
-    pub mac_address: Option<String>,
+    pub(crate) mac_address: Option<String>,
     /// switch of Enable/Disable packet information for network driver
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    pub packet_information: Option<bool>,
+    pub(crate) packet_information: Option<bool>,
     /// Enable/Disable TUN offloads.
     /// After enabling, use `recv_multiple`/`send_multiple` for data transmission.
     #[cfg(target_os = "linux")]
-    pub offload: Option<bool>,
+    pub(crate) offload: Option<bool>,
     /// Enable multi queue support
     #[cfg(target_os = "linux")]
-    pub multi_queue: Option<bool>,
+    pub(crate) multi_queue: Option<bool>,
 }
 type IPV4 = (
     io::Result<Ipv4Addr>,
@@ -389,13 +389,18 @@ impl DeviceBuilder {
     /// on macOS, Linux.
     ///
     /// This option is disabled by default (`false`).
+    /// # Note
+    /// There is no native way to enable/disable packet information on macOS.
+    /// The elimination of the packet information on macOS according to this setting
+    /// is processed by this library.
+    ///
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
         self.packet_information = Some(packet_information);
         self
     }
     /// Available on Layer::L2;
-    /// creates a pair of feth devices, with peer_feth as the IO interface name.
+    /// creates a pair of `feth` devices, with `peer_feth` as the IO interface name.
     #[cfg(target_os = "macos")]
     pub fn peer_feth<S: Into<String>>(mut self, peer_feth: S) -> Self {
         self.peer_feth = Some(peer_feth.into());
@@ -418,7 +423,7 @@ impl DeviceBuilder {
         self
     }
     /// Only works in TAP mode.
-    /// If true, the feth device will be kept after the program exits;
+    /// If true, the `feth` device will be kept after the program exits;
     /// if false (default), the device will be destroyed automatically.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn persist(mut self, persist: bool) -> Self {
@@ -520,7 +525,7 @@ impl DeviceBuilder {
     }
     /// Builds an asynchronous device instance.
     ///
-    /// This method is available only when the async_io or async_tokio features are enabled.
+    /// This method is available only when either async_io or async_tokio feature is enabled.
     ///
     /// # Note
     /// Choose one of the two async runtimes; otherwise, a compile error will be incurred if both are enabled.
