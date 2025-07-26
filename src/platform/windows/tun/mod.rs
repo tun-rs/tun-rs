@@ -375,7 +375,7 @@ impl TunDevice {
                 session: Default::default(),
                 delete_driver,
             };
-            let luid = std::mem::transmute::<wintun_raw::_NET_LUID_LH, NET_LUID_LH>(luid);
+            let luid = std::mem::transmute::<wintun_raw::NET_LUID, NET_LUID_LH>(luid);
             let index = ffi::luid_to_index(&luid)?;
 
             let tun = Self {
@@ -449,7 +449,7 @@ impl TunDevice {
                 session: Default::default(),
                 delete_driver,
             };
-            let luid = std::mem::transmute::<wintun_raw::_NET_LUID_LH, NET_LUID_LH>(luid);
+            let luid = std::mem::transmute::<wintun_raw::NET_LUID, NET_LUID_LH>(luid);
             let index = ffi::luid_to_index(&luid)?;
 
             let tun = Self {
