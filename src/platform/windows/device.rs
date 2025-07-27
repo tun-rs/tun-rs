@@ -8,6 +8,7 @@ use getifaddrs::Interface;
 use std::collections::HashSet;
 use std::io;
 use std::net::IpAddr;
+use std::sync::Mutex;
 use windows_sys::core::GUID;
 
 pub(crate) const GUID_NETWORK_ADAPTER: GUID = GUID {
@@ -24,6 +25,7 @@ pub(crate) enum Driver {
 
 /// A TUN device using the wintun driver.
 pub struct DeviceImpl {
+    lock: Mutex<()>,
     pub(crate) driver: Driver,
 }
 
@@ -78,6 +80,7 @@ impl DeviceImpl {
             };
 
             DeviceImpl {
+                lock: Mutex::new(()),
                 driver: Driver::Tun(tun_device),
             }
         } else if layer == Layer::L2 {
@@ -109,6 +112,7 @@ impl DeviceImpl {
                 break tap;
             };
             DeviceImpl {
+                lock: Mutex::new(()),
                 driver: Driver::Tap(tap),
             }
         } else {
@@ -344,5 +348,19 @@ impl DeviceImpl {
                     .join(".")
             }),
         }
+    }
+    /// Set DNS servers for the current device (supports primary and secondary DNS)
+    /// dns_servers: A priority-ordered list of DNS servers (must be all IPv4 or all IPv6)
+    pub fn set_dns_servers(&self, dns_servers: &[IpAddr]) -> io::Result<()> {
+        let _guard = self.lock.lock().unwrap();
+        let index = self.if_index()?;
+        netsh::set_dns_servers(index, dns_servers)
+    }
+    /// Clear DNS configuration for the current device (restore to automatic acquisition)
+    /// is_ipv4: true to clear IPv4 DNS, false to clear IPv6 DNS
+    pub fn clear_dns_servers(&self, is_ipv4: bool) -> io::Result<()> {
+        let _guard = self.lock.lock().unwrap();
+        let index = self.if_index()?;
+        netsh::clear_dns_servers(index, is_ipv4)
     }
 }
