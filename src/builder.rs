@@ -58,6 +58,8 @@ pub(crate) struct DeviceConfig {
     /// Device GUID on Windows.
     #[cfg(windows)]
     pub(crate) device_guid: Option<u128>,
+    #[cfg(windows)]
+    pub(crate) wintun_log: Option<bool>,
     /// Path to the wintun file on Windows.
     #[cfg(windows)]
     pub(crate) wintun_file: Option<String>,
@@ -184,6 +186,8 @@ pub struct DeviceBuilder {
     mac_addr: Option<[u8; 6]>,
     #[cfg(windows)]
     device_guid: Option<u128>,
+    #[cfg(windows)]
+    wintun_log: Option<bool>,
     #[cfg(windows)]
     wintun_file: Option<String>,
     #[cfg(windows)]
@@ -336,6 +340,14 @@ impl DeviceBuilder {
         self.device_guid = Some(device_guid);
         self
     }
+    /// Enables or disables Wintun logging.
+    ///
+    /// By default, logging is disabled.
+    #[cfg(windows)]
+    pub fn wintun_log(mut self, wintun_log: bool) -> Self {
+        self.wintun_log = Some(wintun_log);
+        self
+    }
     /// Sets the `wintun.dll` file path on Windows.
     #[cfg(windows)]
     pub fn wintun_file(mut self, wintun_file: String) -> Self {
@@ -452,6 +464,8 @@ impl DeviceBuilder {
             layer: self.layer.take(),
             #[cfg(windows)]
             device_guid: self.device_guid.take(),
+            #[cfg(windows)]
+            wintun_log: self.wintun_log.take(),
             #[cfg(windows)]
             wintun_file: self.wintun_file.take(),
             #[cfg(windows)]
