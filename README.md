@@ -21,6 +21,7 @@ this cross-platform.
 8. Having a consistent behavior of setting up routes when creating a device
 9. Supporting shutdown for the Synchronous version
 10. Implement TAP mode on macOS using `feth`
+11. Supporting DNS on the Windows platform
 
 ## Supported Platforms
 
