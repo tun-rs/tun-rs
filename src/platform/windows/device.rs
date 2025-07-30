@@ -39,6 +39,7 @@ impl DeviceImpl {
             .map(|v| v.description)
             .collect();
         let device = if layer == Layer::L3 {
+            let wintun_log = config.wintun_log.unwrap_or(false);
             let wintun_file = config.wintun_file.as_deref().unwrap_or("wintun.dll");
             let ring_capacity = config.ring_capacity.unwrap_or(0x20_0000);
             let delete_driver = config.delete_driver.unwrap_or(false);
@@ -57,7 +58,13 @@ impl DeviceImpl {
                     let is_orphaned_adapter = check_adapter_if_orphaned_devices(name);
                     if !is_orphaned_adapter {
                         // Try to open an existing Wintun adapter.
-                        break TunDevice::open(wintun_file, name, ring_capacity, delete_driver)?;
+                        break TunDevice::open(
+                            wintun_file,
+                            name,
+                            ring_capacity,
+                            delete_driver,
+                            wintun_log,
+                        )?;
                     }
                 }
                 let description = config.description.as_deref().unwrap_or(name);
@@ -68,6 +75,7 @@ impl DeviceImpl {
                     config.device_guid,
                     ring_capacity,
                     delete_driver,
+                    wintun_log,
                 ) {
                     Ok(tun_device) => break tun_device,
                     Err(e) => {

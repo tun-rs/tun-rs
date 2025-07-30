@@ -342,6 +342,7 @@ impl TunDevice {
         name: &str,
         ring_capacity: u32,
         delete_driver: bool,
+        wintun_log: bool,
     ) -> std::io::Result<Self> {
         let range = MIN_RING_CAPACITY..=MAX_RING_CAPACITY;
         if !range.contains(&ring_capacity) {
@@ -358,7 +359,9 @@ impl TunDevice {
             let event = ffi::create_event()?;
 
             let win_tun = wintun_raw::wintun::new(wintun_path).map_err(io::Error::other)?;
-            wintun_log::set_default_logger_if_unset(&win_tun);
+            if wintun_log {
+                wintun_log::set_default_logger_if_unset(&win_tun);
+            }
             let adapter = win_tun.WintunOpenAdapter(name_utf16.as_ptr());
             if adapter.is_null() {
                 Err(io::Error::last_os_error())?
@@ -393,6 +396,7 @@ impl TunDevice {
         guid: Option<u128>,
         ring_capacity: u32,
         delete_driver: bool,
+        wintun_log: bool,
     ) -> std::io::Result<Self> {
         let range = MIN_RING_CAPACITY..=MAX_RING_CAPACITY;
         if !range.contains(&ring_capacity) {
@@ -412,7 +416,9 @@ impl TunDevice {
             let event = ffi::create_event()?;
 
             let win_tun = wintun_raw::wintun::new(wintun_path).map_err(io::Error::other)?;
-            wintun_log::set_default_logger_if_unset(&win_tun);
+            if wintun_log {
+                wintun_log::set_default_logger_if_unset(&win_tun);
+            }
             //SAFETY: guid is a unique integer so transmuting either all zeroes or the user's preferred
             //guid to the wintun_raw guid type is safe and will allow the windows kernel to see our GUID
 
@@ -432,7 +438,7 @@ impl TunDevice {
             let adapter = win_tun.WintunCreateAdapter(
                 name_utf16.as_ptr(),
                 description_utf16.as_ptr(),
-                guid.as_ref().map_or(ptr::null(), |guid| guid as *const _),
+                guid.as_ref().map_or(ptr::null(), |guid| guid),
             );
             if adapter.is_null() {
                 Err(io::Error::last_os_error())?
