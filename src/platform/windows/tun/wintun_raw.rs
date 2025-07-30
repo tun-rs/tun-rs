@@ -1,6 +1,6 @@
 #![allow(warnings)]
-#[cfg(not(doc))]
+#[cfg(not(docsrs))]
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-#[cfg(doc)]
+#[cfg(docsrs)]
 include!("bindings.rs");
