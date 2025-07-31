@@ -1,8 +1,13 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
     let docs_builder = std::env::var("DOCS_RS").is_ok();
+    if docs_builder {
+        println!("cargo:rustc-cfg=docsrs");
+        return;
+    }
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
-    if (target_os == "windows") && !docs_builder {
+    if target_os == "windows" {
         build_wrapper_wintun();
     }
 }
