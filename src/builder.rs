@@ -705,7 +705,7 @@ impl DeviceBuilder {
     /// ````
     /// use tun_rs::DeviceBuilder;
     /// use std::net::Ipv4Addr;
-    /// let builder = DeviceBuilder::new().name("tun1").ipv4(Ipv4Addr::new(10, 0, 0, 12), 24, None);
+    /// let builder = DeviceBuilder::new().name("tun1");
     /// #[cfg(target_os = "macos")]
     /// let builder = builder.associate_route(false);
     /// #[cfg(windows)]
@@ -718,7 +718,7 @@ impl DeviceBuilder {
     /// ````
     /// use tun_rs::DeviceBuilder;
     /// use std::net::Ipv4Addr;
-    /// let dev = DeviceBuilder::new().name("tun1").ipv4(Ipv4Addr::new(10, 0, 0, 12), 24, None).with(|opt|{
+    /// let dev = DeviceBuilder::new().name("tun1").with(|opt|{
     ///    #[cfg(windows)]
     ///    opt.wintun_log(false);
     ///    #[cfg(target_os = "macos")]
