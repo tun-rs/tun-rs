@@ -156,6 +156,151 @@ type IPV4 = (
 ///     Ok(())
 /// }
 /// ```
+#[doc(hidden)]
+pub struct DeviceBuilderGuard<'a>(&'a mut DeviceBuilder);
+
+#[doc(hidden)]
+impl<'a> DeviceBuilderGuard<'a> {
+    /// Sets the device description (effective only on Windows L3 mode).
+    #[cfg(windows)]
+    pub fn description<S: Into<String>>(&mut self, description: S) -> &mut Self {
+        self.0.description = Some(description.into());
+        self
+    }
+
+    /// Sets the IPv4 MTU specifically for Windows.
+    #[cfg(windows)]
+    pub fn mtu_v4(&mut self, mtu: u16) -> &mut Self {
+        self.0.mtu = Some(mtu);
+        self
+    }
+    /// Sets the IPv6 MTU specifically for Windows.
+    #[cfg(windows)]
+    pub fn mtu_v6(&mut self, mtu: u16) -> &mut Self {
+        self.0.mtu_v6 = Some(mtu);
+        self
+    }
+    /// Sets the MAC address for the device (effective only in L2 mode).
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "macos"
+    ))]
+    pub fn mac_addr(&mut self, mac_addr: [u8; 6]) -> &mut Self {
+        self.0.mac_addr = Some(mac_addr);
+        self
+    }
+
+    /// Sets the device GUID on Windows.
+    /// By default, GUID is chosen by the system at random.
+    #[cfg(windows)]
+    pub fn device_guid(&mut self, device_guid: u128) -> &mut Self {
+        self.0.device_guid = Some(device_guid);
+        self
+    }
+    /// Enables or disables Wintun logging.
+    ///
+    /// By default, logging is disabled.
+    #[cfg(windows)]
+    pub fn wintun_log(&mut self, wintun_log: bool) -> &mut Self {
+        self.0.wintun_log = Some(wintun_log);
+        self
+    }
+    /// Sets the `wintun.dll` file path on Windows.
+    #[cfg(windows)]
+    pub fn wintun_file(&mut self, wintun_file: String) -> &mut Self {
+        self.0.wintun_file = Some(wintun_file);
+        self
+    }
+    /// Sets the ring capacity on Windows.
+    /// This specifies the capacity of the packet ring buffer in bytes.
+    /// By default, the ring capacity is set to `0x20_0000` (2 MB).
+    #[cfg(windows)]
+    pub fn ring_capacity(&mut self, ring_capacity: u32) -> &mut Self {
+        self.0.ring_capacity = Some(ring_capacity);
+        self
+    }
+    /// Sets the routing metric on Windows.
+    #[cfg(windows)]
+    pub fn metric(&mut self, metric: u16) -> &mut Self {
+        self.0.metric = Some(metric);
+        self
+    }
+    /// Whether to call `WintunDeleteDriver` to remove the driver.
+    /// Default: false.
+    /// # Note
+    /// The clean-up work closely depends on whether the destructor can be normally executed
+    #[cfg(windows)]
+    pub fn delete_driver(&mut self, delete_driver: bool) -> &mut Self {
+        self.0.delete_driver = Some(delete_driver);
+        self
+    }
+    /// Sets the transmit queue length on Linux.
+    #[cfg(target_os = "linux")]
+    pub fn tx_queue_len(&mut self, tx_queue_len: u32) -> &mut Self {
+        self.0.tx_queue_len = Some(tx_queue_len);
+        self
+    }
+    /// Enables TUN offloads on Linux.
+    /// After enabling, use `recv_multiple`/`send_multiple` for data transmission.
+    #[cfg(target_os = "linux")]
+    pub fn offload(&mut self, offload: bool) -> &mut Self {
+        self.0.offload = Some(offload);
+        self
+    }
+    /// Enables multi-queue support on Linux.
+    #[cfg(target_os = "linux")]
+    pub fn multi_queue(&mut self, multi_queue: bool) -> &mut Self {
+        self.0.multi_queue = Some(multi_queue);
+        self
+    }
+    /// Enables or disables packet information for the network driver
+    /// on macOS, Linux.
+    ///
+    /// This option is disabled by default (`false`).
+    /// # Note
+    /// There is no native way to enable/disable packet information on macOS.
+    /// The elimination of the packet information on macOS according to this setting
+    /// is processed by this library.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub fn packet_information(&mut self, packet_information: bool) -> &mut Self {
+        self.0.packet_information = Some(packet_information);
+        self
+    }
+    /// Available on Layer::L2;
+    /// creates a pair of `feth` devices, with `peer_feth` as the IO interface name.
+    #[cfg(target_os = "macos")]
+    pub fn peer_feth<S: Into<String>>(&mut self, peer_feth: S) -> &mut Self {
+        self.0.peer_feth = Some(peer_feth.into());
+        self
+    }
+    /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// Set this to be false to obtain the platform's default routing behavior.
+    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
+    pub fn associate_route(&mut self, associate_route: bool) -> &mut Self {
+        self.0.associate_route = Some(associate_route);
+        self
+    }
+    /// Only works in TAP mode.
+    /// If true (default), the existing device with the given name will be used if possible.
+    /// If false, an error will be returned if a device with the specified name already exists.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pub fn reuse_dev(&mut self, reuse: bool) -> &mut Self {
+        self.0.reuse_dev = Some(reuse);
+        self
+    }
+    /// Only works in TAP mode.
+    /// If true, the `feth` device will be kept after the program exits;
+    /// if false (default), the device will be destroyed automatically.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pub fn persist(&mut self, persist: bool) -> &mut Self {
+        self.0.persist = Some(persist);
+        self
+    }
+}
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,
@@ -265,6 +410,12 @@ impl DeviceBuilder {
     /// - `address`: The IPv4 address of the device.
     /// - `mask`: The subnet mask or prefix length.
     /// - `destination`: Optional destination address for point-to-point links.
+    /// # Example
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use tun_rs::DeviceBuilder;
+    /// DeviceBuilder::new().ipv4(Ipv4Addr::new(10, 0, 0, 12), 24, None);
+    /// ```
     pub fn ipv4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         mut self,
         address: IPv4,
@@ -368,12 +519,11 @@ impl DeviceBuilder {
         self.metric = Some(metric);
         self
     }
-    #[cfg(windows)]
     /// Whether to call `WintunDeleteDriver` to remove the driver.
     /// Default: false.
     /// # Note
     /// The clean-up work closely depends on whether the destructor can be normally executed
-    ///
+    #[cfg(windows)]
     pub fn delete_driver(mut self, delete_driver: bool) -> Self {
         self.delete_driver = Some(delete_driver);
         self
@@ -405,7 +555,6 @@ impl DeviceBuilder {
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
-    ///
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
         self.packet_information = Some(packet_information);
@@ -543,12 +692,41 @@ impl DeviceBuilder {
     ///
     /// # Note
     /// Choose one of the two async runtimes; otherwise, a compile error will be incurred if both are enabled.
-    ///
     #[cfg(any(feature = "async_io", feature = "async_tokio"))]
     pub fn build_async(self) -> io::Result<crate::AsyncDevice> {
         let sync_device = self.build_sync()?;
         let device = crate::AsyncDevice::new_dev(sync_device.0)?;
         Ok(device)
+    }
+    /// To conveniently set the platform-specific parameters without breaking the calling chain.
+    /// # Ergonomic
+    ///
+    /// For example:
+    /// ````
+    /// use tun_rs::DeviceBuilder;
+    /// let builder = DeviceBuilder::new().name("tun1");
+    /// #[cfg(target_os = "macos")]
+    /// let builder = builder.associate_route(false);
+    /// #[cfg(windows)]
+    /// let builder = builder.wintun_log(false);
+    /// let dev = builder.build_sync().unwrap();
+    /// ````
+    /// This is tedious and breaks the calling chain.
+    ///
+    /// With `with`, we can just set platform-specific parameters as follows without breaking the calling chain:
+    /// ````
+    /// use tun_rs::DeviceBuilder;
+    /// let dev = DeviceBuilder::new().name("tun1").with(|opt|{
+    ///    #[cfg(windows)]
+    ///    opt.wintun_log(false);
+    ///    #[cfg(target_os = "macos")]
+    ///    opt.associate_route(false).packet_information(false);
+    /// }).build_sync().unwrap();
+    /// ````
+    pub fn with<F: FnMut(&mut DeviceBuilderGuard)>(mut self, mut f: F) -> Self {
+        let mut borrow = DeviceBuilderGuard(&mut self);
+        f(&mut borrow);
+        self
     }
 }
 
