@@ -228,11 +228,11 @@ impl<'a> DeviceBuilderGuard<'a> {
         self.0.metric = Some(metric);
         self
     }
-    #[cfg(windows)]
     /// Whether to call `WintunDeleteDriver` to remove the driver.
     /// Default: false.
     /// # Note
     /// The clean-up work closely depends on whether the destructor can be normally executed
+    #[cfg(windows)]
     pub fn delete_driver(&mut self, delete_driver: bool) -> &mut Self {
         self.0.delete_driver = Some(delete_driver);
         self
@@ -519,11 +519,11 @@ impl DeviceBuilder {
         self.metric = Some(metric);
         self
     }
-    #[cfg(windows)]
     /// Whether to call `WintunDeleteDriver` to remove the driver.
     /// Default: false.
     /// # Note
     /// The clean-up work closely depends on whether the destructor can be normally executed
+    #[cfg(windows)]
     pub fn delete_driver(mut self, delete_driver: bool) -> Self {
         self.delete_driver = Some(delete_driver);
         self
@@ -704,7 +704,6 @@ impl DeviceBuilder {
     /// For example:
     /// ````
     /// use tun_rs::DeviceBuilder;
-    /// use std::net::Ipv4Addr;
     /// let builder = DeviceBuilder::new().name("tun1");
     /// #[cfg(target_os = "macos")]
     /// let builder = builder.associate_route(false);
@@ -717,7 +716,6 @@ impl DeviceBuilder {
     /// With `with`, we can just set platform-specific parameters as follows without breaking the calling chain:
     /// ````
     /// use tun_rs::DeviceBuilder;
-    /// use std::net::Ipv4Addr;
     /// let dev = DeviceBuilder::new().name("tun1").with(|opt|{
     ///    #[cfg(windows)]
     ///    opt.wintun_log(false);
