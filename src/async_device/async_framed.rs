@@ -554,12 +554,12 @@ struct WriteState {
     send_buffer_size: usize,
     wr: BytesMut,
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-    packet_aggregator: Option<PacketArena>,
+    packet_arena: Option<PacketArena>,
 }
 impl WriteState {
     pub(crate) fn new(send_buffer_size: usize, _device: &AsyncDevice) -> WriteState {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-        let packet_aggregator = if _device.tcp_gso() {
+        let packet_arena = if _device.tcp_gso() {
             Some(PacketArena::new())
         } else {
             None
@@ -569,7 +569,7 @@ impl WriteState {
             send_buffer_size,
             wr: BytesMut::new(),
             #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-            packet_aggregator,
+            packet_arena,
         }
     }
     pub(crate) fn write_buffer_size(&self) -> usize {
@@ -578,7 +578,7 @@ impl WriteState {
 
     pub(crate) fn set_write_buffer_size(&mut self, write_buffer_size: usize) {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-        if self.packet_aggregator.is_some() {
+        if self.packet_arena.is_some() {
             // When GSO is enabled, send_buffer_size is no longer controlled by this parameter.
             return;
         }
@@ -775,7 +775,7 @@ impl PacketArena {
         self.offset = 0;
         self.send_index = 0;
     }
-    fn has_capacity(&self) -> bool {
+    fn is_idle(&self) -> bool {
         IDEAL_BATCH_SIZE > self.offset && self.gro_table.to_write.is_empty()
     }
 }
@@ -856,8 +856,8 @@ where
         C: Encoder<I>,
     {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-        if let Some(packet_aggregator) = &self.state.packet_aggregator {
-            if packet_aggregator.has_capacity() {
+        if let Some(packet_arena) = &self.state.packet_arena {
+            if packet_arena.is_idle() {
                 return Poll::Ready(Ok(()));
             }
         }
@@ -870,8 +870,8 @@ where
         C: Encoder<I>,
     {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-        if let Some(packet_aggregator) = &mut self.state.packet_aggregator {
-            let buf = packet_aggregator.get();
+        if let Some(packet_arena) = &mut self.state.packet_arena {
+            let buf = packet_arena.get();
             buf.resize(VIRTIO_NET_HDR_LEN, 0);
             self.codec.encode(item, buf)?;
             return Ok(());
@@ -890,9 +890,9 @@ where
         let dev = self.dev.borrow();
 
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-        if let Some(packet_aggregator) = &mut self.state.packet_aggregator {
-            packet_aggregator.handle(dev)?;
-            ready!(packet_aggregator.poll_send_bufs(cx, dev))?;
+        if let Some(packet_arena) = &mut self.state.packet_arena {
+            packet_arena.handle(dev)?;
+            ready!(packet_arena.poll_send_bufs(cx, dev))?;
             return Poll::Ready(Ok(()));
         }
 
