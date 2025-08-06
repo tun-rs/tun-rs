@@ -116,23 +116,23 @@ jobs:
   build_n_test_android:
     runs-on: ubuntu-latest
 
-  steps:
-    - uses: actions/checkout@v4
-
-    - name: Install cross and android target
-      run: |
-        rustup target add x86_64-linux-android
-        cargo install cross
-
-    - name: clippy
-      run: cross clippy --target x86_64-linux-android --features="async_tokio" -- -D warnings
-
-    - name: build
-      run: cargo ndk -t x86_64 build --features="async_tokio"
-
-    - name: Abort on error
-      if: ${{ failure() }}
-      run: echo "Android build job failed" && false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo ndk and rust compiler for android target
+        if: ${{ !cancelled() }}
+        run: |
+          cargo install --locked cargo-ndk
+          rustup target add x86_64-linux-android
+      - name: clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --target x86_64-linux-android -- -D warnings
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: |
+          cargo ndk -t x86_64 rustc --verbose  --features="async_tokio" --lib --crate-type=cdylib
+      - name: Abort on error
+        if: ${{ failure() }}
+        run: echo "Android build job failed" && false
 
   build_n_test_ios:
     runs-on: macos-latest
