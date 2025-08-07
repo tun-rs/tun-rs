@@ -427,9 +427,6 @@ impl DeviceImpl {
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
-            if let Err(e) = self.add_route(addr.into(), mask) {
-                log::warn!("{e:?}");
-            }
         }
         Ok(())
     }
