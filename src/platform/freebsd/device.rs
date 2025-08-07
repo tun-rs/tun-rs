@@ -352,23 +352,10 @@ impl DeviceImpl {
         }
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
+    ///
+    /// On FreeBSD, multiple times invocation will add multiple Ipv4 addresses.
+    /// If the intent is to add multiple Ipv4 addresses, `add_address_v4` is preferred.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
-        &self,
-        address: IPv4,
-        netmask: Netmask,
-        destination: Option<IPv4>,
-    ) -> io::Result<()> {
-        if let Some(addrs) = crate::platform::get_if_addrs_by_name(self.name()?)?
-            .iter()
-            .find(|v| v.address.is_ipv4())
-        {
-            self.remove_address(addrs.address)?;
-        }
-        self.add_network_address(address, netmask, destination)?;
-        Ok(())
-    }
-
-    fn add_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
         netmask: Netmask,
@@ -391,7 +378,7 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        self.add_network_address(address, netmask, None)
+        self.set_network_address(address, netmask, None)
     }
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
