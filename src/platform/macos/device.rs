@@ -237,8 +237,7 @@ impl DeviceImpl {
     ) -> io::Result<()> {
         if let Some(addrs) = crate::platform::get_if_addrs_by_name(self.name()?)?
             .iter()
-            .filter(|v| v.address.is_ipv4())
-            .next()
+            .find(|v| v.address.is_ipv4())
         {
             self.remove_address(addrs.address)?;
         }
