@@ -173,6 +173,9 @@ impl DeviceImpl {
                     if let Err(err) = siocaifaddr(ctl.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
                     }
+                    if let Err(e) = self.add_route(addr, mask) {
+                        log::warn!("{e:?}");
+                    }
                 }
                 IpAddr::V6(_) => {
                     let IpAddr::V6(_) = mask else {
@@ -194,10 +197,6 @@ impl DeviceImpl {
                         return Err(io::Error::from(err));
                     }
                 }
-            }
-
-            if let Err(e) = self.add_route(addr, mask) {
-                log::warn!("{e:?}");
             }
 
             Ok(())
