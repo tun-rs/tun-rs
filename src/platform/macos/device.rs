@@ -230,7 +230,7 @@ impl DeviceImpl {
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
     /// # Note
-    /// On macOS, multiple times invocation will add multiple Ipv4 addresses.
+    /// On macOS, multiple invocations will add multiple IPv4 addresses.
     /// If the intent is to add multiple Ipv4 addresses, `add_address_v4` is preferred.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
