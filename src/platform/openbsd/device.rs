@@ -323,6 +323,22 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
+        if let Some(addrs) = crate::platform::get_if_addrs_by_name(self.name()?)?
+            .iter()
+            .filter(|v| v.address.is_ipv4())
+            .next()
+        {
+            self.remove_address(addrs.address)?;
+        }
+        self.add_network_address(address, netmask, destination)?;
+        Ok(())
+    }
+    fn add_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
+        &self,
+        address: IPv4,
+        netmask: Netmask,
+        destination: Option<IPv4>,
+    ) -> io::Result<()> {
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
         let default_dest = self.calc_dest_addr(addr, netmask)?;
@@ -334,6 +350,15 @@ impl DeviceImpl {
         self.set_alias(addr, dest, netmask)?;
         Ok(())
     }
+    /// Add IPv4 network address, netmask
+    pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
+        &self,
+        address: IPv4,
+        netmask: Netmask,
+    ) -> io::Result<()> {
+        self.add_network_address(address, netmask, None)
+    }
+
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         unsafe {
