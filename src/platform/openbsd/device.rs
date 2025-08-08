@@ -317,6 +317,9 @@ impl DeviceImpl {
         }
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
+    /// # Note
+    /// On OpenBSD, multiple invocations will add multiple IPv4 addresses.
+    /// If the intent is to add multiple Ipv4 addresses, `add_address_v4` is preferred.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -334,6 +337,15 @@ impl DeviceImpl {
         self.set_alias(addr, dest, netmask)?;
         Ok(())
     }
+    /// Add IPv4 network address, netmask
+    pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
+        &self,
+        address: IPv4,
+        netmask: Netmask,
+    ) -> io::Result<()> {
+        self.set_network_address(address, netmask, None)
+    }
+
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         unsafe {
