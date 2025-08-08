@@ -65,7 +65,7 @@ windows-sys = { version = "0.60", features = [
 libloading = "0.8"
 
 [target.'cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
-route_manager = "0.2.6"
+route_manager = "0.2.7"
 
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd",target_os = "windows"))'.dependencies]

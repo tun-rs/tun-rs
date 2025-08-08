@@ -248,7 +248,9 @@ impl DeviceImpl {
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
         let mut manager = route_manager::RouteManager::new()?;
-        let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
+        let route = route_manager::Route::new(addr, prefix_len)
+            .with_pref_source(addr)
+            .with_if_index(if_index);
         manager.add(&route)?;
         Ok(())
     }
