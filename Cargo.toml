@@ -95,8 +95,13 @@ experimental = []
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
-rustc-args = ["--cfg","docsrs"]
+# docs.rs has set this flag as the default
+#rustdoc-args = ["--cfg", "docsrs"]
+# Passing the argument  "--cfg docsrs" when compiling the upstream crates for building the current crate
+# For example, only these items that are decorated with `#cfg(docsrs)` can work on `docs.rs`
+# The correct way for the upstream not to affect the building documentation of the downstream crates is to set
+# `println!("cargo:rustc-cfg=docsrs")` in its `build.rs`, making `#cfg(docsrs)` work on `docs.rs`.
+#rustc-args = ["--cfg","docsrs"]
 targets = [
     "x86_64-unknown-linux-gnu",
     "x86_64-pc-windows-msvc",
