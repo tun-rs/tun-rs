@@ -7,7 +7,7 @@ license = "Apache-2.0"
 description = "Cross-platform TUN and TAP library"
 repository = "https://github.com/tun-rs/tun-rs"
 keywords = ["tun", "tap", "tunnel", "VPN", "network-interface"]
-documentation  = "https://docs.rs/tun-rs"
+documentation = "https://docs.rs/tun-rs"
 
 [lib]
 crate-type = ["staticlib", "cdylib", "lib"]
@@ -35,7 +35,11 @@ futures = { version = "0.3", optional = true }
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "android", target_os="freebsd", target_os="openbsd"))'.dependencies]
 nix = { version = "0.30", features = ["ioctl"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+netconfig-rs = "0.1.2"
+
 [target.'cfg(target_os = "windows")'.dependencies]
+netconfig-rs = "0.1.2"
 encoding_rs = "0.8.34"
 
 scopeguard = "1.2.0"
@@ -96,7 +100,7 @@ experimental = []
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
-rustc-args = ["--cfg","docsrs"]
+rustc-args = ["--cfg", "docsrs"]
 targets = [
     "x86_64-unknown-linux-gnu",
     "x86_64-pc-windows-msvc",

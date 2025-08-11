@@ -14,6 +14,7 @@ use crate::{
     },
     ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask,
 };
+use ipnet::IpNet;
 use libc::{
     self, c_char, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI, IFF_RUNNING,
     IFF_TAP, IFF_TUN, IFF_UP, IFNAMSIZ, O_RDWR,
@@ -642,6 +643,21 @@ impl DeviceImpl {
         }
         Ok(())
     }
+    /// Add IPv4 network address, netmask
+    pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
+        &self,
+        address: IPv4,
+        netmask: Netmask,
+    ) -> io::Result<()> {
+        let interface = netconfig_rs::Interface::try_from_index(self.if_index()?)
+            .map_err(|e| io::Error::other(format!("invalid interface: {}", e)))?;
+        interface
+            .add_address(IpNet::new_assert(
+                address.ipv4()?.into(),
+                netmask.prefix()?.into(),
+            ))
+            .map_err(|e| io::Error::other(format!("add address v4: {}", e)))
+    }
     /// Removes an IP address from the interface.
     ///
     /// For IPv4 addresses, it iterates over the current addresses and if a match is found,
@@ -651,9 +667,16 @@ impl DeviceImpl {
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         match addr {
             IpAddr::V4(_) => {
-                for x in self.addresses()? {
-                    if x == addr {
-                        return self.set_address_v4(Ipv4Addr::UNSPECIFIED);
+                let interface = netconfig_rs::Interface::try_from_index(self.if_index()?)
+                    .map_err(|e| io::Error::other(format!("invalid interface: {}", e)))?;
+                let list = interface
+                    .addresses()
+                    .map_err(|e| io::Error::other(format!("addresses: {}", e)))?;
+                for x in list {
+                    if x.addr() == addr {
+                        interface
+                            .remove_address(x)
+                            .map_err(|e| io::Error::other(format!("remove_address: {}", e)))?;
                     }
                 }
             }
