@@ -287,14 +287,11 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let interface = netconfig_rs::Interface::try_from_index(self.if_index()?)
-            .map_err(|e| io::Error::other(format!("invalid interface: {}", e)))?;
+        let interface =
+            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
         interface
-            .add_address(IpNet::new_assert(
-                address.ipv4()?.into(),
-                netmask.prefix()?.into(),
-            ))
-            .map_err(|e| io::Error::other(format!("add address v4: {}", e)))
+            .add_address(IpNet::new_assert(address.ipv4()?.into(), netmask.prefix()?))
+            .map_err(io::Error::from)
     }
     /// Removes the specified IP address from the device.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {

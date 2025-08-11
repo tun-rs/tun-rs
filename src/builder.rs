@@ -160,7 +160,7 @@ type IPV4 = (
 pub struct DeviceBuilderGuard<'a>(&'a mut DeviceBuilder);
 
 #[doc(hidden)]
-impl<'a> DeviceBuilderGuard<'a> {
+impl DeviceBuilderGuard<'_> {
     /// Sets the device description (effective only on Windows L3 mode).
     #[cfg(windows)]
     pub fn description<S: Into<String>>(&mut self, description: S) -> &mut Self {

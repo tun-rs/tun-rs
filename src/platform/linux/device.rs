@@ -649,14 +649,11 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let interface = netconfig_rs::Interface::try_from_index(self.if_index()?)
-            .map_err(|e| io::Error::other(format!("invalid interface: {}", e)))?;
+        let interface =
+            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
         interface
-            .add_address(IpNet::new_assert(
-                address.ipv4()?.into(),
-                netmask.prefix()?.into(),
-            ))
-            .map_err(|e| io::Error::other(format!("add address v4: {}", e)))
+            .add_address(IpNet::new_assert(address.ipv4()?.into(), netmask.prefix()?))
+            .map_err(io::Error::from)
     }
     /// Removes an IP address from the interface.
     ///
@@ -668,15 +665,11 @@ impl DeviceImpl {
         match addr {
             IpAddr::V4(_) => {
                 let interface = netconfig_rs::Interface::try_from_index(self.if_index()?)
-                    .map_err(|e| io::Error::other(format!("invalid interface: {}", e)))?;
-                let list = interface
-                    .addresses()
-                    .map_err(|e| io::Error::other(format!("addresses: {}", e)))?;
+                    .map_err(io::Error::from)?;
+                let list = interface.addresses().map_err(io::Error::from)?;
                 for x in list {
                     if x.addr() == addr {
-                        interface
-                            .remove_address(x)
-                            .map_err(|e| io::Error::other(format!("remove_address: {}", e)))?;
+                        interface.remove_address(x).map_err(io::Error::from)?;
                     }
                 }
             }
