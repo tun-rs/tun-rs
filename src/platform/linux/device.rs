@@ -652,10 +652,7 @@ impl DeviceImpl {
         let interface = netconfig_rs::Interface::try_from_index(self.if_index()?)
             .map_err(|e| io::Error::other(format!("invalid interface: {}", e)))?;
         interface
-            .add_address(IpNet::new_assert(
-                address.ipv4()?.into(),
-                netmask.prefix()?.into(),
-            ))
+            .add_address(IpNet::new_assert(address.ipv4()?.into(), netmask.prefix()?))
             .map_err(|e| io::Error::other(format!("add address v4: {}", e)))
     }
     /// Removes an IP address from the interface.
