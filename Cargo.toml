@@ -35,13 +35,11 @@ futures = { version = "0.3", optional = true }
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "android", target_os="freebsd", target_os="openbsd"))'.dependencies]
 nix = { version = "0.30", features = ["ioctl"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux",target_os = "windows"))'.dependencies]
 netconfig-rs = "0.1.4"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-netconfig-rs = "0.1.4"
 encoding_rs = "0.8.34"
-
 scopeguard = "1.2.0"
 winreg = "0.55"
 widestring = "1.0.2"
