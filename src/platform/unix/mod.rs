@@ -3,6 +3,7 @@ mod sockaddr;
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
     target_os = "macos"
 ))]
 pub(crate) use sockaddr::sockaddr_union;
@@ -12,6 +13,7 @@ pub(crate) use sockaddr::sockaddr_union;
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 #[allow(unused_imports)]
 pub(crate) use sockaddr::ipaddr_to_sockaddr;
@@ -35,6 +37,7 @@ pub(crate) mod device;
         all(target_os = "linux", not(target_env = "ohos")),
         target_os = "freebsd",
         target_os = "openbsd",
+        target_os = "netbsd",
     ))
 ))]
 /// A TUN device for Android/iOS/...
@@ -49,6 +52,7 @@ pub struct DeviceImpl {
         all(target_os = "linux", not(target_env = "ohos")),
         target_os = "freebsd",
         target_os = "openbsd",
+        target_os = "netbsd",
     ))
 ))]
 impl DeviceImpl {

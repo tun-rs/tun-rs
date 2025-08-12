@@ -5,6 +5,7 @@ use crate::platform::DeviceImpl;
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 use libc::{AF_INET, AF_INET6, SOCK_DGRAM};
 use std::io;
@@ -117,6 +118,7 @@ impl DeviceImpl {
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 impl DeviceImpl {
     /// Retrieves the interface index for the network interface.
@@ -170,6 +172,7 @@ impl DeviceImpl {
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 pub(crate) unsafe fn ctl() -> io::Result<Fd> {
     Fd::new(libc::socket(AF_INET, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0))
@@ -184,6 +187,7 @@ pub(crate) unsafe fn ctl() -> io::Result<Fd> {
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
     Fd::new(libc::socket(AF_INET6, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0))
