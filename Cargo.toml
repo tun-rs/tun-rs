@@ -92,7 +92,7 @@ async_std = ["async_io"]
 async_tokio = ["blocking", "tokio"]
 async_io = ["blocking", "async-io"]
 async_framed = ["futures", "futures-core"]
-build-bindings = ["bindgen"]
+bindgen = ["dep:bindgen"]
 interruptible = []
 experimental = []
 

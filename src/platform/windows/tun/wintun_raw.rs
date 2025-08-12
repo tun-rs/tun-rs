@@ -1,7 +1,7 @@
 #![allow(warnings)]
 #[cfg(not(docsrs))]
-#[cfg(feature = "build-bindings")]
+#[cfg(feature = "bindgen")]
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-#[cfg(any(docsrs, not(feature = "build-bindings")))]
+#[cfg(any(docsrs, not(feature = "bindgen")))]
 include!("bindings.rs");
