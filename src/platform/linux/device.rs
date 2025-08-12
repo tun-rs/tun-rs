@@ -630,6 +630,10 @@ impl DeviceImpl {
     ///
     /// This function sets the interface's address, netmask, and if provided, the destination address.
     /// It calls the helper methods `set_address_v4`, `set_netmask`, and `set_destination` respectively.
+    /// # Note
+    /// On Linux, multiple invocations of this function will overwrite the prior set IPv4 address if only one IPv4 address exists;
+    /// Otherwise, it overwrites the prior set IPv4 address or adds the new one, depending on specific platform,
+    /// which behaves differently from Windows, macOS, and BSD-like platforms.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,

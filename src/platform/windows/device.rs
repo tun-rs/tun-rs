@@ -268,6 +268,9 @@ impl DeviceImpl {
     ///
     /// This method configures the IP address, netmask, and an optional destination for the interface
     /// using the `netsh` command.
+    /// # Note
+    /// On Windows, multiple invocations of this function will clean all prior IPv4 addresses and set the current one,
+    /// which behaves differently from other unix-like platforms.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
