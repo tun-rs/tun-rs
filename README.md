@@ -4,7 +4,7 @@ Tun/Tap interfaces
 [![tun-rs](https://docs.rs/tun-rs/badge.svg)](https://docs.rs/tun-rs/latest/tun_rs)
 [![Apache-2.0](https://img.shields.io/github/license/tun-rs/tun-rs?style=flat)](https://github.com/tun-rs/tun-rs/blob/master/LICENSE)
 
-This crate allows the creation and usage of Tun and Tap interfaces(**supporting both Ipv4 and ipv6**), aiming to make
+This crate allows the creation and usage of Tun and Tap interfaces(**supporting both multiple Ipv4 and ipv6 addresses**), aiming to make
 this cross-platform.
 
 [benchmark](https://github.com/tun-rs/tun-benchmark2)
@@ -12,7 +12,7 @@ this cross-platform.
 ## Features:
 
 1. Supporting TUN and TAP
-2. Supporting both IPv4 and IPv6
+2. Supporting both **multiple** IPv4 and IPv6 addresses
 3. Supporting Synchronous and Asynchronous API
 4. Tokio and async-io are optional for asynchronous I/O operations.
 5. All platforms have consistent IP packets(macOS's 4-byte head information can be eliminated)
@@ -88,6 +88,34 @@ async fn main() -> std::io::Result<()> {
     let dev = DeviceBuilder::new()
         .ipv4("10.0.0.1", 24, None)
         .build_async()?;
+
+    let mut buf = vec![0; 65536];
+    loop {
+        let len = dev.recv(&mut buf).await?;
+        println!("pkt: {:?}", &buf[..len]);
+        //dev.send(buf).await?;
+    }
+    Ok(())
+}
+````
+
+Add multiple Ipv4/Ipv6 addresses to the interface
+````rust
+use tun_rs::DeviceBuilder;
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let dev = DeviceBuilder::new()
+        .ipv4("10.0.0.1", 24, None)
+        .build_async()?;
+
+    dev.add_address_v4("10.1.0.1",24)?;
+    dev.add_address_v4("10.2.0.1",24)?;
+    dev.add_address_v6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64);
+    dev.add_address_v6("BDCD:910A:2222:5498:8475:1111:3900:2021", 64);
+
+    //dev.remove_address("10.2.0.1".parse().unwrap())?;
+    //dev.remove_address("CDCD:910A:2222:5498:8475:1111:3900:2021".parse().unwrap())?;
 
     let mut buf = vec![0; 65536];
     loop {

@@ -14,6 +14,7 @@ use crate::{
     },
     ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask,
 };
+use ipnet::IpNet;
 use libc::{
     self, c_char, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI, IFF_RUNNING,
     IFF_TAP, IFF_TUN, IFF_UP, IFNAMSIZ, O_RDWR,
@@ -629,6 +630,10 @@ impl DeviceImpl {
     ///
     /// This function sets the interface's address, netmask, and if provided, the destination address.
     /// It calls the helper methods `set_address_v4`, `set_netmask`, and `set_destination` respectively.
+    /// # Note
+    /// On Linux, multiple invocations of this function will overwrite the prior set IPv4 address if only one IPv4 address exists;
+    /// Otherwise, it overwrites the prior set IPv4 address or adds the new one, depending on specific platform,
+    /// which behaves differently from Windows, macOS, and BSD-like platforms.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -642,6 +647,18 @@ impl DeviceImpl {
         }
         Ok(())
     }
+    /// Add IPv4 network address, netmask
+    pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
+        &self,
+        address: IPv4,
+        netmask: Netmask,
+    ) -> io::Result<()> {
+        let interface =
+            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
+        interface
+            .add_address(IpNet::new_assert(address.ipv4()?.into(), netmask.prefix()?))
+            .map_err(io::Error::from)
+    }
     /// Removes an IP address from the interface.
     ///
     /// For IPv4 addresses, it iterates over the current addresses and if a match is found,
@@ -651,9 +668,12 @@ impl DeviceImpl {
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         match addr {
             IpAddr::V4(_) => {
-                for x in self.addresses()? {
-                    if x == addr {
-                        return self.set_address_v4(Ipv4Addr::UNSPECIFIED);
+                let interface = netconfig_rs::Interface::try_from_index(self.if_index()?)
+                    .map_err(io::Error::from)?;
+                let list = interface.addresses().map_err(io::Error::from)?;
+                for x in list {
+                    if x.addr() == addr {
+                        interface.remove_address(x).map_err(io::Error::from)?;
                     }
                 }
             }

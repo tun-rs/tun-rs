@@ -173,6 +173,9 @@ impl DeviceImpl {
                     if let Err(err) = siocaifaddr(ctl.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
                     }
+                    if let Err(e) = self.add_route(addr, mask) {
+                        log::warn!("{e:?}");
+                    }
                 }
                 IpAddr::V6(_) => {
                     let IpAddr::V6(_) = mask else {
@@ -194,10 +197,6 @@ impl DeviceImpl {
                         return Err(io::Error::from(err));
                     }
                 }
-            }
-
-            if let Err(e) = self.add_route(addr, mask) {
-                log::warn!("{e:?}");
             }
 
             Ok(())
@@ -249,7 +248,9 @@ impl DeviceImpl {
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
         let mut manager = route_manager::RouteManager::new()?;
-        let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
+        let route = route_manager::Route::new(addr, prefix_len)
+            .with_pref_source(addr)
+            .with_if_index(if_index);
         manager.add(&route)?;
         Ok(())
     }
@@ -352,6 +353,9 @@ impl DeviceImpl {
         }
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
+    /// # Note
+    /// On FreeBSD, multiple invocations will add multiple IPv4 addresses.
+    /// If the intent is to add multiple Ipv4 addresses, `add_address_v4` is preferred.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -368,6 +372,14 @@ impl DeviceImpl {
             .unwrap_or(default_dest);
         self.set_alias(addr, dest, netmask)?;
         Ok(())
+    }
+    /// Add IPv4 network address, netmask
+    pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
+        &self,
+        address: IPv4,
+        netmask: Netmask,
+    ) -> io::Result<()> {
+        self.set_network_address(address, netmask, None)
     }
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
@@ -416,9 +428,6 @@ impl DeviceImpl {
             req.ifra_flags = IN6_IFF_NODAD;
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
-            }
-            if let Err(e) = self.add_route(addr.into(), mask) {
-                log::warn!("{e:?}");
             }
         }
         Ok(())

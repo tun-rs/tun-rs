@@ -5,6 +5,7 @@ use crate::platform::windows::tun::{check_adapter_if_orphaned_devices, TunDevice
 use crate::platform::ETHER_ADDR_LEN;
 use crate::{Layer, ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask};
 use getifaddrs::Interface;
+use ipnet::IpNet;
 use std::collections::HashSet;
 use std::io;
 use std::net::IpAddr;
@@ -267,6 +268,9 @@ impl DeviceImpl {
     ///
     /// This method configures the IP address, netmask, and an optional destination for the interface
     /// using the `netsh` command.
+    /// # Note
+    /// On Windows, multiple invocations of this function will clean all prior IPv4 addresses and set the current one,
+    /// which behaves differently from other unix-like platforms.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -279,6 +283,18 @@ impl DeviceImpl {
             netmask.netmask()?.into(),
             destination.map(|v| v.ipv4()).transpose()?.map(|v| v.into()),
         )
+    }
+    /// Add IPv4 network address, netmask
+    pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
+        &self,
+        address: IPv4,
+        netmask: Netmask,
+    ) -> io::Result<()> {
+        let interface =
+            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
+        interface
+            .add_address(IpNet::new_assert(address.ipv4()?.into(), netmask.prefix()?))
+            .map_err(io::Error::from)
     }
     /// Removes the specified IP address from the device.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {

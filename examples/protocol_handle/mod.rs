@@ -33,7 +33,11 @@ pub fn ping(buf: &[u8]) -> Option<Vec<u8>> {
                         res.set_ttl(64);
                         res.set_version(ip_pkt.get_version());
                         res.set_checksum(pnet_packet::ipv4::checksum(&res.to_immutable()));
-                        println!("ping: {}", ip_pkt.get_destination());
+                        println!(
+                            "ping: {}->{}",
+                            ip_pkt.get_source(),
+                            ip_pkt.get_destination()
+                        );
                         return Some(buf);
                     }
                     _ => {}
