@@ -36,7 +36,7 @@ futures = { version = "0.3", optional = true }
 nix = { version = "0.30", features = ["ioctl"] }
 
 [target.'cfg(any(target_os = "linux",target_os = "windows"))'.dependencies]
-netconfig-rs = "0.1.4"
+netconfig-rs = "0.1.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 encoding_rs = "0.8.34"
