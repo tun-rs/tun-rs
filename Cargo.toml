@@ -1,6 +1,6 @@
 [package]
 name = "tun-rs"
-version = "2.5.7"
+version = "2.6.0"
 edition = "2021"
 authors = ["xmh0511, vnt-dev"]
 license = "Apache-2.0"
@@ -39,7 +39,7 @@ nix = { version = "0.30", features = ["ioctl"] }
 netconfig-rs = "0.1.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-encoding_rs = "0.8.34"
+encoding_rs = "0.8.35"
 scopeguard = "1.2.0"
 winreg = "0.55"
 widestring = "1.0.2"
@@ -71,7 +71,7 @@ route_manager = "0.2.7"
 
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd",target_os = "windows"))'.dependencies]
-mac_address = "1.1.7"
+mac_address = "1.1.8"
 
 [build-dependencies]
 bindgen = "0.72.0"
