@@ -9,6 +9,7 @@ pub(crate) mod unix;
         all(target_os = "linux", not(target_env = "ohos")),
         target_os = "freebsd",
         target_os = "openbsd",
+        target_os = "netbsd",
     ))
 ))]
 pub use self::unix::DeviceImpl;
@@ -36,6 +37,11 @@ pub use self::macos::DeviceImpl;
 pub(crate) mod openbsd;
 #[cfg(target_os = "openbsd")]
 pub use self::openbsd::DeviceImpl;
+
+#[cfg(target_os = "netbsd")]
+pub(crate) mod netbsd;
+#[cfg(target_os = "netbsd")]
+pub use self::netbsd::DeviceImpl;
 
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;

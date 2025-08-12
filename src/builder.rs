@@ -18,6 +18,7 @@ pub enum Layer {
         target_os = "freebsd",
         target_os = "macos",
         target_os = "openbsd",
+        target_os = "netbsd",
     ))]
     L2,
     /// Network Layer (default for TUN interfaces).
@@ -640,7 +641,7 @@ impl DeviceBuilder {
     }
     pub(crate) fn config(self, device: &DeviceImpl) -> io::Result<()> {
         if let Some(mtu) = self.mtu {
-            device.set_mtu(mtu)?;
+            device.set_mtu(mtu).unwrap();
         }
         #[cfg(windows)]
         if let Some(mtu) = self.mtu_v6 {
@@ -668,16 +669,18 @@ impl DeviceBuilder {
             let prefix = prefix?;
             let address = address?;
             let destination = destination.transpose()?;
-            device.set_network_address(address, prefix, destination)?;
+            device
+                .set_network_address(address, prefix, destination)
+                .unwrap();
         }
         if let Some(ipv6) = self.ipv6 {
             for (address, prefix) in ipv6 {
                 let prefix = prefix?;
                 let address = address?;
-                device.add_address_v6(address, prefix)?;
+                device.add_address_v6(address, prefix).unwrap();
             }
         }
-        device.enabled(self.enabled.unwrap_or(true))?;
+        device.enabled(self.enabled.unwrap_or(true)).unwrap();
         Ok(())
     }
     /// Builds a synchronous device instance and applies all configuration parameters.
