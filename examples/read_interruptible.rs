@@ -10,6 +10,7 @@ use std::sync::Arc;
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
     target_os = "macos"
 ))]
 use tun_rs::DeviceBuilder;
@@ -20,6 +21,7 @@ use tun_rs::InterruptEvent;
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 #[allow(unused_imports)]
 use tun_rs::Layer;
@@ -52,6 +54,7 @@ fn main_entry(_quit: Receiver<()>) -> Result<(), std::io::Error> {
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
     #[allow(unused_imports)]
