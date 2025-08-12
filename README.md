@@ -12,7 +12,7 @@ this cross-platform.
 ## Features:
 
 1. Supporting TUN and TAP
-2. Supporting both multiple IPv4 and IPv6 addresses
+2. Supporting both **multiple** IPv4 and IPv6 addresses
 3. Supporting Synchronous and Asynchronous API
 4. Tokio and async-io are optional for asynchronous I/O operations.
 5. All platforms have consistent IP packets(macOS's 4-byte head information can be eliminated)
