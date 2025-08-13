@@ -14,14 +14,20 @@ use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::fs::MetadataExt;
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::{RwLock,Mutex}};
+use std::{
+    io, mem,
+    net::IpAddr,
+    os::unix::io::AsRawFd,
+    ptr,
+    sync::{Mutex, RwLock},
+};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     name: String,
     pub(crate) tun: Tun,
     associate_route: RwLock<bool>,
-    op_lock: Mutex<()>
+    op_lock: Mutex<()>,
 }
 impl IntoRawFd for DeviceImpl {
     fn into_raw_fd(mut self) -> RawFd {
@@ -122,7 +128,7 @@ impl DeviceImpl {
             name: dev_name,
             tun,
             associate_route: RwLock::new(associate_route),
-            op_lock:Mutex::new(()),
+            op_lock: Mutex::new(()),
         })
     }
     fn create_dev(name: &str) -> io::Result<()> {
@@ -145,7 +151,7 @@ impl DeviceImpl {
             name,
             tun,
             associate_route: RwLock::new(true),
-            op_lock:Mutex::new(()),
+            op_lock: Mutex::new(()),
         })
     }
 

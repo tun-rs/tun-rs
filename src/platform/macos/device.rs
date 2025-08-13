@@ -14,7 +14,13 @@ use getifaddrs::{self, Interface};
 use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::{RwLock,Mutex}};
+use std::{
+    io, mem,
+    net::IpAddr,
+    os::unix::io::AsRawFd,
+    ptr,
+    sync::{Mutex, RwLock},
+};
 
 #[derive(Clone, Copy, Debug)]
 struct Route {
@@ -42,7 +48,7 @@ impl DeviceImpl {
         let device_impl = DeviceImpl {
             tun: tun_tap,
             associate_route: RwLock::new(associate_route),
-            op_lock:Mutex::new(()),
+            op_lock: Mutex::new(()),
         };
         Ok(device_impl)
     }
@@ -50,7 +56,7 @@ impl DeviceImpl {
         Ok(Self {
             associate_route: RwLock::new(true),
             tun: TunTap::Tun(tun),
-            op_lock:Mutex::new(()),
+            op_lock: Mutex::new(()),
         })
     }
     /// Prepare a new request.
