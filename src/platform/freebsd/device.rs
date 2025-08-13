@@ -16,14 +16,7 @@ use libc::{
 use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
 use std::os::fd::{IntoRawFd, RawFd};
-use std::{
-    ffi::CStr,
-    io, mem,
-    net::IpAddr,
-    os::unix::io::AsRawFd,
-    ptr,
-    sync::{Mutex, RwLock},
-};
+use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {

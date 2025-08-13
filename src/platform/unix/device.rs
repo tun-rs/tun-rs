@@ -130,7 +130,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         self.if_index_impl()
     }
-    fn if_index_impl(&self) -> io::Result<u32> {
+    pub(crate) fn if_index_impl(&self) -> io::Result<u32> {
         let if_name = std::ffi::CString::new(self.name()?)?;
         unsafe { Ok(libc::if_nametoindex(if_name.as_ptr())) }
     }

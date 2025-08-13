@@ -14,13 +14,7 @@ use getifaddrs::{self, Interface};
 use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
-use std::{
-    io, mem,
-    net::IpAddr,
-    os::unix::io::AsRawFd,
-    ptr,
-    sync::{Mutex, RwLock},
-};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
 #[derive(Clone, Copy, Debug)]
 struct Route {
