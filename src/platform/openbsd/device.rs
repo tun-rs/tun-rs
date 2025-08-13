@@ -377,7 +377,7 @@ impl DeviceImpl {
         netmask: Netmask,
     ) -> io::Result<()> {
         let guard = self.op_lock.lock().unwrap();
-        self.set_network_address_impl(address, netmask, None,*guard)
+        self.set_network_address_impl(address, netmask, None, *guard)
     }
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {

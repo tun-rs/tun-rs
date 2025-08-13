@@ -38,7 +38,7 @@ pub struct DeviceImpl {
     pub(crate) vnet_hdr: bool,
     pub(crate) udp_gso: bool,
     flags: c_short,
-    op_lock: Arc<Mutex<()>>,
+    pub(crate) op_lock: Arc<Mutex<()>>,
 }
 
 impl DeviceImpl {
@@ -478,12 +478,28 @@ impl DeviceImpl {
         }
         gso_split(input, hdr, bufs, sizes, offset, ip_version == 6)
     }
+    pub fn remove_address_v6_impl(&self, addr: Ipv6Addr, prefix: u8) -> io::Result<()> {
+        unsafe {
+            let if_index = self.if_index_impl()?;
+            let ctl = ctl_v6()?;
+            let mut ifrv6: in6_ifreq = mem::zeroed();
+            ifrv6.ifr6_ifindex = if_index as i32;
+            ifrv6.ifr6_prefixlen = prefix as _;
+            ifrv6.ifr6_addr = sockaddr_union::from(std::net::SocketAddr::new(addr.into(), 0))
+                .addr6
+                .sin6_addr;
+            if let Err(err) = siocdifaddr_in6(ctl.as_raw_fd(), &ifrv6) {
+                return Err(io::Error::from(err));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl DeviceImpl {
     /// Prepare a new request.
     unsafe fn request(&self) -> io::Result<ifreq> {
-        request(&self.name()?)
+        request(&self.name_impl()?)
     }
     fn set_address_v4(&self, addr: Ipv4Addr) -> io::Result<()> {
         unsafe {
@@ -517,27 +533,46 @@ impl DeviceImpl {
         }
     }
 
-    pub fn remove_address_v6(&self, addr: Ipv6Addr, prefix: u8) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+    /// Retrieves the name of the network interface.
+    fn name_impl(&self) -> io::Result<String> {
+        unsafe { name(self.as_raw_fd()) }
+    }
+
+    fn ifru_flags(&self) -> io::Result<i16> {
         unsafe {
-            let if_index = self.if_index()?;
-            let ctl = ctl_v6()?;
-            let mut ifrv6: in6_ifreq = mem::zeroed();
-            ifrv6.ifr6_ifindex = if_index as i32;
-            ifrv6.ifr6_prefixlen = prefix as _;
-            ifrv6.ifr6_addr = sockaddr_union::from(std::net::SocketAddr::new(addr.into(), 0))
-                .addr6
-                .sin6_addr;
-            if let Err(err) = siocdifaddr_in6(ctl.as_raw_fd(), &ifrv6) {
+            let ctl = ctl()?;
+            let mut req = self.request()?;
+
+            if let Err(err) = siocgifflags(ctl.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
+            }
+            Ok(req.ifr_ifru.ifru_flags)
+        }
+    }
+
+    fn remove_all_address_v4(&self) -> io::Result<()> {
+        let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
+            .map_err(io::Error::from)?;
+        let list = interface.addresses().map_err(io::Error::from)?;
+        for x in list {
+            if x.addr().is_ipv4() {
+                interface.remove_address(x).map_err(io::Error::from)?;
             }
         }
         Ok(())
     }
+}
+
+//Public User Interface
+impl DeviceImpl {
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
         let _guard = self.op_lock.lock().unwrap();
-        unsafe { name(self.as_raw_fd()) }
+        self.name_impl()
+    }
+    pub fn remove_address_v6(&self, addr: Ipv6Addr, prefix: u8) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
+        self.remove_address_v6_impl(addr, prefix)
     }
     /// Sets a new name for the network interface.
     ///
@@ -566,18 +601,6 @@ impl DeviceImpl {
             }
 
             Ok(())
-        }
-    }
-
-    fn ifru_flags(&self) -> io::Result<i16> {
-        unsafe {
-            let ctl = ctl()?;
-            let mut req = self.request()?;
-
-            if let Err(err) = siocgifflags(ctl.as_raw_fd(), &mut req) {
-                return Err(io::Error::from(err));
-            }
-            Ok(req.ifr_ifru.ifru_flags)
         }
     }
     /// Checks whether the network interface is currently running.
@@ -645,17 +668,6 @@ impl DeviceImpl {
             Ok(())
         }
     }
-    fn remove_all_address_v4(&self) -> io::Result<()> {
-        let interface =
-            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
-        let list = interface.addresses().map_err(io::Error::from)?;
-        for x in list {
-            if x.addr().is_ipv4() {
-                interface.remove_address(x).map_err(io::Error::from)?;
-            }
-        }
-        Ok(())
-    }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
     /// Remove all previous set IPv4 addresses and set the specified address.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
@@ -680,8 +692,8 @@ impl DeviceImpl {
         netmask: Netmask,
     ) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
-        let interface =
-            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
+        let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
+            .map_err(io::Error::from)?;
         interface
             .add_address(IpNet::new_assert(address.ipv4()?.into(), netmask.prefix()?))
             .map_err(io::Error::from)
@@ -696,7 +708,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         match addr {
             IpAddr::V4(_) => {
-                let interface = netconfig_rs::Interface::try_from_index(self.if_index()?)
+                let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
                     .map_err(io::Error::from)?;
                 let list = interface.addresses().map_err(io::Error::from)?;
                 for x in list {
@@ -706,12 +718,12 @@ impl DeviceImpl {
                 }
             }
             IpAddr::V6(addr_v6) => {
-                let addrs = crate::platform::get_if_addrs_by_name(self.name()?)?;
+                let addrs = crate::platform::get_if_addrs_by_name(self.name_impl()?)?;
                 for x in addrs {
                     if x.address == addr {
                         if let Some(netmask) = x.netmask {
                             let prefix = ipnet::ip_mask_to_prefix(netmask).unwrap_or(0);
-                            self.remove_address_v6(addr_v6, prefix)?
+                            self.remove_address_v6_impl(addr_v6, prefix)?
                         }
                     }
                 }
@@ -731,7 +743,7 @@ impl DeviceImpl {
     ) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
-            let if_index = self.if_index()?;
+            let if_index = self.if_index_impl()?;
             let ctl = ctl_v6()?;
             let mut ifrv6: in6_ifreq = mem::zeroed();
             ifrv6.ifr6_ifindex = if_index as i32;
@@ -805,7 +817,7 @@ impl DeviceImpl {
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let _guard = self.op_lock.lock().unwrap();
-        let mac = mac_address_by_name(&self.name()?)
+        let mac = mac_address_by_name(&self.name_impl()?)
             .map_err(|e| io::Error::other(e.to_string()))?
             .ok_or(io::Error::from(io::ErrorKind::NotFound))?;
         Ok(mac.bytes())
