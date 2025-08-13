@@ -187,7 +187,8 @@ impl DeviceBuilderGuard<'_> {
         target_os = "linux",
         target_os = "freebsd",
         target_os = "openbsd",
-        target_os = "macos"
+        target_os = "macos",
+        target_os = "netbsd"
     ))]
     pub fn mac_addr(&mut self, mac_addr: [u8; 6]) -> &mut Self {
         self.0.mac_addr = Some(mac_addr);
@@ -280,7 +281,7 @@ impl DeviceBuilderGuard<'_> {
     /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to be false to obtain the platform's default routing behavior.
-    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
+    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd",target_os="netbsd"))]
     pub fn associate_route(&mut self, associate_route: bool) -> &mut Self {
         self.0.associate_route = Some(associate_route);
         self
@@ -309,7 +310,7 @@ pub struct DeviceBuilder {
     description: Option<String>,
     #[cfg(target_os = "macos")]
     peer_feth: Option<String>,
-    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
+    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd",target_os = "netbsd"))]
     associate_route: Option<bool>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     reuse_dev: Option<bool>,
@@ -327,7 +328,8 @@ pub struct DeviceBuilder {
         target_os = "linux",
         target_os = "freebsd",
         target_os = "openbsd",
-        target_os = "macos"
+        target_os = "macos",
+        target_os = "netbsd"
     ))]
     mac_addr: Option<[u8; 6]>,
     #[cfg(windows)]

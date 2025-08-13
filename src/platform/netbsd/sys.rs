@@ -7,7 +7,7 @@ pub const IN6_IFF_NODAD: i32 = 0x0020;
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct ifreq {
-    pub ifr_name: [c_char; IFNAMSIZ as usize],
+    pub ifr_name: [c_char; IFNAMSIZ],
     pub ifr_ifru: ifr_ifru,
 }
 
@@ -45,6 +45,7 @@ pub struct ctl_info {
     pub ctl_id: c_uint,
     pub ctl_name: [c_char; 96],
 }
+#[allow(dead_code)]
 #[allow(non_camel_case_types)]
 #[repr(C)]
 #[derive(Copy, Clone)]
