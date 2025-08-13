@@ -67,13 +67,20 @@ impl DeviceImpl {
             }
             let if_index = dev_name[3..]
                 .parse::<u32>()
-                .map(|v| v + 1)
+                .map(|v| v)
                 .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
             let device_path = format!("/dev/{device_prefix}{if_index}\0");
+            if layer == Layer::L2 {
+                if let Err(e) = DeviceImpl::create_dev(&dev_name) {
+                    if e.kind() != ErrorKind::AlreadyExists {
+                        return Err(e);
+                    }
+                }
+            }
             let fd =
                 unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC) };
             (Fd::new(fd)?, dev_name)
-        } else {
+        } else if layer == Layer::L3 {
             let mut if_index = 0;
             loop {
                 let device_path = format!("/dev/{device_prefix}{if_index}\0");
@@ -95,6 +102,20 @@ impl DeviceImpl {
                     return Err(io::Error::last_os_error());
                 }
             }
+        } else {
+            let device_path = format!("/dev/{device_prefix}\0");
+            let fd =
+                unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC) };
+            let fd = Fd::new(fd)?;
+            unsafe {
+                let mut req: ifreq = mem::zeroed();
+                if let Err(err) = tapgifname(fd.as_raw_fd(), &mut req) {
+                    return Err(io::Error::from(err));
+                }
+                let cstr = std::ffi::CStr::from_ptr(req.ifr_name.as_ptr());
+                let dev_name = cstr.to_string_lossy().to_string();
+                (fd, dev_name)
+            }
         };
         let tun = Tun::new(dev_fd);
         Ok(DeviceImpl {
@@ -104,12 +125,22 @@ impl DeviceImpl {
             op_lock:Mutex::new(()),
         })
     }
-    pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
-        let name = Self::name0(&tun)?;
-        if name.starts_with("tap") {
-            // Tap does not have PI
-            // tun.set_ignore_packet_info(false)
+    fn create_dev(name: &str) -> io::Result<()> {
+        unsafe {
+            let mut req: ifreq = mem::zeroed();
+            ptr::copy_nonoverlapping(
+                name.as_ptr() as *const c_char,
+                req.ifr_name.as_mut_ptr(),
+                name.len(),
+            );
+            if let Err(err) = siocifcreate(ctl()?.as_raw_fd(), &req) {
+                return Err(io::Error::from(err));
+            }
         }
+        Ok(())
+    }
+    pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        let name = Self::name0(tun.as_raw_fd())?;
         Ok(Self {
             name,
             tun,
@@ -233,8 +264,17 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         Ok(self.name.clone())
     }
-    fn name0(tun: &Tun) -> io::Result<String> {
-        let file = unsafe { std::fs::File::from_raw_fd(tun.as_raw_fd()) };
+    fn name0(tun: RawFd) -> io::Result<String> {
+        unsafe {
+            let mut req: ifreq = mem::zeroed();
+            if tapgifname(tun, &mut req).is_ok() {
+                let cstr = std::ffi::CStr::from_ptr(req.ifr_name.as_ptr());
+                let dev_name = cstr.to_string_lossy().to_string();
+                // tap
+                return Ok(dev_name);
+            }
+        }
+        let file = unsafe { std::fs::File::from_raw_fd(tun) };
         let metadata = file.metadata()?;
         let rdev = metadata.rdev();
         let index = rdev % 256;

@@ -668,7 +668,7 @@ impl DeviceBuilder {
     }
     pub(crate) fn config(self, device: &DeviceImpl) -> io::Result<()> {
         if let Some(mtu) = self.mtu {
-            device.set_mtu(mtu).unwrap();
+            device.set_mtu(mtu)?;
         }
         #[cfg(windows)]
         if let Some(mtu) = self.mtu_v6 {
@@ -696,18 +696,16 @@ impl DeviceBuilder {
             let prefix = prefix?;
             let address = address?;
             let destination = destination.transpose()?;
-            device
-                .set_network_address(address, prefix, destination)
-                .unwrap();
+            device.set_network_address(address, prefix, destination)?;
         }
         if let Some(ipv6) = self.ipv6 {
             for (address, prefix) in ipv6 {
                 let prefix = prefix?;
                 let address = address?;
-                device.add_address_v6(address, prefix).unwrap();
+                device.add_address_v6(address, prefix)?;
             }
         }
-        device.enabled(self.enabled.unwrap_or(true)).unwrap();
+        device.enabled(self.enabled.unwrap_or(true))?;
         Ok(())
     }
     /// Builds a synchronous device instance and applies all configuration parameters.
