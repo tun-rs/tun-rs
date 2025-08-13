@@ -331,12 +331,15 @@ impl DeviceImpl {
         Ok(())
     }
     fn remove_all_address_v4(&self) -> io::Result<()> {
-        let interface =
-            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
-        let list = interface.addresses().map_err(io::Error::from)?;
-        for x in list {
-            if x.addr().is_ipv4() {
-                interface.remove_address(x).map_err(io::Error::from)?;
+        unsafe {
+            let req_v4 = self.request()?;
+            loop {
+                if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
+                    if err == nix::errno::Errno::EADDRNOTAVAIL {
+                        break;
+                    }
+                    return Err(io::Error::from(err));
+                }
             }
         }
         Ok(())
