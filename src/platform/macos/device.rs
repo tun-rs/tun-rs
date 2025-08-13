@@ -14,7 +14,6 @@ use getifaddrs::{self, Interface};
 use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
 
 #[derive(Clone, Copy, Debug)]

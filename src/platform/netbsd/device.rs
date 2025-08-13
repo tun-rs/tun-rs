@@ -14,7 +14,6 @@ use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
 use std::os::fd::FromRawFd;
 use std::os::unix::fs::MetadataExt;
-use std::sync::atomic::AtomicBool;
 use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
 
 /// A TUN device using the TUN/TAP Linux driver.
