@@ -15,14 +15,13 @@ use std::io::ErrorKind;
 use std::os::fd::FromRawFd;
 use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::AtomicBool;
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     name: String,
     pub(crate) tun: Tun,
-    alias_lock: Mutex<()>,
-    associate_route: AtomicBool,
+    associate_route: RwLock<bool>,
 }
 
 impl DeviceImpl {
@@ -113,8 +112,7 @@ impl DeviceImpl {
         Ok(DeviceImpl {
             name: dev_name,
             tun,
-            alias_lock: Mutex::new(()),
-            associate_route: AtomicBool::new(associate_route),
+            associate_route: RwLock::new(associate_route),
         })
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
@@ -126,8 +124,7 @@ impl DeviceImpl {
         Ok(Self {
             name,
             tun,
-            alias_lock: Mutex::new(()),
-            associate_route: AtomicBool::new(true),
+            associate_route: RwLock::new(true),
         })
     }
 
@@ -141,7 +138,7 @@ impl DeviceImpl {
 
     /// Set the IPv4 alias of the device.
     fn set_alias(&self, addr: IpAddr, dest: IpAddr, mask: IpAddr) -> io::Result<()> {
-        let _guard = self.alias_lock.lock().unwrap();
+        let is_associate_route = self.associate_route.read().unwrap();
         // let old_route = self.current_route();
         unsafe {
             match addr {
@@ -185,7 +182,7 @@ impl DeviceImpl {
                 }
             }
 
-            if let Err(e) = self.add_route(addr, mask) {
+            if let Err(e) = self.add_route(addr, mask, *is_associate_route) {
                 log::warn!("{e:?}");
             }
 
@@ -222,16 +219,14 @@ impl DeviceImpl {
     /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
     /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
-        self.associate_route
-            .store(associate_route, std::sync::atomic::Ordering::Relaxed);
+        *self.associate_route.write().unwrap() = associate_route;
     }
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
-        self.associate_route
-            .load(std::sync::atomic::Ordering::Relaxed)
+        *self.associate_route.read().unwrap()
     }
-    fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
-        if !self.associate_route() {
+    fn add_route(&self, addr: IpAddr, netmask: IpAddr, associate_route: bool) -> io::Result<()> {
+        if !associate_route {
             return Ok(());
         }
         let if_index = self.if_index()?;
@@ -375,6 +370,7 @@ impl DeviceImpl {
         netmask: Netmask,
     ) -> io::Result<()> {
         let addr = addr.ipv6()?;
+        let is_associate_route = self.associate_route.read().unwrap();
         unsafe {
             let tun_name = self.name()?;
             let mut req: in6_aliasreq = mem::zeroed();
@@ -394,7 +390,7 @@ impl DeviceImpl {
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
-            if let Err(e) = self.add_route(addr.into(), mask) {
+            if let Err(e) = self.add_route(addr.into(), mask, *is_associate_route) {
                 log::warn!("{e:?}");
             }
         }

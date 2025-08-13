@@ -15,7 +15,7 @@ use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
 
 #[derive(Clone, Copy, Debug)]
 struct Route {
@@ -25,9 +25,8 @@ struct Route {
 
 /// A TUN device using the TUN macOS driver.
 pub struct DeviceImpl {
-    associate_route: AtomicBool,
+    associate_route: RwLock<bool>,
     pub(crate) tun: TunTap,
-    alias_lock: Mutex<()>,
 }
 
 impl DeviceImpl {
@@ -42,16 +41,14 @@ impl DeviceImpl {
         };
         let device_impl = DeviceImpl {
             tun: tun_tap,
-            associate_route: AtomicBool::new(associate_route),
-            alias_lock: Mutex::new(()),
+            associate_route: RwLock::new(associate_route),
         };
         Ok(device_impl)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
         Ok(Self {
-            associate_route: AtomicBool::new(true),
+            associate_route: RwLock::new(true),
             tun: TunTap::Tun(tun),
-            alias_lock: Mutex::new(()),
         })
     }
     /// Prepare a new request.
@@ -87,7 +84,7 @@ impl DeviceImpl {
 
     /// Set the IPv4 alias of the device.
     fn set_alias(&self, addr: Ipv4Addr, dest: Ipv4Addr, mask: Ipv4Addr) -> io::Result<()> {
-        let _guard = self.alias_lock.lock().unwrap();
+        let is_associate_route = self.associate_route.read().unwrap();
         let old_route = self.current_route();
         let tun_name = self.name()?;
         unsafe {
@@ -108,7 +105,7 @@ impl DeviceImpl {
                 addr: addr.into(),
                 netmask: mask.into(),
             };
-            if let Err(e) = self.set_route(old_route, new_route) {
+            if let Err(e) = self.set_route(old_route, new_route, *is_associate_route) {
                 log::warn!("{e:?}");
             }
             Ok(())
@@ -122,15 +119,14 @@ impl DeviceImpl {
     /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
     /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
-        self.associate_route
-            .store(associate_route, Ordering::Relaxed);
+        *self.associate_route.write().unwrap() = associate_route;
     }
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
-        self.associate_route.load(Ordering::Relaxed)
+        *self.associate_route.read().unwrap()
     }
-    fn remove_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
-        if !self.associate_route() {
+    fn remove_route(&self, addr: IpAddr, netmask: IpAddr, associate_route: bool) -> io::Result<()> {
+        if !associate_route {
             return Ok(());
         }
         let if_index = self.if_index()?;
@@ -142,8 +138,8 @@ impl DeviceImpl {
         Ok(())
     }
 
-    fn add_route(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<()> {
-        if !self.associate_route() {
+    fn add_route(&self, addr: IpAddr, netmask: IpAddr, associate_route: bool) -> io::Result<()> {
+        if !associate_route {
             return Ok(());
         }
         let if_index = self.if_index()?;
@@ -155,8 +151,13 @@ impl DeviceImpl {
         Ok(())
     }
 
-    fn set_route(&self, old_route: Option<Route>, new_route: Route) -> io::Result<()> {
-        if !self.associate_route() {
+    fn set_route(
+        &self,
+        old_route: Option<Route>,
+        new_route: Route,
+        associate_route: bool,
+    ) -> io::Result<()> {
+        if !associate_route {
             return Ok(());
         }
         let if_index = self.if_index()?;
@@ -264,6 +265,7 @@ impl DeviceImpl {
     }
     /// Remove an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
+        let is_associate_route = self.associate_route.read().unwrap();
         unsafe {
             match addr {
                 IpAddr::V4(addr) => {
@@ -286,7 +288,7 @@ impl DeviceImpl {
                     let Some(netmask) = v.netmask else {
                         continue;
                     };
-                    if let Err(e) = self.remove_route(addr, netmask) {
+                    if let Err(e) = self.remove_route(addr, netmask, *is_associate_route) {
                         log::warn!("remove_route {addr}-{netmask},{e}")
                     }
                 }
@@ -301,6 +303,7 @@ impl DeviceImpl {
         netmask: Netmask,
     ) -> io::Result<()> {
         let addr = addr.ipv6()?;
+        let is_associate_route = self.associate_route.read().unwrap();
         unsafe {
             let tun_name = self.name()?;
             let mut req: in6_ifaliasreq = mem::zeroed();
@@ -320,10 +323,9 @@ impl DeviceImpl {
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
-
-            if let Err(e) = self.add_route(addr.into(), mask) {
-                log::warn!("{e:?}");
-            }
+        }
+        if let Err(e) = self.add_route(addr.into(), mask, *is_associate_route) {
+            log::warn!("{e:?}");
         }
         Ok(())
     }
