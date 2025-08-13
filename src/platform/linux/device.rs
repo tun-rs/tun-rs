@@ -631,6 +631,17 @@ impl DeviceImpl {
             Ok(())
         }
     }
+    fn remove_all_address_v4(&self) -> io::Result<()> {
+        let interface =
+            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
+        let list = interface.addresses().map_err(io::Error::from)?;
+        for x in list {
+            if x.addr().is_ipv4() {
+                interface.remove_address(x).map_err(io::Error::from)?;
+            }
+        }
+        Ok(())
+    }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
     ///
     /// This function sets the interface's address, netmask, and if provided, the destination address.
@@ -646,14 +657,7 @@ impl DeviceImpl {
         destination: Option<IPv4>,
     ) -> io::Result<()> {
         let _guard = self.ip_set_lock.lock().unwrap();
-        let interface =
-            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
-        let list = interface.addresses().map_err(io::Error::from)?;
-        for x in list {
-            if x.addr().is_ipv4() {
-                interface.remove_address(x).map_err(io::Error::from)?;
-            }
-        }
+        self.remove_all_address_v4()?;
         self.set_address_v4(address.ipv4()?)?;
         self.set_netmask(netmask.netmask()?)?;
         if let Some(destination) = destination {
