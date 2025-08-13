@@ -21,6 +21,7 @@ use libc::{
 };
 use mac_address::mac_address_by_name;
 use std::net::Ipv6Addr;
+use std::sync::{Arc, Mutex};
 use std::{
     ffi::CString,
     io, mem,
@@ -37,6 +38,7 @@ pub struct DeviceImpl {
     pub(crate) vnet_hdr: bool,
     pub(crate) udp_gso: bool,
     flags: c_short,
+    ip_set_lock: Arc<Mutex<()>>,
 }
 
 impl DeviceImpl {
@@ -112,6 +114,7 @@ impl DeviceImpl {
                 vnet_hdr,
                 udp_gso,
                 flags: req.ifr_ifru.ifru_flags,
+                ip_set_lock: Arc::new(Mutex::new(())),
             };
             Ok(device)
         }
@@ -135,6 +138,7 @@ impl DeviceImpl {
             vnet_hdr: false,
             udp_gso: false,
             flags: 0,
+            ip_set_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -168,6 +172,7 @@ impl DeviceImpl {
                 vnet_hdr: self.vnet_hdr,
                 udp_gso: self.udp_gso,
                 flags,
+                ip_set_lock: self.ip_set_lock.clone(),
             };
             if dev.vnet_hdr {
                 if dev.udp_gso {
@@ -640,6 +645,15 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
+        let _guard = self.ip_set_lock.lock().unwrap();
+        let interface =
+            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
+        let list = interface.addresses().map_err(io::Error::from)?;
+        for x in list {
+            if x.addr().is_ipv4() {
+                interface.remove_address(x).map_err(io::Error::from)?;
+            }
+        }
         self.set_address_v4(address.ipv4()?)?;
         self.set_netmask(netmask.netmask()?)?;
         if let Some(destination) = destination {
