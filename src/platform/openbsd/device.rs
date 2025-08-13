@@ -225,7 +225,7 @@ impl DeviceImpl {
         let rdev = metadata.rdev();
         let index = rdev % 256;
         std::mem::forget(file); // prevent fd being closed
-        Ok(format!("tun{}", index))
+        Ok(format!("tun{index}"))
     }
 
     fn remove_all_address_v4(&self) -> io::Result<()> {

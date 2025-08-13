@@ -404,7 +404,7 @@ impl DeviceImpl {
         destination: Option<IPv4>,
     ) -> io::Result<()> {
         let guard = self.op_lock.lock().unwrap();
-        self.set_network_address_impl(address, netmask, None, *guard)
+        self.set_network_address_impl(address, netmask, destination, *guard)
     }
     /// Add IPv4 network address, netmask
     pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(

@@ -66,7 +66,6 @@ impl DeviceImpl {
             }
             let if_index = dev_name[3..]
                 .parse::<u32>()
-                .map(|v| v)
                 .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
             let device_path = format!("/dev/{device_prefix}{if_index}\0");
             if layer == Layer::L2 {
@@ -271,7 +270,7 @@ impl DeviceImpl {
         let rdev = metadata.rdev();
         let index = rdev % 256;
         std::mem::forget(file); // prevent fd being closed
-        Ok(format!("tun{}", index))
+        Ok(format!("tun{index}"))
     }
 
     fn remove_all_address_v4(&self) -> io::Result<()> {

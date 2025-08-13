@@ -328,7 +328,7 @@ impl DeviceImpl {
                     let Some(netmask) = v.netmask else {
                         continue;
                     };
-                    if let Err(e) = self.remove_route(addr, netmask, *is_associate_route) {
+                    if let Err(e) = self.remove_route(addr, netmask, is_associate_route) {
                         log::warn!("remove_route {addr}-{netmask},{e}")
                     }
                 }
@@ -364,7 +364,7 @@ impl DeviceImpl {
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
-            if let Err(e) = self.add_route(addr.into(), mask, *is_associate_route) {
+            if let Err(e) = self.add_route(addr.into(), mask, is_associate_route) {
                 log::warn!("{e:?}");
             }
         }
