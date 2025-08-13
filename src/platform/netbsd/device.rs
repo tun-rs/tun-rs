@@ -79,7 +79,7 @@ impl DeviceImpl {
             let fd =
                 unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC) };
             (Fd::new(fd)?, dev_name)
-        } else if layer==Layer::L3 {
+        } else if layer == Layer::L3 {
             let mut if_index = 0;
             loop {
                 let device_path = format!("/dev/{device_prefix}{if_index}\0");
@@ -101,7 +101,7 @@ impl DeviceImpl {
                     return Err(io::Error::last_os_error());
                 }
             }
-        }else {
+        } else {
             let device_path = format!("/dev/{device_prefix}\0");
             let fd =
                 unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC) };
@@ -115,7 +115,6 @@ impl DeviceImpl {
                 let dev_name = cstr.to_string_lossy().to_string();
                 (fd, dev_name)
             }
-          
         };
         let tun = Tun::new(dev_fd);
         Ok(DeviceImpl {
@@ -124,7 +123,7 @@ impl DeviceImpl {
             associate_route: RwLock::new(associate_route),
         })
     }
-    fn create_dev(name:&str)->io::Result<()> {
+    fn create_dev(name: &str) -> io::Result<()> {
         unsafe {
             let mut req: ifreq = mem::zeroed();
             ptr::copy_nonoverlapping(
@@ -268,7 +267,7 @@ impl DeviceImpl {
                 let cstr = std::ffi::CStr::from_ptr(req.ifr_name.as_ptr());
                 let dev_name = cstr.to_string_lossy().to_string();
                 // tap
-                return Ok(dev_name)
+                return Ok(dev_name);
             }
         }
         let file = unsafe { std::fs::File::from_raw_fd(tun) };
