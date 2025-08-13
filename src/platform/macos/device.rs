@@ -14,7 +14,7 @@ use getifaddrs::{self, Interface};
 use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::{RwLock,Mutex}};
 
 #[derive(Clone, Copy, Debug)]
 struct Route {
@@ -26,6 +26,7 @@ struct Route {
 pub struct DeviceImpl {
     associate_route: RwLock<bool>,
     pub(crate) tun: TunTap,
+    op_lock: Mutex<()>,
 }
 
 impl DeviceImpl {
@@ -41,6 +42,7 @@ impl DeviceImpl {
         let device_impl = DeviceImpl {
             tun: tun_tap,
             associate_route: RwLock::new(associate_route),
+            op_lock:Mutex::new(()),
         };
         Ok(device_impl)
     }
@@ -48,6 +50,7 @@ impl DeviceImpl {
         Ok(Self {
             associate_route: RwLock::new(true),
             tun: TunTap::Tun(tun),
+            op_lock:Mutex::new(()),
         })
     }
     /// Prepare a new request.
@@ -181,6 +184,7 @@ impl DeviceImpl {
 
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
+        let _guard = self.op_lock.lock().unwrap();
         self.tun.name()
     }
     /// Enables or disables the network interface.
@@ -188,6 +192,7 @@ impl DeviceImpl {
     /// If `value` is true, the interface is enabled by setting the IFF_UP and IFF_RUNNING flags.
     /// If false, the IFF_UP flag is cleared. The change is applied using a system call.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -212,6 +217,7 @@ impl DeviceImpl {
 
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> io::Result<u16> {
+        let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -226,6 +232,7 @@ impl DeviceImpl {
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         self.tun.set_mtu(value)
     }
     fn remove_all_address_v4(&self) -> io::Result<()> {
@@ -250,6 +257,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         let netmask = netmask.netmask()?;
         let address = address.ipv4()?;
         let default_dest = self.calc_dest_addr(address.into(), netmask.into())?;
@@ -277,6 +285,7 @@ impl DeviceImpl {
     }
     /// Remove an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         let is_associate_route = self.associate_route.read().unwrap();
         unsafe {
             match addr {
@@ -314,6 +323,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         let addr = addr.ipv6()?;
         let is_associate_route = self.associate_route.read().unwrap();
         unsafe {
@@ -343,10 +353,12 @@ impl DeviceImpl {
     }
     /// Set MAC address on L2 layer
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         self.tun.set_mac_address(eth_addr)
     }
     /// Retrieve MAC address for the device
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
+        let _guard = self.op_lock.lock().unwrap();
         self.tun.mac_address()
     }
 }

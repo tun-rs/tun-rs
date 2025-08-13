@@ -14,13 +14,14 @@ use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::fs::MetadataExt;
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::{RwLock,Mutex}};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     name: String,
     pub(crate) tun: Tun,
     associate_route: RwLock<bool>,
+    op_lock: Mutex<()>
 }
 impl IntoRawFd for DeviceImpl {
     fn into_raw_fd(mut self) -> RawFd {
@@ -100,6 +101,7 @@ impl DeviceImpl {
             name: dev_name,
             tun,
             associate_route: RwLock::new(associate_route),
+            op_lock:Mutex::new(()),
         })
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
@@ -112,6 +114,7 @@ impl DeviceImpl {
             name,
             tun,
             associate_route: RwLock::new(true),
+            op_lock:Mutex::new(()),
         })
     }
 
@@ -227,6 +230,7 @@ impl DeviceImpl {
 
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
+        let _guard = self.op_lock.lock().unwrap();
         Ok(self.name.clone())
     }
     fn name0(tun: &Tun) -> io::Result<String> {
@@ -240,6 +244,7 @@ impl DeviceImpl {
 
     /// Enables or disables the network interface.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut req = self.request()?;
             let ctl = ctl()?;
@@ -264,6 +269,7 @@ impl DeviceImpl {
 
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> io::Result<u16> {
+        let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name()?;
@@ -282,6 +288,7 @@ impl DeviceImpl {
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name()?;
@@ -306,6 +313,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
         let default_dest = self.calc_dest_addr(addr, netmask)?;
@@ -324,6 +332,7 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
         let dest = self.calc_dest_addr(addr, netmask)?;
@@ -346,6 +355,7 @@ impl DeviceImpl {
     }
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         unsafe {
             match addr {
                 IpAddr::V4(addr) => {
@@ -372,6 +382,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         let addr = addr.ipv6()?;
         let netmask = netmask.netmask()?;
         self.add_address(addr.into(), netmask.into(), None)
@@ -382,6 +393,7 @@ impl DeviceImpl {
     /// into the hardware address field. It then applies the change via a system call.
     /// This operation is typically supported only for TAP devices.
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_addr.sa_len = ETHER_ADDR_LEN;
@@ -399,6 +411,7 @@ impl DeviceImpl {
     /// This function queries the MAC address by the interface name using a helper function.
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
+        let _guard = self.op_lock.lock().unwrap();
         let mac = mac_address_by_name(&self.name()?)
             .map_err(|e| io::Error::other(e.to_string()))?
             .ok_or(io::Error::new(
