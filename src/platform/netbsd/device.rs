@@ -308,11 +308,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        if let Err(e) = self.remove_all_address_v4() {
-            if e.kind() != io::ErrorKind::AddrNotAvailable {
-                return Err(e);
-            }
-        }
+        self.remove_all_address_v4()?;
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
         let default_dest = self.calc_dest_addr(addr, netmask)?;
@@ -339,8 +335,13 @@ impl DeviceImpl {
     fn remove_all_address_v4(&self) -> io::Result<()> {
         unsafe {
             let req_v4 = self.request()?;
-            if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
-                return Err(io::Error::from(err));
+            loop {
+                if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
+                    if err == nix::errno::Errno::EADDRNOTAVAIL {
+                        break;
+                    }
+                    return Err(io::Error::from(err));
+                }
             }
         }
         Ok(())
