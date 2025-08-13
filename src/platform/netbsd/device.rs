@@ -12,7 +12,7 @@ use crate::platform::unix::device::{ctl, ctl_v6};
 use libc::{self, c_char, c_short, AF_LINK, IFF_RUNNING, IFF_UP, O_RDWR};
 use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
-use std::os::fd::FromRawFd;
+use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::fs::MetadataExt;
 use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
 
@@ -22,42 +22,33 @@ pub struct DeviceImpl {
     pub(crate) tun: Tun,
     associate_route: RwLock<bool>,
 }
-
+impl IntoRawFd for DeviceImpl {
+    fn into_raw_fd(mut self) -> RawFd {
+        let fd = self.tun.fd.inner;
+        self.tun.fd.inner = -1;
+        fd
+    }
+}
+impl Drop for DeviceImpl {
+    fn drop(&mut self) {
+        if self.tun.fd.inner < 0 {
+            return;
+        }
+        unsafe {
+            if let (Ok(ctl), Ok(req)) = (ctl(), self.request()) {
+                libc::close(self.tun.fd.inner);
+                self.tun.fd.inner = -1;
+                _ = siocifdestroy(ctl.as_raw_fd(), &req);
+            }
+        }
+    }
+}
 impl DeviceImpl {
-    // /// Returns whether the TUN device is set to ignore packet information (PI).
-    // ///
-    // /// When enabled, the device does not prepend the `struct tun_pi` header
-    // /// to packets, which can simplify packet processing in some cases.
-    // ///
-    // /// # Returns
-    // /// * `true` - The TUN device ignores packet information.
-    // /// * `false` - The TUN device includes packet information.
-    // pub fn ignore_packet_info(&self) -> bool {
-    //     self.tun.ignore_packet_info()
-    // }
-    // /// Sets whether the TUN device should ignore packet information (PI).
-    // ///
-    // /// When `ignore_packet_info` is set to `true`, the TUN device does not
-    // /// prepend the `struct tun_pi` header to packets. This can be useful
-    // /// if the additional metadata is not needed.
-    // ///
-    // /// # Parameters
-    // /// * `ign`
-    // ///     - If `true`, the TUN device will ignore packet information.
-    // ///     - If `false`, it will include packet information.
-    // pub fn set_ignore_packet_info(&self, ign: bool) {
-    //     if let Ok(name) = self.name() {
-    //         if name.starts_with("tun") {
-    //             self.tun.set_ignore_packet_info(ign)
-    //         }
-    //     }
-    // }
     /// Create a new `Device` for the given `Configuration`.
     pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
         let layer = config.layer.unwrap_or(Layer::L3);
         let associate_route = if layer == Layer::L3 {
-            // config.associate_route.unwrap_or(true)
-            true
+            config.associate_route.unwrap_or(true)
         } else {
             false
         };
@@ -105,9 +96,6 @@ impl DeviceImpl {
             }
         };
         let tun = Tun::new(dev_fd);
-        if layer == Layer::L2 {
-            // tun.set_ignore_packet_info(false);
-        }
         Ok(DeviceImpl {
             name: dev_name,
             tun,
@@ -170,7 +158,7 @@ impl DeviceImpl {
                         req.ifra_name.as_mut_ptr(),
                         tun_name.len(),
                     );
-                    req.ifra_ifrau.ifrau_addr = sockaddr_union::from((addr, 0)).addr6;
+                    req.ifra_addr = sockaddr_union::from((addr, 0)).addr6;
                     req.ifra_prefixmask = sockaddr_union::from((mask, 0)).addr6;
                     req.ifra_lifetime.ia6t_vltime = 0xffffffff_u32;
                     req.ifra_lifetime.ia6t_pltime = 0xffffffff_u32;
@@ -369,7 +357,6 @@ impl DeviceImpl {
         netmask: Netmask,
     ) -> io::Result<()> {
         let addr = addr.ipv6()?;
-        let is_associate_route = self.associate_route.read().unwrap();
         unsafe {
             let tun_name = self.name()?;
             let mut req: in6_aliasreq = mem::zeroed();
@@ -378,19 +365,16 @@ impl DeviceImpl {
                 req.ifra_name.as_mut_ptr(),
                 tun_name.len(),
             );
-            req.ifra_ifrau.ifrau_addr = sockaddr_union::from((addr, 0)).addr6;
+            req.ifra_addr = sockaddr_union::from((addr, 0)).addr6;
             let network_addr = ipnet::IpNet::new(addr.into(), netmask.prefix()?)
                 .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
             let mask = network_addr.netmask();
             req.ifra_prefixmask = sockaddr_union::from((mask, 0)).addr6;
             req.ifra_lifetime.ia6t_vltime = 0xffffffff_u32;
             req.ifra_lifetime.ia6t_pltime = 0xffffffff_u32;
-            req.ifra_flags = IN6_IFF_NODAD;
+            // req.ifra_flags = IN6_IFF_NODAD;
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
-            }
-            if let Err(e) = self.add_route(addr.into(), mask, *is_associate_route) {
-                log::warn!("{e:?}");
             }
         }
         Ok(())
