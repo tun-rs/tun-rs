@@ -299,20 +299,13 @@ impl DeviceImpl {
         }
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
-    /// # Note
-    /// On OpenBSD, multiple invocations will add multiple IPv4 addresses.
-    /// If the intent is to add multiple Ipv4 addresses, `add_address_v4` is preferred.
+    /// Remove all previous set IPv4 addresses and set the specified address.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        if let Err(e) = self.remove_all_address_v4() {
-            if e.kind() != io::ErrorKind::AddrNotAvailable {
-                return Err(e);
-            }
-        }
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
         let default_dest = self.calc_dest_addr(addr, netmask)?;
@@ -321,6 +314,7 @@ impl DeviceImpl {
             .transpose()?
             .map(|v| v.into())
             .unwrap_or(default_dest);
+        self.remove_all_address_v4()?;
         self.add_address(addr, netmask, Some(dest))?;
         Ok(())
     }
@@ -337,10 +331,12 @@ impl DeviceImpl {
         Ok(())
     }
     fn remove_all_address_v4(&self) -> io::Result<()> {
-        unsafe {
-            let req_v4 = self.request()?;
-            if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
-                return Err(io::Error::from(err));
+        let interface =
+            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
+        let list = interface.addresses().map_err(io::Error::from)?;
+        for x in list {
+            if x.addr().is_ipv4() {
+                interface.remove_address(x).map_err(io::Error::from)?;
             }
         }
         Ok(())

@@ -228,10 +228,19 @@ impl DeviceImpl {
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
         self.tun.set_mtu(value)
     }
+    fn remove_all_address_v4(&self) -> io::Result<()> {
+        let interface =
+            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
+        let list = interface.addresses().map_err(io::Error::from)?;
+        for x in list {
+            if x.addr().is_ipv4() {
+                interface.remove_address(x).map_err(io::Error::from)?;
+            }
+        }
+        Ok(())
+    }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
-    /// # Note
-    /// On macOS, multiple invocations will add multiple IPv4 addresses.
-    /// If the intent is to add multiple Ipv4 addresses, `add_address_v4` is preferred.
+    /// Remove all previous set IPv4 addresses and set the specified address.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -251,6 +260,7 @@ impl DeviceImpl {
             .map(|v| v.ipv4())
             .transpose()?
             .unwrap_or(default_dest);
+        self.remove_all_address_v4()?;
         self.set_alias(address, dest, netmask)?;
         Ok(())
     }
