@@ -264,24 +264,8 @@ impl DeviceImpl {
             .collect();
         Ok(r)
     }
-    fn remove_all_address_v4(&self) -> io::Result<()> {
-        let interface =
-            netconfig_rs::Interface::try_from_index(self.if_index()?).map_err(io::Error::from)?;
-        let list = interface.addresses().map_err(io::Error::from)?;
-        for x in list {
-            if x.addr().is_ipv4() {
-                interface.remove_address(x).map_err(io::Error::from)?;
-            }
-        }
-        Ok(())
-    }
-    /// Sets the IPv4 network address for the device.
-    ///
-    /// This method configures the IP address, netmask, and an optional destination for the interface
-    /// using the `netsh` command.
-    /// # Note
-    /// On Windows, multiple invocations of this function will clean all prior IPv4 addresses and set the current one,
-    /// which behaves differently from other unix-like platforms.
+    /// Sets the IPv4 network address, netmask, and an optional destination address.
+    /// Remove all previous set IPv4 addresses and set the specified address.
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -289,7 +273,6 @@ impl DeviceImpl {
         destination: Option<IPv4>,
     ) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        self.remove_all_address_v4()?;
         netsh::set_interface_ip(
             self.if_index()?,
             address.ipv4()?.into(),
