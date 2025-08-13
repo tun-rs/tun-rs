@@ -127,6 +127,10 @@ impl DeviceImpl {
     /// C-compatible string (CString) and then calls the libc function `if_nametoindex`
     /// to retrieve the corresponding interface index.
     pub fn if_index(&self) -> io::Result<u32> {
+        let _guard = self.op_lock.lock().unwrap();
+        self.if_index_impl()
+    }
+    pub fn if_index_impl(&self) -> io::Result<u32> {
         let if_name = std::ffi::CString::new(self.name()?)?;
         unsafe { Ok(libc::if_nametoindex(if_name.as_ptr())) }
     }
