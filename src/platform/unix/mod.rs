@@ -58,6 +58,9 @@ pub struct DeviceImpl {
 ))]
 impl DeviceImpl {
     pub(crate) fn from_tun(tun: Tun) -> std::io::Result<Self> {
-        Ok(Self { tun })
+        Ok(Self {
+            tun,
+            op_lock: std::sync::Mutex::new(()),
+        })
     }
 }
