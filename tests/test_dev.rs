@@ -108,7 +108,7 @@ async fn test_udp() {
     #[cfg(target_os = "macos")]
     device.set_associate_route(true);
     #[cfg(target_os = "macos")]
-    assert_eq!(device.associate_route(), true);
+    assert!(device.associate_route());
 
     let vec = device.addresses().unwrap();
     assert!(vec
