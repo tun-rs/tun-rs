@@ -96,6 +96,20 @@ async fn test_udp() {
         .ipv6("CDCD:910A:2222:5498:8475:1112:1900:2025", 64)
         .build_async()
         .unwrap();
+
+    #[cfg(any(target_os = "macos", target_os = "openbsd"))]
+    device.set_ignore_packet_info(true);
+    #[cfg(any(target_os = "macos", target_os = "openbsd"))]
+    assert_eq!(device.ignore_packet_info(), true);
+
+    device.set_mtu(1800).unwrap();
+    assert_eq!(device.mtu().unwrap(), 1800);
+
+    #[cfg(target_os = "macos")]
+    device.set_associate_route(true);
+    #[cfg(target_os = "macos")]
+    assert_eq!(device.associate_route().unwrap(), true);
+
     let vec = device.addresses().unwrap();
     assert!(vec
         .iter()
@@ -104,6 +118,54 @@ async fn test_udp() {
         == "CDCD:910A:2222:5498:8475:1112:1900:2025"
             .parse::<std::net::Ipv6Addr>()
             .unwrap()));
+
+    device.set_network_address("10.26.1.200", 24, None).unwrap();
+    let vec = device.addresses().unwrap();
+    assert!(vec
+        .iter()
+        .any(|ip| *ip == "10.26.1.200".parse::<std::net::Ipv4Addr>().unwrap()));
+    assert!(vec.iter().any(|ip| *ip
+        == "CDCD:910A:2222:5498:8475:1112:1900:2025"
+            .parse::<std::net::Ipv6Addr>()
+            .unwrap()));
+
+    device.add_address_v4("10.6.0.1", 24).unwrap();
+    let vec = device.addresses().unwrap();
+    assert!(vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
+
+    device
+        .remove_address("10.6.0.1".parse::<std::net::IpAddr>().unwrap())
+        .unwrap();
+    assert!(!vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
+
+    device
+        .add_address_v6("EDCD:910A:2222:5498:8475:1112:1900:2025", 64)
+        .unwrap();
+    let vec = device.addresses().unwrap();
+    assert!(vec.contains(
+        &"EDCD:910A:2222:5498:8475:1112:1900:2025"
+            .parse::<std::net::IpAddr>()
+            .unwrap()
+    ));
+
+    device.enabled(true).unwrap();
+
+    #[cfg(any(
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ))]
+    device.set_name("tun666").unwrap();
+    #[cfg(any(
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ))]
+    assert_eq!(device.name().unwrap(), "tun666");
+
+    assert!(device.if_index().is_ok());
+
+    #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    assert_eq!(device.is_running().unwrap(), true);
+
     let device = Arc::new(device);
     let test_udp_v4 = Arc::new(AtomicBool::new(false));
     let test_udp_v6 = Arc::new(AtomicBool::new(false));
