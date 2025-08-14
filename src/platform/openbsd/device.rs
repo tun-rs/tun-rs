@@ -113,6 +113,7 @@ impl DeviceImpl {
             name: dev_name,
             tun,
             associate_route: RwLock::new(associate_route),
+            op_lock:Mutex::new(()),
         })
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
@@ -125,6 +126,7 @@ impl DeviceImpl {
             name,
             tun,
             associate_route: RwLock::new(true),
+            op_lock:Mutex::new(()),
         })
     }
 
