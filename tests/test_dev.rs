@@ -30,12 +30,13 @@ fn test_udp() {
         .build_sync()
         .unwrap();
     let device = Arc::new(device);
+    let _device = device.clone();
     let test_udp_v4 = Arc::new(AtomicBool::new(false));
     let test_udp_v6 = Arc::new(AtomicBool::new(false));
     let test_udp_v4_c = test_udp_v4.clone();
     let test_udp_v6_c = test_udp_v6.clone();
-    let atomic_counter = Arc::new(AtomicUsize::new(0));
-    let atomic_counter_c = atomic_counter.clone();
+    let recv_flag = Arc::new(AtomicBool::new(false));
+    let recv_flag_c = recv_flag.clone();
     std::thread::spawn(move || {
         let mut buf = [0; 65535];
         loop {
@@ -46,7 +47,7 @@ fn test_udp() {
                         pnet_packet::udp::UdpPacket::new(ipv6_packet.payload())
                     {
                         if udp_packet.payload() == test_msg.as_bytes() {
-                            test_udp_v6.store(true, Ordering::SeqCst);
+                            test_udp_v6.store(true, Ordering::Relaxed);
                         }
                     }
                 }
@@ -57,12 +58,13 @@ fn test_udp() {
                         pnet_packet::udp::UdpPacket::new(ipv4_packet.payload())
                     {
                         if udp_packet.payload() == test_msg.as_bytes() {
-                            test_udp_v4.store(true, Ordering::SeqCst);
+                            test_udp_v4.store(true, Ordering::Relaxed);
                         }
                     }
                 }
             }
-            if atomic_counter_c.fetch_add(1, Ordering::Release) >= 1 {
+            if test_udp_v4.load(Ordering::Relaxed) && test_udp_v6.load(Ordering::Relaxed) {
+                recv_flag.store(true, Ordering::Release);
                 break;
             }
         }
@@ -82,18 +84,17 @@ fn test_udp() {
         .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
         .unwrap();
     let time_now = std::time::Instant::now();
-    while atomic_counter.load(Ordering::Acquire) < 2 {
+    // check whether the thread completes
+    while recv_flag_c.load(Ordering::Acquire) == false {
         if time_now.elapsed().as_secs() > 2 {
             // no promise due to the timeout
             assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
             return;
         }
     }
-    assert!(
-        atomic_counter.load(Ordering::Acquire) == 2
-            && test_udp_v4_c.load(Ordering::Relaxed)
-            && test_udp_v6_c.load(Ordering::Relaxed)
-    );
+    // recv_flag_c == true
+    // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
+    assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
 }
 
 #[cfg(any(
@@ -185,12 +186,13 @@ async fn test_udp() {
     assert!(device.is_running().unwrap());
 
     let device = Arc::new(device);
+    let _device = device.clone();
     let test_udp_v4 = Arc::new(AtomicBool::new(false));
     let test_udp_v6 = Arc::new(AtomicBool::new(false));
     let test_udp_v4_c = test_udp_v4.clone();
     let test_udp_v6_c = test_udp_v6.clone();
-    let atomic_counter = Arc::new(AtomicUsize::new(0));
-    let atomic_counter_c = atomic_counter.clone();
+    let recv_flag = Arc::new(AtomicBool::new(false));
+    let recv_flag_c = recv_flag.clone();
     let handler = tokio::spawn(async move {
         let mut buf = [0; 65535];
         loop {
@@ -217,7 +219,8 @@ async fn test_udp() {
                     }
                 }
             }
-            if atomic_counter_c.fetch_add(1, Ordering::Release) >= 1 {
+            if test_udp_v6.load(Ordering::Relaxed) && test_udp_v4.load(Ordering::Relaxed) {
+                recv_flag.store(true, Ordering::Release);
                 break;
             }
         }
@@ -245,7 +248,8 @@ async fn test_udp() {
     assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
             }
             _=handler=>{
-            assert!(atomic_counter.load(Ordering::Acquire)==2 && test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
+            // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
+            assert!(recv_flag_c.load(Ordering::Acquire) && test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
             }
         }
 }
