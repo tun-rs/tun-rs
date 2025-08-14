@@ -174,7 +174,7 @@ async fn test_udp() {
     let test_udp_v6 = Arc::new(AtomicBool::new(false));
     let test_udp_v4_c = test_udp_v4.clone();
     let test_udp_v6_c = test_udp_v6.clone();
-    tokio::spawn(async move {
+    let handler = tokio::spawn(async move {
         let mut buf = [0; 65535];
         loop {
             let len = device.recv(&mut buf).await.unwrap();
@@ -184,7 +184,7 @@ async fn test_udp() {
                         pnet_packet::udp::UdpPacket::new(ipv6_packet.payload())
                     {
                         if udp_packet.payload() == test_msg.as_bytes() {
-                            test_udp_v6.store(true, Ordering::SeqCst);
+                            test_udp_v6.store(true, Ordering::Relaxed);
                         }
                     }
                 }
@@ -195,10 +195,13 @@ async fn test_udp() {
                         pnet_packet::udp::UdpPacket::new(ipv4_packet.payload())
                     {
                         if udp_packet.payload() == test_msg.as_bytes() {
-                            test_udp_v4.store(true, Ordering::SeqCst);
+                            test_udp_v4.store(true, Ordering::Relaxed);
                         }
                     }
                 }
+            }
+            if test_udp_v4.load(Ordering::Relaxed) && test_udp_v6.load(Ordering::Relaxed) {
+                break;
             }
         }
     });
@@ -219,9 +222,15 @@ async fn test_udp() {
         .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    assert!(test_udp_v4_c.load(Ordering::SeqCst));
-    assert!(test_udp_v6_c.load(Ordering::SeqCst));
+    tokio::select! {
+        _=tokio::time::sleep(Duration::from_secs(1))=>{
+
+        }
+        _=handler=>{
+
+        }
+    }
+    assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
 }
 
 #[cfg(any(
@@ -241,7 +250,7 @@ fn create_dev() {
 
     let device = DeviceBuilder::new().name(name).build_sync().unwrap();
     let dev_name = device.name().unwrap();
-    assert_eq!(dev_name, name);
+    assert_eq!(dev_name.as_str(), name);
     #[cfg(unix)]
     {
         use std::os::fd::IntoRawFd;
