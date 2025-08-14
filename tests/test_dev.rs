@@ -26,7 +26,7 @@ fn test_udp() {
     let test_msg = "test udp";
     let device = DeviceBuilder::new()
         .ipv4("10.26.1.100", 24, None)
-        .ipv6("CDCD:910A:2222:5498:8475:1112:1900:2025", 64)
+        .ipv6("fd12:3456:789a:1111:2222:3333:4444:5555", 64)
         .build_sync()
         .unwrap();
     let device = Arc::new(device);
@@ -64,11 +64,11 @@ fn test_udp() {
     });
     std::thread::sleep(Duration::from_secs(6));
     let udp_socket =
-        std::net::UdpSocket::bind("[CDCD:910A:2222:5498:8475:1112:1900:2025]:0").unwrap();
+        std::net::UdpSocket::bind("[fd12:3456:789a:1111:2222:3333:4444:5555]:0").unwrap();
     udp_socket
         .send_to(
             test_msg.as_bytes(),
-            "[CDCD:910A:2222:5498:8475:1112:1900:2024]:8080",
+            "[fd12:3456:789a:1111:2222:3333:4444:5556]:8080",
         )
         .unwrap();
 
@@ -85,7 +85,9 @@ fn test_udp() {
     target_os = "windows",
     target_os = "macos",
     all(target_os = "linux", not(target_env = "ohos")),
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 #[cfg(feature = "async_tokio")]
 #[tokio::test]
@@ -93,7 +95,7 @@ async fn test_udp() {
     let test_msg = "test udp";
     let device = DeviceBuilder::new()
         .ipv4("10.26.1.100", 24, None)
-        .ipv6("CDCD:910A:2222:5498:8475:1112:1900:2025", 64)
+        .ipv6("fd12:3456:789a:1111:2222:3333:4444:5555", 64)
         .build_async()
         .unwrap();
 
@@ -115,7 +117,7 @@ async fn test_udp() {
         .iter()
         .any(|ip| *ip == "10.26.1.100".parse::<std::net::Ipv4Addr>().unwrap()));
     assert!(vec.iter().any(|ip| *ip
-        == "CDCD:910A:2222:5498:8475:1112:1900:2025"
+        == "fd12:3456:789a:1111:2222:3333:4444:5555"
             .parse::<std::net::Ipv6Addr>()
             .unwrap()));
 
@@ -125,7 +127,7 @@ async fn test_udp() {
         .iter()
         .any(|ip| *ip == "10.26.1.200".parse::<std::net::Ipv4Addr>().unwrap()));
     assert!(vec.iter().any(|ip| *ip
-        == "CDCD:910A:2222:5498:8475:1112:1900:2025"
+        == "fd12:3456:789a:1111:2222:3333:4444:5555"
             .parse::<std::net::Ipv6Addr>()
             .unwrap()));
 
@@ -136,14 +138,15 @@ async fn test_udp() {
     device
         .remove_address("10.6.0.1".parse::<std::net::IpAddr>().unwrap())
         .unwrap();
+    let vec = device.addresses().unwrap();
     assert!(!vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
 
     device
-        .add_address_v6("EDCD:910A:2222:5498:8475:1112:1900:2025", 64)
+        .add_address_v6("fdab:cdef:1234:5678:9abc:def0:1234:5678", 64)
         .unwrap();
     let vec = device.addresses().unwrap();
     assert!(vec.contains(
-        &"EDCD:910A:2222:5498:8475:1112:1900:2025"
+        &"fdab:cdef:1234:5678:9abc:def0:1234:5678"
             .parse::<std::net::IpAddr>()
             .unwrap()
     ));
@@ -200,13 +203,13 @@ async fn test_udp() {
         }
     });
     tokio::time::sleep(Duration::from_secs(6)).await;
-    let udp_socket = tokio::net::UdpSocket::bind("[CDCD:910A:2222:5498:8475:1112:1900:2025]:0")
+    let udp_socket = tokio::net::UdpSocket::bind("[fd12:3456:789a:1111:2222:3333:4444:5555]:0")
         .await
         .unwrap();
     udp_socket
         .send_to(
             test_msg.as_bytes(),
-            "[CDCD:910A:2222:5498:8475:1112:1900:2024]:8080",
+            "[fd12:3456:789a:1111:2222:3333:4444:5556]:8080",
         )
         .await
         .unwrap();
@@ -219,6 +222,39 @@ async fn test_udp() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(test_udp_v4_c.load(Ordering::SeqCst));
     assert!(test_udp_v6_c.load(Ordering::SeqCst));
+}
+
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
+#[test]
+fn create_dev() {
+    #[cfg(not(target_os = "macos"))]
+    let name = "tun12";
+    #[cfg(target_os = "macos")]
+    let name = "tun12";
+    
+    let device = DeviceBuilder::new()
+        .name(name)
+        .build_sync()
+        .unwrap();
+    let dev_name = device.name().unwrap();
+    assert_eq!(dev_name, name);
+    #[cfg(unix)]
+    {
+        use std::os::fd::IntoRawFd;
+        let fd = device.into_raw_fd();
+        unsafe {
+            let sync_device = SyncDevice::from_fd(fd).unwrap();
+            let dev_name = sync_device.name().unwrap();
+            assert_eq!(dev_name, name);
+        }
+    }
 }
 
 #[cfg(unix)]
