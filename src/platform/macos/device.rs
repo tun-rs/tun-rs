@@ -209,7 +209,7 @@ impl DeviceImpl {
         self.set_alias(address, dest, netmask, associate_route)?;
         Ok(())
     }
-    fn name_impl(&self) -> io::Result<String> {
+    pub(crate) fn name_impl(&self) -> io::Result<String> {
         self.tun.name()
     }
 }

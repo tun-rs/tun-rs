@@ -131,7 +131,7 @@ impl DeviceImpl {
         self.if_index_impl()
     }
     pub(crate) fn if_index_impl(&self) -> io::Result<u32> {
-        let if_name = std::ffi::CString::new(self.name()?)?;
+        let if_name = std::ffi::CString::new(self.name_impl()?)?;
         unsafe { Ok(libc::if_nametoindex(if_name.as_ptr())) }
     }
     /// Retrieves all IP addresses associated with the network interface.
@@ -140,7 +140,7 @@ impl DeviceImpl {
     /// then iterates over the returned list of interface addresses, extracting and collecting
     /// the IP addresses into a vector.
     pub fn addresses(&self) -> io::Result<Vec<std::net::IpAddr>> {
-        Ok(crate::platform::get_if_addrs_by_name(self.name()?)?
+        Ok(crate::platform::get_if_addrs_by_name(self.name_impl()?)?
             .iter()
             .map(|v| v.address)
             .collect())
@@ -157,6 +157,7 @@ impl DeviceImpl {
     /// * `true` - The TUN device ignores packet information.
     /// * `false` - The TUN device includes packet information.
     pub fn ignore_packet_info(&self) -> bool {
+        let _guard = self.op_lock.lock().unwrap();
         self.tun.ignore_packet_info()
     }
     /// Sets whether the TUN device should ignore packet information (PI).
@@ -169,6 +170,7 @@ impl DeviceImpl {
     /// * `ign` - If `true`, the TUN device will ignore packet information.
     ///   `  ` If `false`, it will include packet information.
     pub fn set_ignore_packet_info(&self, ign: bool) {
+        let _guard = self.op_lock.lock().unwrap();
         self.tun.set_ignore_packet_info(ign)
     }
 }

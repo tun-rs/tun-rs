@@ -534,7 +534,7 @@ impl DeviceImpl {
     }
 
     /// Retrieves the name of the network interface.
-    fn name_impl(&self) -> io::Result<String> {
+    pub(crate) fn name_impl(&self) -> io::Result<String> {
         unsafe { name(self.as_raw_fd()) }
     }
 

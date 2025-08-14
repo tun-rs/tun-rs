@@ -243,7 +243,7 @@ impl DeviceImpl {
         Ok(())
     }
     /// Retrieves the name of the network interface.
-    fn name_impl(&self) -> std::io::Result<String> {
+    pub(crate) fn name_impl(&self) -> std::io::Result<String> {
         use std::path::PathBuf;
         unsafe {
             let mut path_info: kinfo_file = std::mem::zeroed();
