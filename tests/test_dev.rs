@@ -85,16 +85,23 @@ fn test_udp() {
         .unwrap();
     let time_now = std::time::Instant::now();
     // check whether the thread completes
-    while recv_flag_c.load(Ordering::Acquire) == false {
+    while !recv_flag_c.load(Ordering::Acquire) {
         if time_now.elapsed().as_secs() > 2 {
             // no promise due to the timeout
-            assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
+            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+            let v6 = test_udp_v6_c.load(Ordering::Relaxed);
+            assert!(v4 && v6, "timeout: test_udp_v4 = {v4} test_udp_v6 = {v6}");
             return;
         }
     }
     // recv_flag_c == true
     // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
-    assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
+    let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+    let v6 = test_udp_v6_c.load(Ordering::Relaxed);
+    assert!(
+        v4 && v6,
+        "test_udp_v4 and test_udp_v6 must be true, test_udp_v4 = {v4} test_udp_v6 = {v6}"
+    );
 }
 
 #[cfg(any(
@@ -243,15 +250,24 @@ async fn test_udp() {
         .await
         .unwrap();
     tokio::select! {
-            _=tokio::time::sleep(Duration::from_secs(2))=>{
+        _=tokio::time::sleep(Duration::from_secs(2))=>{
             // no promise due to the timeout
-    assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
-            }
-            _=handler=>{
-            // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
-            assert!(recv_flag_c.load(Ordering::Acquire) && test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
-            }
+            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+            let v6 = test_udp_v6_c.load(Ordering::Relaxed);
+            assert!(v4 && v6, "timeout: test_udp_v4 = {v4} test_udp_v6 = {v6}");
         }
+        _=handler=>{
+            // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
+            let flag = recv_flag_c.load(Ordering::Acquire); //synchronize
+            assert!(flag, "recv_flag = {flag}");
+            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+            let v6 = test_udp_v6_c.load(Ordering::Relaxed);
+            assert!(
+                v4 && v6,
+                "test_udp_v4 and test_udp_v6 must be true, test_udp_v4 = {v4} test_udp_v6 = {v6}"
+            );
+        }
+    }
 }
 
 #[cfg(any(
