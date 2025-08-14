@@ -100,7 +100,7 @@ async fn test_udp() {
     #[cfg(any(target_os = "macos", target_os = "openbsd"))]
     device.set_ignore_packet_info(true);
     #[cfg(any(target_os = "macos", target_os = "openbsd"))]
-    assert_eq!(device.ignore_packet_info(), true);
+    assert!(device.ignore_packet_info());
 
     device.set_mtu(1800).unwrap();
     assert_eq!(device.mtu().unwrap(), 1800);
