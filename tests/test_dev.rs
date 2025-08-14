@@ -108,7 +108,7 @@ async fn test_udp() {
     #[cfg(target_os = "macos")]
     device.set_associate_route(true);
     #[cfg(target_os = "macos")]
-    assert_eq!(device.associate_route().unwrap(), true);
+    assert_eq!(device.associate_route(), true);
 
     let vec = device.addresses().unwrap();
     assert!(vec
@@ -164,7 +164,7 @@ async fn test_udp() {
     assert!(device.if_index().is_ok());
 
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-    assert_eq!(device.is_running().unwrap(), true);
+    assert!(device.is_running().unwrap());
 
     let device = Arc::new(device);
     let test_udp_v4 = Arc::new(AtomicBool::new(false));
