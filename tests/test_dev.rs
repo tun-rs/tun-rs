@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,6 +34,8 @@ fn test_udp() {
     let test_udp_v6 = Arc::new(AtomicBool::new(false));
     let test_udp_v4_c = test_udp_v4.clone();
     let test_udp_v6_c = test_udp_v6.clone();
+    let atomic_counter = Arc::new(AtomicUsize::new(0));
+    let atomic_counter_c = atomic_counter.clone();
     std::thread::spawn(move || {
         let mut buf = [0; 65535];
         loop {
@@ -60,6 +62,9 @@ fn test_udp() {
                     }
                 }
             }
+            if atomic_counter_c.fetch_add(1, Ordering::Release) >= 1 {
+                break;
+            }
         }
     });
     std::thread::sleep(Duration::from_secs(6));
@@ -76,9 +81,19 @@ fn test_udp() {
     udp_socket
         .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
         .unwrap();
-    std::thread::sleep(Duration::from_secs(1));
-    assert!(test_udp_v4_c.load(Ordering::SeqCst));
-    assert!(test_udp_v6_c.load(Ordering::SeqCst));
+    let time_now = std::time::Instant::now();
+    while atomic_counter.load(Ordering::Acquire) < 2 {
+        if time_now.elapsed().as_secs() > 2 {
+            // no promise due to the timeout
+            assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
+            return;
+        }
+    }
+    assert!(
+        atomic_counter.load(Ordering::Acquire) == 2
+            && test_udp_v4_c.load(Ordering::Relaxed)
+            && test_udp_v6_c.load(Ordering::Relaxed)
+    );
 }
 
 #[cfg(any(
@@ -174,6 +189,8 @@ async fn test_udp() {
     let test_udp_v6 = Arc::new(AtomicBool::new(false));
     let test_udp_v4_c = test_udp_v4.clone();
     let test_udp_v6_c = test_udp_v6.clone();
+    let atomic_counter = Arc::new(AtomicUsize::new(0));
+    let atomic_counter_c = atomic_counter.clone();
     let handler = tokio::spawn(async move {
         let mut buf = [0; 65535];
         loop {
@@ -200,7 +217,7 @@ async fn test_udp() {
                     }
                 }
             }
-            if test_udp_v4.load(Ordering::Relaxed) && test_udp_v6.load(Ordering::Relaxed) {
+            if atomic_counter_c.fetch_add(1, Ordering::Release) >= 1 {
                 break;
             }
         }
@@ -223,14 +240,14 @@ async fn test_udp() {
         .await
         .unwrap();
     tokio::select! {
-        _=tokio::time::sleep(Duration::from_secs(1))=>{
-
-        }
-        _=handler=>{
-
-        }
-    }
+            _=tokio::time::sleep(Duration::from_secs(2))=>{
+            // no promise due to the timeout
     assert!(test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
+            }
+            _=handler=>{
+            assert!(atomic_counter.load(Ordering::Acquire)==2 && test_udp_v4_c.load(Ordering::Relaxed) && test_udp_v6_c.load(Ordering::Relaxed));
+            }
+        }
 }
 
 #[cfg(any(
