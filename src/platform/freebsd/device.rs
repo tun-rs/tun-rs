@@ -46,7 +46,7 @@ impl Drop for DeviceImpl {
 }
 impl DeviceImpl {
     /// Create a new `Device` for the given `Configuration`.
-    pub(crate) fn new(config: DeviceConfig) -> std::io::Result<Self> {
+    pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
         let layer = config.layer.unwrap_or(Layer::L3);
         let associate_route = if layer == Layer::L3 {
             config.associate_route.unwrap_or(true)
@@ -58,75 +58,73 @@ impl DeviceImpl {
         } else {
             "tap".to_string()
         };
-        let device = unsafe {
-            let dev_index = match config.dev_name.as_ref() {
-                Some(tun_name) => {
-                    let tun_name = tun_name.clone();
-
-                    if tun_name.len() > IFNAMSIZ {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "device name too long",
-                        ));
-                    }
-
-                    if layer == Layer::L3 && !tun_name.starts_with("tun") {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "device name must start with tun",
-                        ));
-                    }
-                    if layer == Layer::L2 && !tun_name.starts_with("tap") {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "device name must start with tap",
-                        ));
-                    }
-                    Some(
-                        tun_name[3..]
-                            .parse::<u32>()
-                            .map_err(|e| std::io::Error::new(ErrorKind::InvalidInput, e))?
-                            + 1_u32,
-                    )
+        let dev_index = match config.dev_name.as_ref() {
+            Some(tun_name) => {
+                if tun_name.len() > IFNAMSIZ {
+                    return Err(io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "device name too long",
+                    ));
                 }
-
-                None => None,
-            };
-
-            let (tun, _tun_name) = {
-                if let Some(name_index) = dev_index.as_ref() {
-                    let device_name = format!("{device_prefix}{name_index}");
-                    let device_path = format!("/dev/{device_name}\0");
-                    let fd = libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC);
-                    let tun = Fd::new(fd)?;
-                    (tun, device_name)
-                } else {
-                    let (tun, device_name) = 'End: {
-                        for i in 0..256 {
-                            let device_name = format!("{device_prefix}{i}");
-                            let device_path = format!("/dev/{device_name}\0");
-                            let fd = libc::open(
-                                device_path.as_ptr() as *const _,
-                                O_RDWR | libc::O_CLOEXEC,
-                            );
-                            if fd > 0 {
-                                let tun = Fd::new(fd)?;
-                                break 'End (tun, device_name);
+                match layer {
+                    Layer::L2 => {
+                        if !tun_name.starts_with("tap") {
+                            return Err(io::Error::new(
+                                ErrorKind::InvalidInput,
+                                "device name must start with tap",
+                            ));
+                        }
+                    }
+                    Layer::L3 => {
+                        if !tun_name.starts_with("tun") {
+                            return Err(io::Error::new(
+                                ErrorKind::InvalidInput,
+                                "device name must start with tun",
+                            ));
+                        }
+                    }
+                }
+                Some(
+                    tun_name[3..]
+                        .parse::<u32>()
+                        .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?,
+                )
+            }
+            None => None,
+        };
+        let tun = unsafe {
+            if let Some(name_index) = dev_index.as_ref() {
+                let device_path = format!("/dev/{device_prefix}{name_index}\0");
+                let fd = libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC);
+                let tun = Fd::new(fd)?;
+                tun
+            } else {
+                'End: {
+                    for i in 0..256 {
+                        let device_path = format!("/dev/{device_prefix}{i}\0");
+                        let fd =
+                            libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC);
+                        match Fd::new(fd) {
+                            Ok(tun) => {
+                                break 'End tun;
+                            }
+                            Err(e) => {
+                                if e.raw_os_error() != Some(libc::EBUSY) {
+                                    return Err(e);
+                                }
                             }
                         }
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::AlreadyExists,
-                            "no available file descriptor",
-                        ));
-                    };
-                    (tun, device_name)
+                    }
+                    return Err(io::Error::new(
+                        ErrorKind::AlreadyExists,
+                        "no available file descriptor",
+                    ));
                 }
-            };
-
-            DeviceImpl {
-                tun: Tun::new(tun),
-                op_lock: Mutex::new(associate_route),
             }
+        };
+        let device = DeviceImpl {
+            tun: Tun::new(tun),
+            op_lock: Mutex::new(associate_route),
         };
 
         Ok(device)
