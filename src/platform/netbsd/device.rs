@@ -14,14 +14,13 @@ use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::fs::MetadataExt;
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::{RwLock,Mutex}};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     name: String,
     pub(crate) tun: Tun,
-    associate_route: RwLock<bool>,
-    op_lock: Mutex<()>
+    pub(crate) op_lock: Mutex<bool>,
 }
 impl IntoRawFd for DeviceImpl {
     fn into_raw_fd(mut self) -> RawFd {
@@ -67,7 +66,6 @@ impl DeviceImpl {
             }
             let if_index = dev_name[3..]
                 .parse::<u32>()
-                .map(|v| v)
                 .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
             let device_path = format!("/dev/{device_prefix}{if_index}\0");
             if layer == Layer::L2 {
@@ -121,8 +119,7 @@ impl DeviceImpl {
         Ok(DeviceImpl {
             name: dev_name,
             tun,
-            associate_route: RwLock::new(associate_route),
-            op_lock:Mutex::new(()),
+            op_lock: Mutex::new(associate_route),
         })
     }
     fn create_dev(name: &str) -> io::Result<()> {
@@ -140,12 +137,11 @@ impl DeviceImpl {
         Ok(())
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
-        let name = Self::name0(tun.as_raw_fd())?;
+        let name = Self::name_of_fd(tun.as_raw_fd())?;
         Ok(Self {
             name,
             tun,
-            associate_route: RwLock::new(true),
-            op_lock:Mutex::new(()),
+            op_lock: Mutex::new(true),
         })
     }
 
@@ -158,14 +154,19 @@ impl DeviceImpl {
     }
 
     /// Set the IPv4 alias of the device.
-    fn add_address(&self, addr: IpAddr, mask: IpAddr, dest: Option<IpAddr>) -> io::Result<()> {
+    fn add_address(
+        &self,
+        addr: IpAddr,
+        mask: IpAddr,
+        dest: Option<IpAddr>,
+        associate_route: bool,
+    ) -> io::Result<()> {
         unsafe {
             match addr {
                 IpAddr::V4(_) => {
-                    let is_associate_route = self.associate_route.read().unwrap();
                     let ctl = ctl()?;
                     let mut req: ifaliasreq = mem::zeroed();
-                    let tun_name = self.name()?;
+                    let tun_name = self.name_impl()?;
                     ptr::copy_nonoverlapping(
                         tun_name.as_ptr() as *const c_char,
                         req.ifra_name.as_mut_ptr(),
@@ -182,7 +183,7 @@ impl DeviceImpl {
                     if let Err(err) = siocaifaddr(ctl.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
                     }
-                    if let Err(e) = self.add_route(addr, mask, *is_associate_route) {
+                    if let Err(e) = self.add_route(addr, mask, associate_route) {
                         log::warn!("{e:?}");
                     }
                 }
@@ -190,7 +191,7 @@ impl DeviceImpl {
                     let IpAddr::V6(_) = mask else {
                         return Err(std::io::Error::from(ErrorKind::InvalidInput));
                     };
-                    let tun_name = self.name()?;
+                    let tun_name = self.name_impl()?;
                     let mut req: in6_aliasreq = mem::zeroed();
                     ptr::copy_nonoverlapping(
                         tun_name.as_ptr() as *const c_char,
@@ -214,7 +215,7 @@ impl DeviceImpl {
     /// Prepare a new request.
     unsafe fn request(&self) -> io::Result<ifreq> {
         let mut req: ifreq = mem::zeroed();
-        let tun_name = self.name()?;
+        let tun_name = self.name_impl()?;
         ptr::copy_nonoverlapping(
             tun_name.as_ptr() as *const c_char,
             req.ifr_name.as_mut_ptr(),
@@ -226,7 +227,7 @@ impl DeviceImpl {
 
     /// # Safety
     unsafe fn request_v6(&self) -> io::Result<in6_ifreq> {
-        let tun_name = self.name()?;
+        let tun_name = self.name_impl()?;
         let mut req: in6_ifreq = mem::zeroed();
         ptr::copy_nonoverlapping(
             tun_name.as_ptr() as *const c_char,
@@ -236,21 +237,12 @@ impl DeviceImpl {
         req.ifr_ifru.ifru_flags = IN6_IFF_NODAD as _;
         Ok(req)
     }
-    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
-    /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
-    /// Set this to be false to obtain the platform's default routing behavior.
-    pub fn set_associate_route(&self, associate_route: bool) {
-        *self.associate_route.write().unwrap() = associate_route;
-    }
-    /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
-    pub fn associate_route(&self) -> bool {
-        *self.associate_route.read().unwrap()
-    }
+
     fn add_route(&self, addr: IpAddr, netmask: IpAddr, associate_route: bool) -> io::Result<()> {
         if !associate_route {
             return Ok(());
         }
-        let if_index = self.if_index()?;
+        let if_index = self.if_index_impl()?;
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
         let mut manager = route_manager::RouteManager::new()?;
@@ -260,11 +252,10 @@ impl DeviceImpl {
     }
 
     /// Retrieves the name of the network interface.
-    pub fn name(&self) -> io::Result<String> {
-        let _guard = self.op_lock.lock().unwrap();
+    fn name_impl(&self) -> io::Result<String> {
         Ok(self.name.clone())
     }
-    fn name0(tun: RawFd) -> io::Result<String> {
+    fn name_of_fd(tun: RawFd) -> io::Result<String> {
         unsafe {
             let mut req: ifreq = mem::zeroed();
             if tapgifname(tun, &mut req).is_ok() {
@@ -279,9 +270,42 @@ impl DeviceImpl {
         let rdev = metadata.rdev();
         let index = rdev % 256;
         std::mem::forget(file); // prevent fd being closed
-        Ok(format!("tun{}", index))
+        Ok(format!("tun{index}"))
     }
 
+    fn remove_all_address_v4(&self) -> io::Result<()> {
+        unsafe {
+            let req_v4 = self.request()?;
+            loop {
+                if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
+                    if err == nix::errno::Errno::EADDRNOTAVAIL {
+                        break;
+                    }
+                    return Err(io::Error::from(err));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+// Public User Interface
+impl DeviceImpl {
+    /// Retrieves the name of the network interface.
+    pub fn name(&self) -> io::Result<String> {
+        let _guard = self.op_lock.lock().unwrap();
+        self.name_impl()
+    }
+    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
+    /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
+    /// Set this to be false to obtain the platform's default routing behavior.
+    pub fn set_associate_route(&self, associate_route: bool) {
+        *self.op_lock.lock().unwrap() = associate_route;
+    }
+    /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
+    pub fn associate_route(&self) -> bool {
+        *self.op_lock.lock().unwrap()
+    }
     /// Enables or disables the network interface.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
@@ -306,13 +330,12 @@ impl DeviceImpl {
             Ok(())
         }
     }
-
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> io::Result<u16> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
-            let tun_name = self.name()?;
+            let tun_name = self.name_impl()?;
             ptr::copy_nonoverlapping(
                 tun_name.as_ptr() as *const c_char,
                 req.ifr_name.as_mut_ptr(),
@@ -331,7 +354,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
-            let tun_name = self.name()?;
+            let tun_name = self.name_impl()?;
             ptr::copy_nonoverlapping(
                 tun_name.as_ptr() as *const c_char,
                 req.ifr_name.as_mut_ptr(),
@@ -353,7 +376,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let guard = self.op_lock.lock().unwrap();
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
         let default_dest = self.calc_dest_addr(addr, netmask)?;
@@ -363,7 +386,7 @@ impl DeviceImpl {
             .map(|v| v.into())
             .unwrap_or(default_dest);
         self.remove_all_address_v4()?;
-        self.add_address(addr, netmask, Some(dest))?;
+        self.add_address(addr, netmask, Some(dest), *guard)?;
         Ok(())
     }
     /// Add IPv4 network address, netmask
@@ -372,25 +395,11 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let guard = self.op_lock.lock().unwrap();
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
         let dest = self.calc_dest_addr(addr, netmask)?;
-        self.add_address(addr, netmask, Some(dest))?;
-        Ok(())
-    }
-    fn remove_all_address_v4(&self) -> io::Result<()> {
-        unsafe {
-            let req_v4 = self.request()?;
-            loop {
-                if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
-                    if err == nix::errno::Errno::EADDRNOTAVAIL {
-                        break;
-                    }
-                    return Err(io::Error::from(err));
-                }
-            }
-        }
+        self.add_address(addr, netmask, Some(dest), *guard)?;
         Ok(())
     }
     /// Removes an IP address from the interface.
@@ -422,10 +431,10 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let guard = self.op_lock.lock().unwrap();
         let addr = addr.ipv6()?;
         let netmask = netmask.netmask()?;
-        self.add_address(addr.into(), netmask.into(), None)
+        self.add_address(addr.into(), netmask.into(), None, *guard)
     }
     /// Sets the MAC (hardware) address for the interface.
     ///
@@ -452,7 +461,7 @@ impl DeviceImpl {
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let _guard = self.op_lock.lock().unwrap();
-        let mac = mac_address_by_name(&self.name()?)
+        let mac = mac_address_by_name(&self.name_impl()?)
             .map_err(|e| io::Error::other(e.to_string()))?
             .ok_or(io::Error::new(
                 ErrorKind::InvalidInput,
