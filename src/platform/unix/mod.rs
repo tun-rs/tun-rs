@@ -43,6 +43,7 @@ pub(crate) mod device;
 /// A TUN device for Android/iOS/...
 pub struct DeviceImpl {
     pub(crate) tun: Tun,
+    pub(crate) op_lock: std::sync::Mutex<()>,
 }
 #[cfg(all(
     unix,
