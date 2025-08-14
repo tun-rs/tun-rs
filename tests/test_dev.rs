@@ -263,7 +263,7 @@ fn create_dev() {
     #[cfg(not(target_os = "macos"))]
     let name = "tun12";
     #[cfg(target_os = "macos")]
-    let name = "tun12";
+    let name = "utun12";
 
     let device = DeviceBuilder::new().name(name).build_sync().unwrap();
     let dev_name = device.name().unwrap();
