@@ -348,4 +348,3 @@ impl IntoRawFd for SyncDevice {
         self.0.into_raw_fd()
     }
 }
-

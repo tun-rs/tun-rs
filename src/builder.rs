@@ -730,7 +730,7 @@ impl DeviceBuilder {
     /// # Ergonomic
     ///
     /// For example:
-    /// ````
+    /// ````no_run
     /// use tun_rs::DeviceBuilder;
     /// let builder = DeviceBuilder::new().name("tun1");
     /// #[cfg(target_os = "macos")]
@@ -742,7 +742,7 @@ impl DeviceBuilder {
     /// This is tedious and breaks the calling chain.
     ///
     /// With `with`, we can just set platform-specific parameters as follows without breaking the calling chain:
-    /// ````
+    /// ````no_run
     /// use tun_rs::DeviceBuilder;
     /// let dev = DeviceBuilder::new().name("tun1").with(|opt|{
     ///    #[cfg(windows)]

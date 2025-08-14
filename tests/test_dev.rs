@@ -214,7 +214,7 @@ async fn test_udp() {
         .await
         .unwrap();
 
-    let udp_socket = tokio::net::UdpSocket::bind("10.26.1.100:0").await.unwrap();
+    let udp_socket = tokio::net::UdpSocket::bind("10.26.1.200:0").await.unwrap();
     udp_socket
         .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
         .await
@@ -238,11 +238,8 @@ fn create_dev() {
     let name = "tun12";
     #[cfg(target_os = "macos")]
     let name = "tun12";
-    
-    let device = DeviceBuilder::new()
-        .name(name)
-        .build_sync()
-        .unwrap();
+
+    let device = DeviceBuilder::new().name(name).build_sync().unwrap();
     let dev_name = device.name().unwrap();
     assert_eq!(dev_name, name);
     #[cfg(unix)]
