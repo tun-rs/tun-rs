@@ -121,7 +121,6 @@ impl DeviceImpl {
                 }
             }
         };
-        Self::enable_tunsifhead(&tun)?;
         let tun = Tun::new(tun);
         tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
         let device = DeviceImpl {
@@ -129,7 +128,7 @@ impl DeviceImpl {
             op_lock: Mutex::new(associate_route),
         };
         device.disable_deafult_sys_local_ipv6()?;
-
+        Self::enable_tunsifhead(&device.tun.fd)?;
         Ok(device)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
