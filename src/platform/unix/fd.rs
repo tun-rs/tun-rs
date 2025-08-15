@@ -16,6 +16,7 @@ impl Fd {
         all(target_os = "linux", not(target_env = "ohos")),
         target_os = "freebsd",
         target_os = "openbsd",
+        target_os = "netbsd",
     ))]
     pub(crate) fn new(value: RawFd) -> io::Result<Self> {
         if value < 0 {

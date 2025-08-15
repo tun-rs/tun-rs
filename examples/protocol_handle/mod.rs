@@ -2,52 +2,123 @@
 
 use pnet_packet::arp::{ArpOperations, MutableArpPacket};
 use pnet_packet::ethernet::{EthernetPacket, MutableEthernetPacket};
+use pnet_packet::icmp::IcmpPacket;
 use pnet_packet::icmp::IcmpTypes;
+use pnet_packet::icmp::MutableIcmpPacket;
+use pnet_packet::icmpv6::Icmpv6Packet;
+use pnet_packet::icmpv6::Icmpv6Types;
+use pnet_packet::icmpv6::MutableIcmpv6Packet;
 use pnet_packet::ip::IpNextHeaderProtocols;
+use pnet_packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
+use pnet_packet::ipv6::{Ipv6Packet, MutableIpv6Packet};
 use pnet_packet::{MutablePacket, Packet};
 use std::net::Ipv4Addr;
 
-pub fn ping(buf: &[u8]) -> Option<Vec<u8>> {
-    #[allow(clippy::single_match)]
-    match pnet_packet::ipv4::Ipv4Packet::new(buf) {
-        Some(ip_pkt) => match ip_pkt.get_next_level_protocol() {
-            IpNextHeaderProtocols::Icmp => {
-                let icmp_pkt = pnet_packet::icmp::IcmpPacket::new(ip_pkt.payload()).unwrap();
-                match icmp_pkt.get_icmp_type() {
-                    IcmpTypes::EchoRequest => {
-                        let mut v = ip_pkt.payload().to_owned();
-                        let mut pkkt =
-                            pnet_packet::icmp::MutableIcmpPacket::new(&mut v[..]).unwrap();
-                        pkkt.set_icmp_type(IcmpTypes::EchoReply);
-                        pkkt.set_checksum(pnet_packet::icmp::checksum(&pkkt.to_immutable()));
-                        let len = ip_pkt.packet().len();
-                        let mut buf = vec![0u8; len];
-                        let mut res = pnet_packet::ipv4::MutableIpv4Packet::new(&mut buf).unwrap();
-                        res.set_total_length(ip_pkt.get_total_length());
-                        res.set_header_length(ip_pkt.get_header_length());
-                        res.set_destination(ip_pkt.get_source());
-                        res.set_source(ip_pkt.get_destination());
-                        res.set_identification(0x42);
-                        res.set_next_level_protocol(IpNextHeaderProtocols::Icmp);
-                        res.set_payload(&v);
-                        res.set_ttl(64);
-                        res.set_version(ip_pkt.get_version());
-                        res.set_checksum(pnet_packet::ipv4::checksum(&res.to_immutable()));
-                        println!(
-                            "ping: {}->{}",
-                            ip_pkt.get_source(),
-                            ip_pkt.get_destination()
-                        );
-                        return Some(buf);
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        },
-        None => {}
+fn handle_ipv4_ping(ip_pkt: &Ipv4Packet) -> Option<Vec<u8>> {
+    if ip_pkt.get_next_level_protocol() != IpNextHeaderProtocols::Icmp {
+        return None;
     }
-    None
+
+    let icmp_pkt = IcmpPacket::new(ip_pkt.payload())?;
+    if icmp_pkt.get_icmp_type() != IcmpTypes::EchoRequest {
+        return None;
+    }
+
+    println!(
+        "IPv4 Ping Request: {} -> {}",
+        ip_pkt.get_source(),
+        ip_pkt.get_destination()
+    );
+
+    let mut icmp_payload = ip_pkt.payload().to_owned();
+    let mut mutable_icmp_pkt = MutableIcmpPacket::new(&mut icmp_payload).unwrap();
+    mutable_icmp_pkt.set_icmp_type(IcmpTypes::EchoReply);
+    mutable_icmp_pkt.set_checksum(pnet_packet::icmp::checksum(
+        &mutable_icmp_pkt.to_immutable(),
+    ));
+
+    let total_len = ip_pkt.get_total_length() as usize;
+    let mut response_buf = vec![0u8; total_len];
+    let mut res_ipv4_pkt = MutableIpv4Packet::new(&mut response_buf).unwrap();
+
+    res_ipv4_pkt.set_version(4);
+    res_ipv4_pkt.set_header_length(ip_pkt.get_header_length());
+    res_ipv4_pkt.set_total_length(ip_pkt.get_total_length());
+    res_ipv4_pkt.set_identification(0x42);
+    res_ipv4_pkt.set_ttl(64);
+    res_ipv4_pkt.set_next_level_protocol(IpNextHeaderProtocols::Icmp);
+    res_ipv4_pkt.set_source(ip_pkt.get_destination());
+    res_ipv4_pkt.set_destination(ip_pkt.get_source());
+    res_ipv4_pkt.set_payload(&icmp_payload);
+    res_ipv4_pkt.set_checksum(pnet_packet::ipv4::checksum(&res_ipv4_pkt.to_immutable()));
+
+    Some(response_buf)
+}
+
+fn handle_ipv6_ping(ip_pkt: &Ipv6Packet) -> Option<Vec<u8>> {
+    if ip_pkt.get_next_header() != IpNextHeaderProtocols::Icmpv6 {
+        return None;
+    }
+
+    let icmpv6_pkt = Icmpv6Packet::new(ip_pkt.payload())?;
+    if icmpv6_pkt.get_icmpv6_type() != Icmpv6Types::EchoRequest {
+        return None;
+    }
+
+    println!(
+        "IPv6 Ping Request: {} -> {}",
+        ip_pkt.get_source(),
+        ip_pkt.get_destination()
+    );
+
+    let mut icmp_payload = ip_pkt.payload().to_owned();
+    let mut mutable_icmpv6_pkt = MutableIcmpv6Packet::new(&mut icmp_payload).unwrap();
+    mutable_icmpv6_pkt.set_icmpv6_type(Icmpv6Types::EchoReply);
+
+    let checksum = pnet_packet::icmpv6::checksum(
+        &mutable_icmpv6_pkt.to_immutable(),
+        &ip_pkt.get_destination(),
+        &ip_pkt.get_source(),
+    );
+    mutable_icmpv6_pkt.set_checksum(checksum);
+
+    let total_len = 40 + icmp_payload.len();
+    let mut response_buf = vec![0u8; total_len];
+    let mut res_ipv6_pkt = MutableIpv6Packet::new(&mut response_buf).unwrap();
+
+    res_ipv6_pkt.set_version(6);
+    res_ipv6_pkt.set_traffic_class(0);
+    res_ipv6_pkt.set_flow_label(0);
+    res_ipv6_pkt.set_payload_length(icmp_payload.len() as u16);
+    res_ipv6_pkt.set_next_header(IpNextHeaderProtocols::Icmpv6);
+    res_ipv6_pkt.set_hop_limit(64);
+    res_ipv6_pkt.set_source(ip_pkt.get_destination());
+    res_ipv6_pkt.set_destination(ip_pkt.get_source());
+    res_ipv6_pkt.set_payload(&icmp_payload);
+
+    Some(response_buf)
+}
+
+pub fn ping(buf: &[u8]) -> Option<Vec<u8>> {
+    if buf.is_empty() {
+        return None;
+    }
+    match buf[0] >> 4 {
+        4 => {
+            // IPv4
+            let ipv4_packet = Ipv4Packet::new(buf)?;
+            handle_ipv4_ping(&ipv4_packet)
+        }
+        6 => {
+            // IPv6
+            let ipv6_packet = Ipv6Packet::new(buf)?;
+            handle_ipv6_ping(&ipv6_packet)
+        }
+        _ => {
+            // unknown
+            None
+        }
+    }
 }
 pub fn ping_ethernet(buf: &[u8]) -> Option<Vec<u8>> {
     if let Some(packet) = EthernetPacket::new(buf) {

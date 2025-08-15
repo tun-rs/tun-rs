@@ -10,6 +10,7 @@ use std::sync::Arc;
     target_os = "freebsd",
     target_os = "macos",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 use tun_rs::DeviceBuilder;
 #[cfg(any(
@@ -18,6 +19,7 @@ use tun_rs::DeviceBuilder;
     target_os = "freebsd",
     target_os = "macos",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 use tun_rs::Layer;
 
@@ -29,6 +31,7 @@ mod protocol_handle;
     target_os = "freebsd",
     target_os = "macos",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 #[tokio::main]
 async fn main() -> io::Result<()> {

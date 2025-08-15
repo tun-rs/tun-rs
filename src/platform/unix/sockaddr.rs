@@ -21,7 +21,12 @@ fn rs_addr_to_sockaddr(addr: std::net::SocketAddr) -> sockaddr_union {
     match addr {
         std::net::SocketAddr::V4(ipv4) => {
             let mut addr: sockaddr_union = unsafe { std::mem::zeroed() };
-            #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "openbsd"))]
+            #[cfg(any(
+                target_os = "freebsd",
+                target_os = "macos",
+                target_os = "openbsd",
+                target_os = "netbsd"
+            ))]
             {
                 addr.addr4.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
             }
@@ -32,7 +37,12 @@ fn rs_addr_to_sockaddr(addr: std::net::SocketAddr) -> sockaddr_union {
         }
         std::net::SocketAddr::V6(ipv6) => {
             let mut addr: sockaddr_union = unsafe { std::mem::zeroed() };
-            #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "openbsd"))]
+            #[cfg(any(
+                target_os = "freebsd",
+                target_os = "macos",
+                target_os = "openbsd",
+                target_os = "netbsd"
+            ))]
             {
                 addr.addr6.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
             }
@@ -50,7 +60,8 @@ fn rs_addr_to_sockaddr(addr: std::net::SocketAddr) -> sockaddr_union {
     target_os = "linux",
     target_os = "macos",
     target_os = "freebsd",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 #[allow(dead_code)]
 pub(crate) unsafe fn ipaddr_to_sockaddr<T>(

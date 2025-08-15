@@ -9,6 +9,7 @@ use std::sync::Arc;
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 use tun_rs::DeviceBuilder;
 #[allow(unused_imports)]
@@ -23,6 +24,7 @@ mod protocol_handle;
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
