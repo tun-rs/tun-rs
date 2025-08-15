@@ -147,7 +147,7 @@ impl DeviceImpl {
                 req.ifra_name.as_mut_ptr(),
                 tun_name.len(),
             );
-            req.ndi.flags = req.ndi.flags & !(ND6_IFF_AUTO_LINKLOCAL as u32);
+            req.ndi.flags &= !(ND6_IFF_AUTO_LINKLOCAL as u32);
             if let Err(err) = siocsifinfoin6(ctl_v6()?.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
