@@ -579,6 +579,37 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         Self::enable_tunsifhead_impl(&self.tun.fd)
     }
+
+    /// Returns whether the TUN device is set to ignore packet information (PI).
+    ///
+    /// When enabled, the device does not prepend the `struct tun_pi` header
+    /// to packets, which can simplify packet processing in some cases.
+    ///
+    /// # Returns
+    /// * `true` - The TUN device ignores packet information.
+    /// * `false` - The TUN device includes packet information.
+    pub fn ignore_packet_info(&self) -> bool {
+        let _guard = self.op_lock.lock().unwrap();
+        self.tun.ignore_packet_info()
+    }
+    /// Sets whether the TUN device should ignore packet information (PI).
+    ///
+    /// When `ignore_packet_info` is set to `true`, the TUN device does not
+    /// prepend the `struct tun_pi` header to packets. This can be useful
+    /// if the additional metadata is not needed.
+    ///
+    /// # Parameters
+    /// * `ign`
+    ///     - If `true`, the TUN device will ignore packet information.
+    ///     - If `false`, it will include packet information.
+    pub fn set_ignore_packet_info(&self, ign: bool) {
+        let _guard = self.op_lock.lock().unwrap();
+        if let Ok(name) = self.name_impl() {
+            if name.starts_with("tun") {
+                self.tun.set_ignore_packet_info(ign)
+            }
+        }
+    }
 }
 
 impl From<Layer> for c_short {
