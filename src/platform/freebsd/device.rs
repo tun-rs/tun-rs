@@ -148,7 +148,7 @@ impl DeviceImpl {
                 req.ifra_name.as_mut_ptr(),
                 tun_name.len(),
             );
-            req.ifra_flags = req.ifra_flags & !IN6_IFF_NODAD;
+            req.ifra_flags = req.ifra_flags & !ND6_IFF_AUTO_LINKLOCAL;
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
