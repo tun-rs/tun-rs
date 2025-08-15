@@ -216,7 +216,6 @@ impl DeviceImpl {
 
     /// Retrieves the name of the network interface.
     pub(crate) fn name_impl(&self) -> io::Result<String> {
-        let _guard = self.op_lock.lock().unwrap();
         Ok(self.name.clone())
     }
     fn name_of_fd(tun: &Tun) -> io::Result<String> {
