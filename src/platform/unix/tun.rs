@@ -3,7 +3,8 @@ use crate::platform::unix::Fd;
     target_os = "macos",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "freebsd"
 ))]
 use crate::PACKET_INFORMATION_LENGTH as PIL;
 use std::io::{self, IoSlice, IoSliceMut};
@@ -12,7 +13,8 @@ use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
     target_os = "macos",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "freebsd"
 ))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -74,7 +76,8 @@ pub(crate) struct Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     ignore_packet_information: AtomicBool,
 }
@@ -87,7 +90,8 @@ impl Tun {
                 target_os = "macos",
                 target_os = "ios",
                 target_os = "tvos",
-                target_os = "openbsd"
+                target_os = "openbsd",
+                target_os = "freebsd"
             ))]
             ignore_packet_information: AtomicBool::new(true),
         }
@@ -112,7 +116,7 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
     ))]
     pub(crate) fn send(&self, buf: &[u8]) -> io::Result<usize> {
         if self.ignore_packet_info() {
@@ -232,7 +236,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     #[inline]
     pub(crate) fn ignore_packet_info(&self) -> bool {
@@ -242,7 +247,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     pub(crate) fn set_ignore_packet_info(&self, ign: bool) {
         self.ignore_packet_information.store(ign, Ordering::Relaxed);

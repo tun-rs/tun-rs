@@ -125,9 +125,10 @@ impl DeviceImpl {
                 }
             };
             Self::enable_tunsifhead(&tun)?;
-
+            let tun = Tun::new(tun);
+            tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
             DeviceImpl {
-                tun: Tun::new(tun),
+                tun,
                 alias_lock: Mutex::new(()),
                 associate_route: AtomicBool::new(associate_route),
             }
@@ -136,6 +137,7 @@ impl DeviceImpl {
         Ok(device)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        Self::enable_tunsifhead(&tun.fd)?;
         Ok(Self {
             tun,
             alias_lock: Mutex::new(()),
@@ -144,6 +146,7 @@ impl DeviceImpl {
     }
     // https://forums.freebsd.org/threads/ping6-address-family-not-supported-by-protocol-family.51467/
     // https://man.freebsd.org/cgi/man.cgi?query=tun&sektion=4&manpath=FreeBSD+5.3-RELEASE
+    // https://web.mit.edu/freebsd/head/sys/net/if_tun.h
     // If the TUNSIFHEAD ioctl has been set, the address family must
     // be prepended, otherwise the packet is assumed to	be  of	type  AF_INET.
     // IPv6 needs AF_INET6.
