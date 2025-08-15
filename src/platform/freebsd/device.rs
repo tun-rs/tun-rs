@@ -124,6 +124,7 @@ impl DeviceImpl {
                     (tun, device_name)
                 }
             };
+            Self::enable_tunsifhead(&tun)?;
 
             DeviceImpl {
                 tun: Tun::new(tun),
@@ -140,6 +141,16 @@ impl DeviceImpl {
             alias_lock: Mutex::new(()),
             associate_route: AtomicBool::new(true),
         })
+    }
+
+    fn enable_tunsifhead(device_fd: &Fd) -> std::io::Result<()> {
+        unsafe {
+            let ctl = ctl()?;
+            if let Err(err) = sioctunsifhead(device_fd.as_raw_fd(), &1 as *const _) {
+                return Err(io::Error::from(err));
+            }
+        }
+        Ok(())
     }
 
     fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> std::io::Result<IpAddr> {
