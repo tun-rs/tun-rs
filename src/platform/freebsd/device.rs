@@ -121,8 +121,11 @@ impl DeviceImpl {
                 }
             }
         };
+        Self::enable_tunsifhead(&tun)?;
+        let tun = Tun::new(tun);
+        tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
         let device = DeviceImpl {
-            tun: Tun::new(tun),
+            tun,
             op_lock: Mutex::new(associate_route),
         };
 
@@ -133,6 +136,23 @@ impl DeviceImpl {
             tun,
             op_lock: Mutex::new(true),
         })
+    }
+
+    // https://forums.freebsd.org/threads/ping6-address-family-not-supported-by-protocol-family.51467/
+    // https://man.freebsd.org/cgi/man.cgi?query=tun&sektion=4&manpath=FreeBSD+5.3-RELEASE
+    // https://web.mit.edu/freebsd/head/sys/net/if_tun.h
+    // If the TUNSIFHEAD ioctl has been set, the address family must
+    // be prepended, otherwise the packet is assumed to	be  of	type  AF_INET.
+    // IPv6 needs AF_INET6.
+    // The argument	should be a pointer to an int; a  non-zero value turns off "link-layer" mode, and enables "multi-af"
+    // mode, where every packet is preceded	with a four byte ad-dress family.
+    fn enable_tunsifhead(device_fd: &Fd) -> std::io::Result<()> {
+        unsafe {
+            if let Err(err) = sioctunsifhead(device_fd.as_raw_fd(), &1 as *const _) {
+                return Err(io::Error::from(err));
+            }
+        }
+        Ok(())
     }
 
     fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> std::io::Result<IpAddr> {
