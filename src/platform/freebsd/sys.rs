@@ -204,6 +204,31 @@ pub struct icmp6_ifstat {
     pub ifs6_out_mlddone: u_quad_t,
 }
 
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct in6_ndireq {
+    pub ifra_name: [c_char; IFNAMSIZ],
+    pub ndi: nd_ifinfo,
+}
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct nd_ifinfo {
+    linkmtu: u32,
+    maxmtu: u32,
+    basereachable: u32,
+    reachable: u32,
+    retrans: u32,
+    flags: u32,
+    recalctm: c_int,
+    chlim: u8,
+    initialized: u8,
+    randomseed0: [u8; 8],
+    randomseed1: [u8; 8],
+    randomid: [u8; 8],
+}
+
 ioctl_write_ptr!(siocsifflags, b'i', 16, ifreq);
 ioctl_readwrite!(siocgifflags, b'i', 17, ifreq);
 
@@ -240,3 +265,5 @@ ioctl_write_ptr!(siocdifaddr_in6, b'i', 25, in6_ifreq);
 ioctl_write_ptr!(siocaifaddr_in6, b'i', 27, in6_ifaliasreq);
 
 ioctl_write_ptr!(sioctunsifhead, b't', 96, c_int);
+
+ioctl_readwrite!(siocsifinfoin6, b'i', 109, in6_ndireq);

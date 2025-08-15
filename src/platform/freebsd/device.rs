@@ -141,14 +141,14 @@ impl DeviceImpl {
     fn disable_deafult_sys_local_ipv6(&self) -> std::io::Result<()> {
         unsafe {
             let tun_name = self.name_impl()?;
-            let mut req: in6_ifaliasreq = mem::zeroed();
+            let mut req: in6_ndireq = mem::zeroed();
             ptr::copy_nonoverlapping(
                 tun_name.as_ptr() as *const c_char,
                 req.ifra_name.as_mut_ptr(),
                 tun_name.len(),
             );
-            req.ifra_flags = req.ifra_flags & !ND6_IFF_AUTO_LINKLOCAL;
-            if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
+            req.ndi.flags = req.ndi.flags & !ND6_IFF_AUTO_LINKLOCAL;
+            if let Err(err) = siocsifinfoin6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
         }
