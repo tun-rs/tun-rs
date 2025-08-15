@@ -271,3 +271,6 @@ ioctl_write_ptr!(siocifdestroy, b'i', 121, ifreq);
 ioctl_write_ptr!(siocifcreate, b'i', 122, ifreq);
 
 ioctl_read!(tapgifname, b'e', 0, ifreq);
+
+// http://fxr.watson.org/fxr/source/net/if_tun.h?v=NETBSD
+ioctl_write_ptr!(sioctunsifhead, b't', 66, c_int);

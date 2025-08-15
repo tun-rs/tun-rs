@@ -70,6 +70,9 @@ impl DeviceImpl {
         };
 
         let tun = Tun::new(dev_fd);
+        if matches!(layer, Layer::L2) {
+            Self::enable_tunsifhead(&tun.fd)?;
+        }
         Ok(DeviceImpl {
             name,
             tun,
@@ -227,6 +230,15 @@ impl DeviceImpl {
             tun,
             op_lock: Mutex::new(true),
         })
+    }
+
+    fn enable_tunsifhead(device_fd: &Fd) -> std::io::Result<()> {
+        unsafe {
+            if let Err(err) = sioctunsifhead(device_fd.as_raw_fd(), &1 as *const _) {
+                return Err(io::Error::from(err));
+            }
+        }
+        Ok(())
     }
 
     fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<IpAddr> {

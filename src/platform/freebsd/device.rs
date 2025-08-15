@@ -128,7 +128,9 @@ impl DeviceImpl {
             op_lock: Mutex::new(associate_route),
         };
         device.disable_deafult_sys_local_ipv6()?;
-        Self::enable_tunsifhead(&device.tun.fd)?;
+        if matches!(layer, Layer::L2) {
+            Self::enable_tunsifhead(&tun.fd)?;
+        }
         Ok(device)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
