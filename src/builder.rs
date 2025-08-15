@@ -79,7 +79,12 @@ pub(crate) struct DeviceConfig {
     #[cfg(windows)]
     pub(crate) mac_address: Option<String>,
     /// switch of Enable/Disable packet information for network driver
-    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     pub(crate) packet_information: Option<bool>,
     /// Enable/Disable TUN offloads.
     /// After enabling, use `recv_multiple`/`send_multiple` for data transmission.
@@ -271,7 +276,12 @@ impl DeviceBuilderGuard<'_> {
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
-    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     pub fn packet_information(&mut self, packet_information: bool) -> &mut Self {
         self.0.packet_information = Some(packet_information);
         self
@@ -360,7 +370,12 @@ pub struct DeviceBuilder {
     #[cfg(windows)]
     delete_driver: Option<bool>,
     /// switch of Enable/Disable packet information for network driver
-    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     packet_information: Option<bool>,
     #[cfg(target_os = "linux")]
     tx_queue_len: Option<u32>,
@@ -573,7 +588,12 @@ impl DeviceBuilder {
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
-    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
         self.packet_information = Some(packet_information);
         self
@@ -658,7 +678,12 @@ impl DeviceBuilder {
                         s
                     })
             }),
-            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "freebsd"))]
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "linux",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ))]
             packet_information: self.packet_information.take(),
             #[cfg(target_os = "linux")]
             offload: self.offload.take(),
