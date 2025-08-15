@@ -134,10 +134,13 @@ impl DeviceImpl {
         Ok(device)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
-        Ok(Self {
+        tun.set_ignore_packet_info(false);
+        let dev = Self {
             tun,
             op_lock: Mutex::new(true),
-        })
+        };
+        dev.set_ignore_packet_info(true);
+        Ok(dev)
     }
 
     fn disable_deafult_sys_local_ipv6(&self) -> std::io::Result<()> {
