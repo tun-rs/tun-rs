@@ -9,7 +9,9 @@ use pnet_packet::Packet;
     target_os = "windows",
     target_os = "macos",
     all(target_os = "linux", not(target_env = "ohos")),
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 use tun_rs::DeviceBuilder;
 use tun_rs::SyncDevice;
@@ -18,22 +20,85 @@ use tun_rs::SyncDevice;
     target_os = "windows",
     target_os = "macos",
     all(target_os = "linux", not(target_env = "ohos")),
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 #[cfg(not(any(feature = "async_tokio", feature = "async_io")))]
 #[test]
-fn test_udp() {
+fn test_udp_v4() {
     let test_msg = "test udp";
     let device = DeviceBuilder::new()
         .ipv4("10.26.1.100", 24, None)
-        .ipv6("fd12:3456:789a:1111:2222:3333:4444:5555", 64)
         .build_sync()
         .unwrap();
     let device = Arc::new(device);
     let _device = device.clone();
     let test_udp_v4 = Arc::new(AtomicBool::new(false));
-    let test_udp_v6 = Arc::new(AtomicBool::new(false));
     let test_udp_v4_c = test_udp_v4.clone();
+    let recv_flag = Arc::new(AtomicBool::new(false));
+    let recv_flag_c = recv_flag.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0; 65535];
+        loop {
+            let len = device.recv(&mut buf).unwrap();
+            if let Some(ipv4_packet) = pnet_packet::ipv4::Ipv4Packet::new(&buf[..len]) {
+                if ipv4_packet.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
+                    if let Some(udp_packet) =
+                        pnet_packet::udp::UdpPacket::new(ipv4_packet.payload())
+                    {
+                        if udp_packet.payload() == test_msg.as_bytes() {
+                            test_udp_v4.store(true, Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+            if test_udp_v4.load(Ordering::Relaxed) {
+                recv_flag.store(true, Ordering::Release);
+                break;
+            }
+        }
+    });
+    std::thread::sleep(Duration::from_secs(6));
+    let udp_socket = std::net::UdpSocket::bind("10.26.1.100:0").unwrap();
+    udp_socket
+        .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
+        .unwrap();
+    let time_now = std::time::Instant::now();
+    // check whether the thread completes
+    while !recv_flag_c.load(Ordering::Acquire) {
+        if time_now.elapsed().as_secs() > 2 {
+            // no promise due to the timeout
+            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+            assert!(v4, "timeout: test_udp_v4 = {v4}");
+            return;
+        }
+    }
+    // recv_flag_c == true
+    // all modifications to test_udp_v4_c must be visible
+    let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+    assert!(v4);
+}
+
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
+#[cfg(not(any(feature = "async_tokio", feature = "async_io")))]
+#[test]
+fn test_udp_v6() {
+    let test_msg = "test udp";
+    let device = DeviceBuilder::new()
+        .ipv6("fd12:3456:789a:1111:2222:3333:4444:5555", 64)
+        .build_sync()
+        .unwrap();
+    let device = Arc::new(device);
+    let _device = device.clone();
+    let test_udp_v6 = Arc::new(AtomicBool::new(false));
     let test_udp_v6_c = test_udp_v6.clone();
     let recv_flag = Arc::new(AtomicBool::new(false));
     let recv_flag_c = recv_flag.clone();
@@ -52,18 +117,7 @@ fn test_udp() {
                     }
                 }
             }
-            if let Some(ipv4_packet) = pnet_packet::ipv4::Ipv4Packet::new(&buf[..len]) {
-                if ipv4_packet.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
-                    if let Some(udp_packet) =
-                        pnet_packet::udp::UdpPacket::new(ipv4_packet.payload())
-                    {
-                        if udp_packet.payload() == test_msg.as_bytes() {
-                            test_udp_v4.store(true, Ordering::Relaxed);
-                        }
-                    }
-                }
-            }
-            if test_udp_v4.load(Ordering::Relaxed) && test_udp_v6.load(Ordering::Relaxed) {
+            if test_udp_v6.load(Ordering::Relaxed) {
                 recv_flag.store(true, Ordering::Release);
                 break;
             }
@@ -78,32 +132,21 @@ fn test_udp() {
             "[fd12:3456:789a:1111:2222:3333:4444:5556]:8080",
         )
         .unwrap();
-
-    let udp_socket = std::net::UdpSocket::bind("10.26.1.100:0").unwrap();
-    udp_socket
-        .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
-        .unwrap();
     let time_now = std::time::Instant::now();
     // check whether the thread completes
     while !recv_flag_c.load(Ordering::Acquire) {
         if time_now.elapsed().as_secs() > 2 {
             // no promise due to the timeout
-            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
             let v6 = test_udp_v6_c.load(Ordering::Relaxed);
-            assert!(v4 && v6, "timeout: test_udp_v4 = {v4} test_udp_v6 = {v6}");
+            assert!(v6, "timeout: test_udp_v6 = {v6}");
             return;
         }
     }
     // recv_flag_c == true
-    // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
-    let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+    // all modifications to test_udp_v6_c must be visible
     let v6 = test_udp_v6_c.load(Ordering::Relaxed);
-    assert!(
-        v4 && v6,
-        "test_udp_v4 and test_udp_v6 must be true, test_udp_v4 = {v4} test_udp_v6 = {v6}"
-    );
+    assert!(v6);
 }
-
 #[cfg(any(
     target_os = "windows",
     target_os = "macos",
@@ -114,12 +157,149 @@ fn test_udp() {
 ))]
 #[cfg(feature = "async_tokio")]
 #[tokio::test]
-async fn test_udp() {
+async fn test_udp_v4() {
     let test_msg = "test udp";
     let device = DeviceBuilder::new()
         .ipv4("10.26.1.100", 24, None)
+        .build_async()
+        .unwrap();
+
+    let device = Arc::new(device);
+    let _device = device.clone();
+    let test_udp_v4 = Arc::new(AtomicBool::new(false));
+    let test_udp_v4_c = test_udp_v4.clone();
+    let recv_flag = Arc::new(AtomicBool::new(false));
+    let recv_flag_c = recv_flag.clone();
+    let handler = tokio::spawn(async move {
+        let mut buf = [0; 65535];
+        loop {
+            let len = device.recv(&mut buf).await.unwrap();
+            if let Some(ipv4_packet) = pnet_packet::ipv4::Ipv4Packet::new(&buf[..len]) {
+                if ipv4_packet.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
+                    if let Some(udp_packet) =
+                        pnet_packet::udp::UdpPacket::new(ipv4_packet.payload())
+                    {
+                        if udp_packet.payload() == test_msg.as_bytes() {
+                            test_udp_v4.store(true, Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+            if test_udp_v4.load(Ordering::Relaxed) {
+                recv_flag.store(true, Ordering::Release);
+                break;
+            }
+        }
+    });
+    tokio::time::sleep(Duration::from_secs(6)).await;
+
+    let udp_socket = tokio::net::UdpSocket::bind("10.26.1.200:0").await.unwrap();
+    udp_socket
+        .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
+        .await
+        .unwrap();
+    tokio::select! {
+        _=tokio::time::sleep(Duration::from_secs(2))=>{
+            // no promise due to the timeout
+            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+            assert!(v4, "timeout: test_udp_v4 = {v4}");
+        }
+        _=handler=>{
+            // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
+            let flag = recv_flag_c.load(Ordering::Acquire); //synchronize
+            assert!(flag, "recv_flag = {flag}");
+            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
+            assert!(v4);
+        }
+    }
+}
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
+#[cfg(feature = "async_tokio")]
+#[tokio::test]
+async fn test_udp_v6() {
+    let test_msg = "test udp";
+    let device = DeviceBuilder::new()
         .ipv6("fd12:3456:789a:1111:2222:3333:4444:5555", 64)
         .build_async()
+        .unwrap();
+
+    let device = Arc::new(device);
+    let _device = device.clone();
+    let test_udp_v6 = Arc::new(AtomicBool::new(false));
+    let test_udp_v6_c = test_udp_v6.clone();
+    let recv_flag = Arc::new(AtomicBool::new(false));
+    let recv_flag_c = recv_flag.clone();
+    let handler = tokio::spawn(async move {
+        let mut buf = [0; 65535];
+        loop {
+            let len = device.recv(&mut buf).await.unwrap();
+            if let Some(ipv6_packet) = pnet_packet::ipv6::Ipv6Packet::new(&buf[..len]) {
+                if ipv6_packet.get_next_header() == IpNextHeaderProtocols::Udp {
+                    if let Some(udp_packet) =
+                        pnet_packet::udp::UdpPacket::new(ipv6_packet.payload())
+                    {
+                        if udp_packet.payload() == test_msg.as_bytes() {
+                            test_udp_v6.store(true, Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+
+            if test_udp_v6.load(Ordering::Relaxed) {
+                recv_flag.store(true, Ordering::Release);
+                break;
+            }
+        }
+    });
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let udp_socket = tokio::net::UdpSocket::bind("[fd12:3456:789a:1111:2222:3333:4444:5555]:0")
+        .await
+        .unwrap();
+    udp_socket
+        .send_to(
+            test_msg.as_bytes(),
+            "[fd12:3456:789a:1111:2222:3333:4444:5556]:8080",
+        )
+        .await
+        .unwrap();
+
+    tokio::select! {
+        _=tokio::time::sleep(Duration::from_secs(2))=>{
+            // no promise due to the timeout
+            let v6 = test_udp_v6_c.load(Ordering::Relaxed);
+            assert!(v6, "timeout: test_udp_v6 = {v6}");
+        }
+        _=handler=>{
+            // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
+            let flag = recv_flag_c.load(Ordering::Acquire); //synchronize
+            assert!(flag, "recv_flag = {flag}");
+            let v6 = test_udp_v6_c.load(Ordering::Relaxed);
+            assert!(v6 );
+        }
+    }
+}
+
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
+#[test]
+fn test_op() {
+    let device = DeviceBuilder::new()
+        .ipv4("10.26.2.100", 24, None)
+        .ipv6("fd12:3456:789a:5555:2222:3333:4444:5555", 120)
+        .build_sync()
         .unwrap();
 
     #[cfg(any(target_os = "macos", target_os = "openbsd"))]
@@ -138,19 +318,19 @@ async fn test_udp() {
     let vec = device.addresses().unwrap();
     assert!(vec
         .iter()
-        .any(|ip| *ip == "10.26.1.100".parse::<std::net::Ipv4Addr>().unwrap()));
+        .any(|ip| *ip == "10.26.2.100".parse::<std::net::Ipv4Addr>().unwrap()));
     assert!(vec.iter().any(|ip| *ip
-        == "fd12:3456:789a:1111:2222:3333:4444:5555"
+        == "fd12:3456:789a:5555:2222:3333:4444:5555"
             .parse::<std::net::Ipv6Addr>()
             .unwrap()));
 
-    device.set_network_address("10.26.1.200", 24, None).unwrap();
+    device.set_network_address("10.26.3.200", 24, None).unwrap();
     let vec = device.addresses().unwrap();
     assert!(vec
         .iter()
-        .any(|ip| *ip == "10.26.1.200".parse::<std::net::Ipv4Addr>().unwrap()));
+        .any(|ip| *ip == "10.26.3.200".parse::<std::net::Ipv4Addr>().unwrap()));
     assert!(vec.iter().any(|ip| *ip
-        == "fd12:3456:789a:1111:2222:3333:4444:5555"
+        == "fd12:3456:789a:5555:2222:3333:4444:5555"
             .parse::<std::net::Ipv6Addr>()
             .unwrap()));
 
@@ -191,83 +371,6 @@ async fn test_udp() {
 
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     assert!(device.is_running().unwrap());
-
-    let device = Arc::new(device);
-    let _device = device.clone();
-    let test_udp_v4 = Arc::new(AtomicBool::new(false));
-    let test_udp_v6 = Arc::new(AtomicBool::new(false));
-    let test_udp_v4_c = test_udp_v4.clone();
-    let test_udp_v6_c = test_udp_v6.clone();
-    let recv_flag = Arc::new(AtomicBool::new(false));
-    let recv_flag_c = recv_flag.clone();
-    let handler = tokio::spawn(async move {
-        let mut buf = [0; 65535];
-        loop {
-            let len = device.recv(&mut buf).await.unwrap();
-            if let Some(ipv6_packet) = pnet_packet::ipv6::Ipv6Packet::new(&buf[..len]) {
-                if ipv6_packet.get_next_header() == IpNextHeaderProtocols::Udp {
-                    if let Some(udp_packet) =
-                        pnet_packet::udp::UdpPacket::new(ipv6_packet.payload())
-                    {
-                        if udp_packet.payload() == test_msg.as_bytes() {
-                            test_udp_v6.store(true, Ordering::Relaxed);
-                        }
-                    }
-                }
-            }
-            if let Some(ipv4_packet) = pnet_packet::ipv4::Ipv4Packet::new(&buf[..len]) {
-                if ipv4_packet.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
-                    if let Some(udp_packet) =
-                        pnet_packet::udp::UdpPacket::new(ipv4_packet.payload())
-                    {
-                        if udp_packet.payload() == test_msg.as_bytes() {
-                            test_udp_v4.store(true, Ordering::Relaxed);
-                        }
-                    }
-                }
-            }
-            if test_udp_v6.load(Ordering::Relaxed) && test_udp_v4.load(Ordering::Relaxed) {
-                recv_flag.store(true, Ordering::Release);
-                break;
-            }
-        }
-    });
-    tokio::time::sleep(Duration::from_secs(6)).await;
-    let udp_socket = tokio::net::UdpSocket::bind("[fd12:3456:789a:1111:2222:3333:4444:5555]:0")
-        .await
-        .unwrap();
-    udp_socket
-        .send_to(
-            test_msg.as_bytes(),
-            "[fd12:3456:789a:1111:2222:3333:4444:5556]:8080",
-        )
-        .await
-        .unwrap();
-
-    let udp_socket = tokio::net::UdpSocket::bind("10.26.1.200:0").await.unwrap();
-    udp_socket
-        .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
-        .await
-        .unwrap();
-    tokio::select! {
-        _=tokio::time::sleep(Duration::from_secs(2))=>{
-            // no promise due to the timeout
-            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
-            let v6 = test_udp_v6_c.load(Ordering::Relaxed);
-            assert!(v4 && v6, "timeout: test_udp_v4 = {v4} test_udp_v6 = {v6}");
-        }
-        _=handler=>{
-            // all modifications to test_udp_v4_c and test_udp_v6_c must be visible
-            let flag = recv_flag_c.load(Ordering::Acquire); //synchronize
-            assert!(flag, "recv_flag = {flag}");
-            let v4 = test_udp_v4_c.load(Ordering::Relaxed);
-            let v6 = test_udp_v6_c.load(Ordering::Relaxed);
-            assert!(
-                v4 && v6,
-                "test_udp_v4 and test_udp_v6 must be true, test_udp_v4 = {v4} test_udp_v6 = {v6}"
-            );
-        }
-    }
 }
 
 #[cfg(any(
