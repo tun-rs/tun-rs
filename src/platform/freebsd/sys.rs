@@ -2,7 +2,9 @@ use libc::{c_char, c_int, c_uint, ifreq, sockaddr, sockaddr_in6, time_t, IFNAMSI
 use nix::{ioctl_readwrite, ioctl_write_ptr};
 use std::ffi::c_void;
 
-pub const IN6_IFF_NODAD: i32 = 0x0020;
+//pub const IN6_IFF_NODAD: i32 = 0x0020;
+pub const IN6_IFF_NODAD: i32 = 0x100;
+pub const ND6_IFF_AUTO_LINKLOCAL: i32 = 0x20;
 
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]

@@ -128,6 +128,7 @@ impl DeviceImpl {
             tun,
             op_lock: Mutex::new(associate_route),
         };
+        device.disable_deafult_sys_local_ipv6()?;
 
         Ok(device)
     }
@@ -136,6 +137,23 @@ impl DeviceImpl {
             tun,
             op_lock: Mutex::new(true),
         })
+    }
+
+    fn disable_deafult_sys_local_ipv6(&self) -> std::io::Result<()> {
+        unsafe {
+            let tun_name = self.name_impl()?;
+            let mut req: in6_ifaliasreq = mem::zeroed();
+            ptr::copy_nonoverlapping(
+                tun_name.as_ptr() as *const c_char,
+                req.ifra_name.as_mut_ptr(),
+                tun_name.len(),
+            );
+            req.ifra_flags = req.ifra_flags & !IN6_IFF_NODAD;
+            if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
+                return Err(io::Error::from(err));
+            }
+        }
+        Ok(())
     }
 
     // https://forums.freebsd.org/threads/ping6-address-family-not-supported-by-protocol-family.51467/
