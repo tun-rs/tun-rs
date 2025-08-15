@@ -123,7 +123,7 @@ impl DeviceImpl {
         };
         let tun = Tun::new(tun);
         if matches!(layer, Layer::L3) {
-            Self::enable_tunsifhead(&tun.fd)?;
+            Self::enable_tunsifhead_impl(&tun.fd)?;
             tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
         }
         let device = DeviceImpl {
@@ -168,7 +168,7 @@ impl DeviceImpl {
     // IPv6 needs AF_INET6.
     // The argument	should be a pointer to an int; a  non-zero value turns off "link-layer" mode, and enables "multi-af"
     // mode, where every packet is preceded	with a four byte ad-dress family.
-    fn enable_tunsifhead(device_fd: &Fd) -> std::io::Result<()> {
+    fn enable_tunsifhead_impl(device_fd: &Fd) -> std::io::Result<()> {
         unsafe {
             if let Err(err) = sioctunsifhead(device_fd.as_raw_fd(), &1 as *const _) {
                 return Err(io::Error::from(err));
@@ -570,6 +570,13 @@ impl DeviceImpl {
                 "invalid mac address",
             ))?;
         Ok(mac.bytes())
+    }
+    /// In Layer3(i.e. TUN mode), we need to put the tun interface into "multi_af" mode, which will prepend the address
+    /// family to all packets (same as NetBSD).
+    /// If this is not enabled, the kernel silently drops all IPv6 packets on output and gets confused on input.
+    pub fn enable_tunsifhead(&self) -> io::Result<()> {
+        let _guard = self.op_lock.lock().unwrap();
+        Self::enable_tunsifhead_impl(&self.tun.fd)
     }
 }
 
