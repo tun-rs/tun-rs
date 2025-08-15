@@ -260,7 +260,7 @@ ioctl_readwrite!(siocgifmtu, b'i', 126, ifreq_mtu);
 ioctl_write_ptr!(siocaifaddr, b'i', 26, ifaliasreq);
 ioctl_write_ptr!(siocdifaddr, b'i', 25, ifreq);
 
-ioctl_write_ptr!(siocsiflladdr, b'i', 31, ifreq);
+ioctl_write_ptr!(siocsifphyaddr, b'i', 70, ifaliasreq);
 
 ioctl_write_ptr!(siocdifaddr_in6, b'i', 25, in6_ifreq);
 

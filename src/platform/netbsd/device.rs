@@ -528,12 +528,18 @@ impl DeviceImpl {
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
-            let mut req = self.request()?;
-            req.ifr_ifru.ifru_addr.sa_len = ETHER_ADDR_LEN;
-            req.ifr_ifru.ifru_addr.sa_family = AF_LINK as u8;
-            req.ifr_ifru.ifru_addr.sa_data[0..ETHER_ADDR_LEN as usize]
+            let mut req: ifaliasreq = mem::zeroed();
+            let tun_name = self.name_impl()?;
+            ptr::copy_nonoverlapping(
+                tun_name.as_ptr() as *const c_char,
+                req.ifra_name.as_mut_ptr(),
+                tun_name.len(),
+            );
+            req.ifra_addr.sa_len = ETHER_ADDR_LEN;
+            req.ifra_addr.sa_family = AF_LINK as u8;
+            req.ifra_addr.sa_data[0..ETHER_ADDR_LEN as usize]
                 .copy_from_slice(eth_addr.map(|c| c as i8).as_slice());
-            if let Err(err) = siocsiflladdr(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifphyaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())
