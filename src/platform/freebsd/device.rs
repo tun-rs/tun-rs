@@ -122,15 +122,15 @@ impl DeviceImpl {
             }
         };
         let tun = Tun::new(tun);
-        tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
+        if matches!(layer, Layer::L3) {
+            Self::enable_tunsifhead(&tun.fd)?;
+            tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
+        }
         let device = DeviceImpl {
             tun,
             op_lock: Mutex::new(associate_route),
         };
         device.disable_deafult_sys_local_ipv6()?;
-        if matches!(layer, Layer::L2) {
-            Self::enable_tunsifhead(&tun.fd)?;
-        }
         Ok(device)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
@@ -380,6 +380,37 @@ impl DeviceImpl {
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
         *self.op_lock.lock().unwrap()
+    }
+
+    /// Returns whether the TUN device is set to ignore packet information (PI).
+    ///
+    /// When enabled, the device does not prepend the `struct tun_pi` header
+    /// to packets, which can simplify packet processing in some cases.
+    ///
+    /// # Returns
+    /// * `true` - The TUN device ignores packet information.
+    /// * `false` - The TUN device includes packet information.
+    pub fn ignore_packet_info(&self) -> bool {
+        let _guard = self.op_lock.lock().unwrap();
+        self.tun.ignore_packet_info()
+    }
+    /// Sets whether the TUN device should ignore packet information (PI).
+    ///
+    /// When `ignore_packet_info` is set to `true`, the TUN device does not
+    /// prepend the `struct tun_pi` header to packets. This can be useful
+    /// if the additional metadata is not needed.
+    ///
+    /// # Parameters
+    /// * `ign`
+    ///     - If `true`, the TUN device will ignore packet information.
+    ///     - If `false`, it will include packet information.
+    pub fn set_ignore_packet_info(&self, ign: bool) {
+        let _guard = self.op_lock.lock().unwrap();
+        if let Ok(name) = self.name_impl() {
+            if name.starts_with("tun") {
+                self.tun.set_ignore_packet_info(ign)
+            }
+        }
     }
     /// Enables or disables the network interface.
     pub fn enabled(&self, value: bool) -> std::io::Result<()> {
