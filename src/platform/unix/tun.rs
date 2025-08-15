@@ -23,7 +23,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
     target_os = "macos",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "freebsd"
 ))]
 pub(crate) fn is_ipv6(buf: &[u8]) -> std::io::Result<bool> {
     use std::io::{Error, ErrorKind::InvalidData};
@@ -40,7 +41,8 @@ pub(crate) fn is_ipv6(buf: &[u8]) -> std::io::Result<bool> {
     target_os = "macos",
     target_os = "ios",
     target_os = "tvos",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "freebsd"
 ))]
 pub(crate) fn generate_packet_information(_ipv6: bool) -> [u8; PIL] {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -52,14 +54,16 @@ pub(crate) fn generate_packet_information(_ipv6: bool) -> [u8; PIL] {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     const TUN_PROTO_IP6: [u8; PIL] = (libc::AF_INET6 as u32).to_be_bytes();
     #[cfg(any(
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     const TUN_PROTO_IP4: [u8; PIL] = (libc::AF_INET as u32).to_be_bytes();
 
@@ -106,7 +110,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     )))]
     #[inline]
     pub(crate) fn send(&self, buf: &[u8]) -> io::Result<usize> {
@@ -117,6 +122,7 @@ impl Tun {
         target_os = "ios",
         target_os = "tvos",
         target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     pub(crate) fn send(&self, buf: &[u8]) -> io::Result<usize> {
         if self.ignore_packet_info() {
@@ -133,7 +139,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     )))]
     #[inline]
     pub(crate) fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
@@ -143,7 +150,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     #[inline]
     pub(crate) fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
@@ -171,7 +179,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     )))]
     #[inline]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
@@ -181,7 +190,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         if self.ignore_packet_info() {
@@ -197,7 +207,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     )))]
     #[inline]
     pub(crate) fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
@@ -207,7 +218,8 @@ impl Tun {
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_os = "freebsd"
     ))]
     pub(crate) fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         if self.ignore_packet_info() {
