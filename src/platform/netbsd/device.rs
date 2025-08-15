@@ -9,7 +9,7 @@ use crate::{
 };
 
 use crate::platform::unix::device::{ctl, ctl_v6};
-use libc::{self, c_char, c_short, AF_LINK, IFF_RUNNING, IFF_UP, O_RDWR};
+use libc::{self, c_char, c_short, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
 use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
@@ -52,54 +52,66 @@ impl DeviceImpl {
         } else {
             false
         };
-        let device_prefix = if layer == Layer::L3 {
-            "tun".to_string()
-        } else {
-            "tap".to_string()
-        };
-        let (dev_fd, dev_name) = if let Some(dev_name) = config.dev_name {
-            if !dev_name.starts_with(&device_prefix) {
-                return Err(io::Error::new(
-                    ErrorKind::InvalidInput,
-                    format!("device name must start with {device_prefix}"),
-                ));
+        if let Some(dev_name) = config.dev_name.as_ref() {
+            Self::check_name(layer, dev_name)?;
+            if !config.reuse_dev.unwrap_or(true) {
+                let exists = Self::exists(dev_name)?;
+                if exists {
+                    return Err(io::Error::new(
+                        ErrorKind::AlreadyExists,
+                        format!("device {} already exists", dev_name),
+                    ));
+                }
             }
+        }
+        let (dev_fd, name) = match layer {
+            Layer::L2 => Self::create_tap(config.dev_name)?,
+            Layer::L3 => Self::create_tun(config.dev_name)?,
+        };
+
+        let tun = Tun::new(dev_fd);
+        Ok(DeviceImpl {
+            name,
+            tun,
+            op_lock: Mutex::new(associate_route),
+        })
+    }
+    fn check_name(layer: Layer, dev_name: &str) -> io::Result<()> {
+        if dev_name.len() > IFNAMSIZ {
+            return Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                "device name too long",
+            ));
+        }
+        let device_prefix = match layer {
+            Layer::L2 => "tap",
+            Layer::L3 => "tun",
+        };
+        if !dev_name.starts_with(device_prefix) {
+            Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                format!("device name must start with {device_prefix}"),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+    fn create_tap(dev_name: Option<String>) -> io::Result<(Fd, String)> {
+        let device_prefix = "tap";
+        if let Some(dev_name) = dev_name {
+            if let Err(e) = DeviceImpl::create_dev(&dev_name) {
+                if e.kind() != ErrorKind::AlreadyExists {
+                    return Err(e);
+                }
+            }
+
             let if_index = dev_name[3..]
                 .parse::<u32>()
                 .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
             let device_path = format!("/dev/{device_prefix}{if_index}\0");
-            if layer == Layer::L2 {
-                if let Err(e) = DeviceImpl::create_dev(&dev_name) {
-                    if e.kind() != ErrorKind::AlreadyExists {
-                        return Err(e);
-                    }
-                }
-            }
-            let fd =
-                unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC) };
-            (Fd::new(fd)?, dev_name)
-        } else if layer == Layer::L3 {
-            let mut if_index = 0;
-            loop {
-                let device_path = format!("/dev/{device_prefix}{if_index}\0");
-                let fd = unsafe {
-                    libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC)
-                };
-                match Fd::new(fd) {
-                    Ok(dev) => {
-                        break (dev, format!("{device_prefix}{if_index}"));
-                    }
-                    Err(e) => {
-                        if e.raw_os_error() != Some(libc::EBUSY) {
-                            return Err(e);
-                        }
-                    }
-                }
-                if_index += 1;
-                if if_index >= 256 {
-                    return Err(io::Error::last_os_error());
-                }
-            }
+
+            let fd = Self::open_and_makedev_dev(&dev_name, &device_path)?;
+            Ok((fd, dev_name))
         } else {
             let device_path = format!("/dev/{device_prefix}\0");
             let fd =
@@ -112,15 +124,68 @@ impl DeviceImpl {
                 }
                 let cstr = std::ffi::CStr::from_ptr(req.ifr_name.as_ptr());
                 let dev_name = cstr.to_string_lossy().to_string();
-                (fd, dev_name)
+                Ok((fd, dev_name))
             }
-        };
-        let tun = Tun::new(dev_fd);
-        Ok(DeviceImpl {
-            name: dev_name,
-            tun,
-            op_lock: Mutex::new(associate_route),
-        })
+        }
+    }
+    fn create_tun(dev_name: Option<String>) -> io::Result<(Fd, String)> {
+        let device_prefix = "tun";
+        if let Some(dev_name) = dev_name {
+            let if_index = dev_name[3..]
+                .parse::<u32>()
+                .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+            let device_path = format!("/dev/{device_prefix}{if_index}\0");
+            let fd = Self::open_and_makedev_dev(&dev_name, &device_path)?;
+            Ok((fd, dev_name))
+        } else {
+            for index in 0..256 {
+                let dev_name = format!("{device_prefix}{index}");
+                let device_path = format!("/dev/{device_prefix}{index}\0");
+
+                match Self::open_and_makedev_dev(&dev_name, &device_path) {
+                    Ok(dev) => {
+                        return Ok((dev, dev_name));
+                    }
+                    Err(e) => {
+                        if e.raw_os_error() != Some(libc::EBUSY) {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            Err(io::Error::last_os_error())
+        }
+    }
+    fn open_and_makedev_dev(dev_name: &str, device_path: &str) -> io::Result<Fd> {
+        let fd = unsafe { libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC) };
+        match Fd::new(fd) {
+            Ok(fd) => Ok(fd),
+            Err(ref e) if e.kind() == ErrorKind::NotFound => {
+                DeviceImpl::makedev_dev(dev_name)?;
+                let fd = unsafe {
+                    libc::open(device_path.as_ptr() as *const _, O_RDWR | libc::O_CLOEXEC)
+                };
+                Ok(Fd::new(fd)?)
+            }
+            Err(e) => Err(e),
+        }
+    }
+    fn makedev_dev(name: &str) -> io::Result<()> {
+        let status = std::process::Command::new("sh")
+            .arg("MAKEDEV")
+            .arg(name)
+            .current_dir("/dev")
+            .status()?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other(format!(
+                "MAKEDEV {} failed with status {:?}",
+                name,
+                status.code()
+            )))
+        }
     }
     fn create_dev(name: &str) -> io::Result<()> {
         unsafe {
@@ -135,6 +200,25 @@ impl DeviceImpl {
             }
         }
         Ok(())
+    }
+    fn exists(dev_name: &str) -> io::Result<bool> {
+        unsafe {
+            let mut req: ifreq = mem::zeroed();
+            ptr::copy_nonoverlapping(
+                dev_name.as_ptr() as *const c_char,
+                req.ifr_name.as_mut_ptr(),
+                dev_name.len(),
+            );
+            let ctl = ctl()?;
+            if let Err(err) = siocgifflags(ctl.as_raw_fd(), &mut req) {
+                if err == nix::errno::Errno::ENXIO {
+                    return Ok(false);
+                }
+                Err(io::Error::from(err))
+            } else {
+                Ok(true)
+            }
+        }
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
         let name = Self::name_of_fd(tun.as_raw_fd())?;
@@ -162,8 +246,8 @@ impl DeviceImpl {
         associate_route: bool,
     ) -> io::Result<()> {
         unsafe {
-            match addr {
-                IpAddr::V4(_) => {
+            match (addr, mask) {
+                (IpAddr::V4(addr), IpAddr::V4(mask)) => {
                     let ctl = ctl()?;
                     let mut req: ifaliasreq = mem::zeroed();
                     let tun_name = self.name_impl()?;
@@ -183,14 +267,11 @@ impl DeviceImpl {
                     if let Err(err) = siocaifaddr(ctl.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
                     }
-                    if let Err(e) = self.add_route(addr, mask, associate_route) {
+                    if let Err(e) = self.add_route(addr.into(), mask.into(), associate_route) {
                         log::warn!("{e:?}");
                     }
                 }
-                IpAddr::V6(_) => {
-                    let IpAddr::V6(_) = mask else {
-                        return Err(std::io::Error::from(ErrorKind::InvalidInput));
-                    };
+                (IpAddr::V6(addr), IpAddr::V6(mask)) => {
                     let tun_name = self.name_impl()?;
                     let mut req: in6_aliasreq = mem::zeroed();
                     ptr::copy_nonoverlapping(
@@ -206,6 +287,9 @@ impl DeviceImpl {
                     if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
                     }
+                }
+                _ => {
+                    unreachable!();
                 }
             }
             Ok(())

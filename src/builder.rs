@@ -52,7 +52,7 @@ pub(crate) struct DeviceConfig {
     pub(crate) associate_route: Option<bool>,
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     pub(crate) reuse_dev: Option<bool>,
     /// If true, the feth device will be kept after the program exits;
     /// if false (default), the device will be destroyed automatically.
@@ -327,7 +327,7 @@ pub struct DeviceBuilder {
         target_os = "netbsd"
     ))]
     associate_route: Option<bool>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     reuse_dev: Option<bool>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     persist: Option<bool>,
@@ -601,7 +601,7 @@ impl DeviceBuilder {
     /// Only works in TAP mode.
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     pub fn reuse_dev(mut self, reuse: bool) -> Self {
         self.reuse_dev = Some(reuse);
         self
@@ -634,7 +634,7 @@ impl DeviceBuilder {
                 target_os = "netbsd"
             ))]
             associate_route: self.associate_route,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
             reuse_dev: self.reuse_dev,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             persist: self.persist,
