@@ -148,7 +148,7 @@ impl DeviceImpl {
                 tun_name.len(),
             );
             req.ndi.flags = req.ndi.flags & !ND6_IFF_AUTO_LINKLOCAL;
-            if let Err(err) = siocsifinfoin6(ctl_v6()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifinfoin6(ctl_v6()?.as_raw_fd(), & mut req) {
                 return Err(io::Error::from(err));
             }
         }

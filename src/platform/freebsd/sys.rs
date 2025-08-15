@@ -215,18 +215,18 @@ pub struct in6_ndireq {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct nd_ifinfo {
-    linkmtu: u32,
-    maxmtu: u32,
-    basereachable: u32,
-    reachable: u32,
-    retrans: u32,
-    flags: u32,
-    recalctm: c_int,
-    chlim: u8,
-    initialized: u8,
-    randomseed0: [u8; 8],
-    randomseed1: [u8; 8],
-    randomid: [u8; 8],
+    pub linkmtu: u32,
+    pub maxmtu: u32,
+    pub basereachable: u32,
+    pub reachable: u32,
+    pub retrans: u32,
+    pub flags: u32,
+    pub recalctm: c_int,
+    pub chlim: u8,
+    pub initialized: u8,
+    pub randomseed0: [u8; 8],
+    pub randomseed1: [u8; 8],
+    pub randomid: [u8; 8],
 }
 
 ioctl_write_ptr!(siocsifflags, b'i', 16, ifreq);
