@@ -21,7 +21,7 @@ use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr};
 pub struct DeviceImpl {
     name: String,
     pub(crate) tun: Tun,
-    op_lock: Mutex<bool>,
+    pub(crate) op_lock: Mutex<bool>,
 }
 
 impl DeviceImpl {
