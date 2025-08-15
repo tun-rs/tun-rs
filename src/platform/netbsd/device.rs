@@ -59,7 +59,7 @@ impl DeviceImpl {
                 if exists {
                     return Err(io::Error::new(
                         ErrorKind::AlreadyExists,
-                        format!("device {} already exists", dev_name),
+                        format!("device {dev_name} already exists"),
                     ));
                 }
             }
