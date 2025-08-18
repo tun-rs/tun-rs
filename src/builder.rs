@@ -146,7 +146,8 @@ type IPV4 = (
 ///     all(target_os = "linux", not(target_env = "ohos")),
 ///     target_os = "freebsd",
 ///     target_os = "macos",
-///     target_os = "openbsd"
+///     target_os = "openbsd",
+///     target_os = "netbsd"
 /// ))]
 /// use tun_rs::{DeviceBuilder, Layer};
 ///
@@ -155,7 +156,8 @@ type IPV4 = (
 ///     all(target_os = "linux", not(target_env = "ohos")),
 ///     target_os = "freebsd",
 ///     target_os = "macos",
-///     target_os = "openbsd"
+///     target_os = "openbsd",
+///     target_os = "netbsd"
 /// ))]
 /// fn main() -> std::io::Result<()> {
 ///     let tap = DeviceBuilder::new()
