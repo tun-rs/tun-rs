@@ -568,6 +568,7 @@ impl DeviceImpl {
         let interfaces = nix::ifaddrs::getifaddrs()?;
         let interfaces = interfaces.filter(|item| item.interface_name == name);
         for addr in interfaces {
+            println!("addr = {addr:#?}");
             if let Some(address) = addr.address {
                 if let Some(mac_addr) = address.as_link_addr() {
                     if let Some(res) = mac_addr.addr() {
