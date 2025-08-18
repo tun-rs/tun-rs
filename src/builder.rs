@@ -108,7 +108,7 @@ type IPV4 = (
 ///
 /// Creating a basic IPv4 TUN interface:
 ///
-/// ```no_run
+/// ````no_run
 /// use std::net::Ipv4Addr;
 /// use tun_rs::DeviceBuilder;
 ///
@@ -120,11 +120,11 @@ type IPV4 = (
 ///         .build_sync()?;
 ///     Ok(())
 /// }
-/// ```
+/// ````
 ///
 /// Creating an IPv6 TUN interface:
 ///
-/// ```no_run
+/// ````no_run
 /// use std::net::Ipv6Addr;
 /// use tun_rs::DeviceBuilder;
 ///
@@ -136,11 +136,11 @@ type IPV4 = (
 ///         .build_sync()?;
 ///     Ok(())
 /// }
-/// ```
+/// ````
 ///
 /// Creating an L2 TAP interface (platform-dependent):
 ///
-/// ```no_run
+/// ````no_run
 /// #[cfg(any(
 ///     target_os = "windows",
 ///     all(target_os = "linux", not(target_env = "ohos")),
@@ -166,7 +166,7 @@ type IPV4 = (
 ///         .build_sync()?;
 ///     Ok(())
 /// }
-/// ```
+/// ````
 #[doc(hidden)]
 pub struct DeviceBuilderGuard<'a>(&'a mut DeviceBuilder);
 
