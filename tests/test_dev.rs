@@ -307,7 +307,7 @@ fn test_op() {
     #[cfg(any(target_os = "macos", target_os = "openbsd"))]
     assert!(device.ignore_packet_info());
 
-    device.set_mtu(1800).unwrap();
+    device.set_mtu(1500).unwrap();
     assert_eq!(device.mtu().unwrap(), 1800);
 
     #[cfg(target_os = "macos")]
