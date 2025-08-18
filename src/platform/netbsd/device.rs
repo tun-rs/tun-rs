@@ -431,7 +431,7 @@ impl DeviceImpl {
     pub fn mtu(&self) -> io::Result<u16> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
-            let mut req: ifreq_mtu = mem::zeroed();
+            let mut req: ifreq = mem::zeroed();
             let tun_name = self.name_impl()?;
             ptr::copy_nonoverlapping(
                 tun_name.as_ptr() as *const c_char,
@@ -442,7 +442,7 @@ impl DeviceImpl {
                 return Err(io::Error::from(err));
             }
 
-            let r: u16 = req.mtu.try_into().map_err(io::Error::other)?;
+            let r: u16 = req.ifr_ifru.ifru_mtu.try_into().map_err(io::Error::other)?;
             Ok(r)
         }
     }
@@ -450,14 +450,14 @@ impl DeviceImpl {
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
-            let mut req: ifreq_mtu = mem::zeroed();
+            let mut req: ifreq = mem::zeroed();
             let tun_name = self.name_impl()?;
             ptr::copy_nonoverlapping(
                 tun_name.as_ptr() as *const c_char,
                 req.ifr_name.as_mut_ptr(),
                 tun_name.len(),
             );
-            req.mtu = value as _;
+            req.ifr_ifru.ifru_mtu = value as _;
 
             if let Err(err) = siocsifmtu(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));

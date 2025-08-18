@@ -228,14 +228,6 @@ pub struct icmp6_ifstat {
     /* ipv6IfIcmpOutGroupMembReductions, # of output MLD done */
     pub ifs6_out_mlddone: u_quad_t,
 }
-#[allow(non_camel_case_types)]
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct ifreq_mtu {
-    pub ifr_name: [c_char; IFNAMSIZ],
-    pub mtu: c_uint,
-    pub pad0: [u8; 12],
-}
 
 // https://github.com/openbsd/src/blob/25ed657ec9c4285c385bc3b3556c0dc8eb6d6665/sys/sys/sockio.h#L114
 
@@ -254,8 +246,8 @@ ioctl_readwrite!(siocgifbrdaddr, b'i', 35, ifreq);
 ioctl_write_ptr!(siocsifnetmask, b'i', 22, ifreq);
 ioctl_readwrite!(siocgifnetmask, b'i', 37, ifreq);
 
-ioctl_write_ptr!(siocsifmtu, b'i', 127, ifreq_mtu);
-ioctl_readwrite!(siocgifmtu, b'i', 126, ifreq_mtu);
+ioctl_write_ptr!(siocsifmtu, b'i', 127, ifreq);
+ioctl_readwrite!(siocgifmtu, b'i', 126, ifreq);
 
 ioctl_write_ptr!(siocaifaddr, b'i', 26, ifaliasreq);
 ioctl_write_ptr!(siocdifaddr, b'i', 25, ifreq);
