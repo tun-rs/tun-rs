@@ -382,7 +382,7 @@ fn test_op() {
     target_os = "netbsd",
 ))]
 #[test]
-fn create_dev() {
+fn create_tun() {
     #[cfg(not(target_os = "macos"))]
     let name = "tun12";
     #[cfg(target_os = "macos")]
@@ -403,11 +403,32 @@ fn create_dev() {
     }
 }
 
-#[cfg(unix)]
-#[tokio::test]
-async fn test_unix_fd() {
-    use std::os::fd::IntoRawFd;
-    let device = unsafe { SyncDevice::from_fd(1).unwrap() };
-    let fd = device.into_raw_fd();
-    assert_eq!(fd, 1)
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
+#[test]
+fn create_tap() {
+    #[cfg(not(target_os = "macos"))]
+    let name = "tap12";
+    #[cfg(target_os = "macos")]
+    let name = "feth12";
+
+    let device = DeviceBuilder::new().name(name).layer(tun_rs::Layer::L2).build_sync().unwrap();
+    let dev_name = device.name().unwrap();
+    assert_eq!(dev_name.as_str(), name);
+    #[cfg(unix)]
+    {
+        use std::os::fd::IntoRawFd;
+        let fd = device.into_raw_fd();
+        unsafe {
+            let sync_device = SyncDevice::from_fd(fd).unwrap();
+            let dev_name = sync_device.name().unwrap();
+            assert_eq!(dev_name, name);
+        }
+    }
 }
