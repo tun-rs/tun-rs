@@ -122,7 +122,8 @@ impl SyncDevice {
     /// let mut tun = DeviceBuilder::new()
     ///     .name("my-tun")
     ///     .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
-    ///     .build_sync().unwrap();
+    ///     .build_sync()
+    ///     .unwrap();
     /// let mut buf = [0u8; 1500];
     /// tun.recv(&mut buf).unwrap();
     /// ```
@@ -142,7 +143,8 @@ impl SyncDevice {
     /// let mut tun = DeviceBuilder::new()
     ///     .name("my-tun")
     ///     .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
-    ///     .build_sync().unwrap();
+    ///     .build_sync()
+    ///     .unwrap();
     /// tun.send(b"hello").unwrap();
     /// ```
     pub fn send(&self, buf: &[u8]) -> std::io::Result<usize> {
