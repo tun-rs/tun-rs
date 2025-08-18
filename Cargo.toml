@@ -33,7 +33,7 @@ futures-core = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "android", target_os="freebsd", target_os="openbsd", target_os = "netbsd"))'.dependencies]
-nix = { version = "0.30", features = ["ioctl"] }
+nix = { version = "0.30", features = ["ioctl","net"] }
 
 [target.'cfg(any(target_os = "linux",target_os = "windows"))'.dependencies]
 netconfig-rs = "0.1.5"
