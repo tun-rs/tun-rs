@@ -318,12 +318,34 @@ impl DeviceImpl {
         Ok(self.name.clone())
     }
     fn name_of_fd(tun: &Tun) -> io::Result<String> {
-        let file = unsafe { std::fs::File::from_raw_fd(tun.as_raw_fd()) };
-        let metadata = file.metadata()?;
-        let rdev = metadata.rdev();
-        let index = rdev % 256;
-        std::mem::forget(file); // prevent fd being closed
-        Ok(format!("tun{index}"))
+        unsafe {
+            let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+            let rs = libc::fstat(tun.as_raw_fd(), st.as_mut_ptr());
+            if rs < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let st = unsafe { st.assume_init() };
+            let typ = st.st_mode & libc::S_IFMT;
+            if typ != libc::S_IFCHR && typ != libc::S_IFBLK {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "fd is not a device file",
+                ));
+            }
+            let p = libc::devname(st.st_rdev, libc::S_IFCHR);
+            if !p.is_null() {
+                let name = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+                if name == "??" {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "unknown device name (\"??\")",
+                    ));
+                }
+                Ok(name)
+            } else {
+                Err(io::Error::other("devname returned NULL"))
+            }
+        }
     }
 
     fn remove_all_address_v4(&self) -> io::Result<()> {
