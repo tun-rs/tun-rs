@@ -570,10 +570,10 @@ impl DeviceImpl {
         for addr in interfaces {
             if let Some(address) = addr.address {
                 if address.family() == Some(nix::sys::socket::AddressFamily::Link) {
-                    // This is workaround way, but it's safe because `SockaddrStorage` is a union represented by C.
-                    // So cast from `SockaddrStorage` to its variant thereof is safe.
+                    // This is a workaround, but it's safe because `SockaddrStorage` is a union whose layout is represented by C.
+                    // So, casting from `SockaddrStorage` to its variant thereof is safe.
                     // The `if` condition ensures that the dereferencing of the resulting pointer gets a valid value of `LinkAddr`.
-                    // However, it is preferred to use `as_link_addr` once `nix` fix it.
+                    // However, it is preferred to use `as_link_addr` once `nix` fixes it.
                     unsafe {
                         let link_ptr = &address as *const _ as *const LinkAddr;
                         if let Some(mac) = (*link_ptr).addr() {
