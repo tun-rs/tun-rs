@@ -418,7 +418,11 @@ fn create_tap() {
     #[cfg(target_os = "macos")]
     let name = "feth12";
 
-    let device = DeviceBuilder::new().name(name).layer(tun_rs::Layer::L2).build_sync().unwrap();
+    let device = DeviceBuilder::new()
+        .name(name)
+        .layer(tun_rs::Layer::L2)
+        .build_sync()
+        .unwrap();
     let dev_name = device.name().unwrap();
     assert_eq!(dev_name.as_str(), name);
     #[cfg(unix)]
