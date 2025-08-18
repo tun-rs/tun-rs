@@ -2,6 +2,8 @@ use libc::{c_char, c_int, c_uint, sockaddr, sockaddr_in6, sockaddr_storage, time
 use nix::{ioctl_read, ioctl_readwrite, ioctl_write_ptr};
 use std::ffi::c_void;
 
+// https://github.com/justincormack/netbsd-src/blob/master/src/sys/sys/sockio.h
+// https://github.com/justincormack/netbsd-src/blob/master/src/sys/net/if.h
 pub const IN6_IFF_NODAD: i32 = 0x0020;
 #[allow(non_camel_case_types)]
 #[repr(C)]
