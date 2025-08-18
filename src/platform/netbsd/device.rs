@@ -11,6 +11,7 @@ use crate::{
 use crate::platform::unix::device::{ctl, ctl_v6};
 use libc::{self, c_char, c_short, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
 use mac_address::mac_address_by_name;
+use nix::sys::socket::{LinkAddr, SockaddrLike};
 use std::io::ErrorKind;
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::fs::MetadataExt;
@@ -568,23 +569,21 @@ impl DeviceImpl {
         let interfaces = nix::ifaddrs::getifaddrs()?;
         let interfaces = interfaces.filter(|item| item.interface_name == name);
         for addr in interfaces {
-            println!("addr = {addr:#?}");
+            println!("addr = {addr:?}");
             if let Some(address) = addr.address {
-                if let Some(mac_addr) = address.as_link_addr() {
-                    if let Some(res) = mac_addr.addr() {
-                        return Ok(res);
+                if address.family() == Some(nix::sys::socket::AddressFamily::Link) {
+                    /// This is workaround, it's safe. However, it is preferred to
+                    /// use `as_link_addr` once `nix` fix it.
+                    unsafe {
+                        let link_ptr = &address as *const _ as *const LinkAddr;
+                        if let Some(mac) = (*link_ptr).addr() {
+                            return Ok(mac);
+                        }
                     }
                 }
             }
         }
         Err(std::io::Error::other("Unable to get Mac address"))
-        // let mac = mac_address_by_name(&self.name_impl()?)
-        //     .map_err(|e| io::Error::other(e.to_string()))?
-        //     .ok_or(io::Error::new(
-        //         ErrorKind::InvalidInput,
-        //         "invalid mac address",
-        //     ))?;
-        // Ok(mac.bytes())
     }
     /// In Layer3(i.e. TUN mode), we need to put the tun interface into "multi_af" mode, which will prepend the address
     /// family to all packets (same as FreeBSD).
