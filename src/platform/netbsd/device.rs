@@ -10,7 +10,6 @@ use crate::{
 
 use crate::platform::unix::device::{ctl, ctl_v6};
 use libc::{self, c_char, c_short, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
-use mac_address::mac_address_by_name;
 use nix::sys::socket::{LinkAddr, SockaddrLike};
 use std::io::ErrorKind;
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
@@ -569,11 +568,10 @@ impl DeviceImpl {
         let interfaces = nix::ifaddrs::getifaddrs()?;
         let interfaces = interfaces.filter(|item| item.interface_name == name);
         for addr in interfaces {
-            println!("addr = {addr:?}");
             if let Some(address) = addr.address {
                 if address.family() == Some(nix::sys::socket::AddressFamily::Link) {
-                    /// This is workaround, it's safe. However, it is preferred to
-                    /// use `as_link_addr` once `nix` fix it.
+                    // This is workaround way but it's safe. However, it is preferred to
+                    // use `as_link_addr` once `nix` fix it.
                     unsafe {
                         let link_ptr = &address as *const _ as *const LinkAddr;
                         if let Some(mac) = (*link_ptr).addr() {
