@@ -332,7 +332,7 @@ impl DeviceImpl {
                     "fd is not a device file",
                 ));
             }
-            let p = libc::devname(st.st_rdev, libc::S_IFCHR);
+            let p = libc::devname(st.st_rdev, typ);
             if !p.is_null() {
                 let name = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
                 if name == "??" {
