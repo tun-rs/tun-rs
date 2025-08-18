@@ -308,7 +308,7 @@ fn test_op() {
     assert!(device.ignore_packet_info());
 
     device.set_mtu(1500).unwrap();
-    assert_eq!(device.mtu().unwrap(), 1800);
+    assert_eq!(device.mtu().unwrap(), 1500);
 
     #[cfg(target_os = "macos")]
     device.set_associate_route(true);
