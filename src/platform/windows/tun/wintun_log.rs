@@ -17,7 +17,7 @@ pub fn reset_logger(win_tun: &wintun_raw::wintun) {
 ///
 /// # Safety
 /// `message` must be a valid pointer that points to an aligned null terminated UTF-16 string
-#[cfg(all(target_pointer_width = "32", feature = "bindgen"))]
+#[cfg(target_pointer_width = "32")]
 pub unsafe extern "stdcall" fn default_logger(
     level: wintun_raw::WINTUN_LOGGER_LEVEL,
     _timestamp: wintun_raw::DWORD64,
@@ -29,7 +29,7 @@ pub unsafe extern "stdcall" fn default_logger(
 ///
 /// # Safety
 /// `message` must be a valid pointer that points to an aligned null terminated UTF-16 string
-#[cfg(any(target_pointer_width = "64", any(docsrs, not(feature = "bindgen"))))]
+#[cfg(target_pointer_width = "64")]
 pub unsafe extern "C" fn default_logger(
     level: wintun_raw::WINTUN_LOGGER_LEVEL,
     _timestamp: wintun_raw::DWORD64,
