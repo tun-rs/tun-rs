@@ -33,6 +33,13 @@ jobs:
           cargo check --features async_tokio,async_framed --target x86_64-unknown-linux-ohos
           cargo check --features async_io,async_framed --target x86_64-unknown-linux-ohos
           cargo check --features interruptible --target x86_64-unknown-linux-ohos
+          
+          rustup target add i686-pc-windows-msvc
+          cargo check --target i686-pc-windows-msvc
+          cargo check --features async_tokio --target i686-pc-windows-msvc
+          cargo check --features async_tokio,async_framed --target i686-pc-windows-msvc
+          cargo check --features async_io,async_framed --target i686-pc-windows-msvc
+          cargo check --features interruptible --target i686-pc-windows-msvc
 
   build_n_test:
     strategy:
