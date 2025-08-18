@@ -564,13 +564,26 @@ impl DeviceImpl {
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let _guard = self.op_lock.lock().unwrap();
-        let mac = mac_address_by_name(&self.name_impl()?)
-            .map_err(|e| io::Error::other(e.to_string()))?
-            .ok_or(io::Error::new(
-                ErrorKind::InvalidInput,
-                "invalid mac address",
-            ))?;
-        Ok(mac.bytes())
+        let name = self.name_impl()?;
+        let interfaces = nix::ifaddrs::getifaddrs()?;
+        let interfaces = interfaces.filter(|item| item.interface_name == name);
+        for addr in interfaces {
+            if let Some(address) = addr.address {
+                if let Some(mac_addr) = address.as_link_addr() {
+                    if let Some(res) = mac_addr.addr() {
+                        return Ok(res);
+                    }
+                }
+            }
+        }
+        Err(std::io::Error::other("Unable to get Mac address"))
+        // let mac = mac_address_by_name(&self.name_impl()?)
+        //     .map_err(|e| io::Error::other(e.to_string()))?
+        //     .ok_or(io::Error::new(
+        //         ErrorKind::InvalidInput,
+        //         "invalid mac address",
+        //     ))?;
+        // Ok(mac.bytes())
     }
     /// In Layer3(i.e. TUN mode), we need to put the tun interface into "multi_af" mode, which will prepend the address
     /// family to all packets (same as FreeBSD).
