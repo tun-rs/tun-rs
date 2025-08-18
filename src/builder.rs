@@ -434,7 +434,8 @@ impl DeviceBuilder {
         target_os = "linux",
         target_os = "freebsd",
         target_os = "openbsd",
-        target_os = "macos"
+        target_os = "macos",
+        target_os = "netbsd"
     ))]
     pub fn mac_addr(mut self, mac_addr: [u8; 6]) -> Self {
         self.mac_addr = Some(mac_addr);
@@ -713,7 +714,8 @@ impl DeviceBuilder {
             target_os = "linux",
             target_os = "freebsd",
             target_os = "macos",
-            target_os = "openbsd"
+            target_os = "openbsd",
+            target_os = "netbsd"
         ))]
         if let Some(mac_addr) = self.mac_addr {
             device.set_mac_address(mac_addr)?;
