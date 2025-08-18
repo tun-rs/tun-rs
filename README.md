@@ -32,6 +32,7 @@ this cross-platform.
 | macOS    | ✅   | ✅*  |
 | FreeBSD  | ✅   | ✅   |
 | OpenBSD  | ✅   | ✅   |
+| NetBSD   | ✅   | ✅   |
 | Android  | ✅   |     |
 | iOS      | ✅   |     |
 | Other*   | ✅   |     |
