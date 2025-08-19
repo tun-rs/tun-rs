@@ -425,7 +425,7 @@ fn create_tap() {
         .unwrap();
     let dev_name = device.name().unwrap();
     assert_eq!(dev_name.as_str(), name);
-    #[cfg(unix)]
+    #[cfg(all(unix,not(target_os = "macos")))]
     {
         use std::os::fd::IntoRawFd;
         let fd = device.into_raw_fd();
