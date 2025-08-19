@@ -82,7 +82,7 @@ impl DeviceImpl {
     }
 
     /// Set the IPv4 alias of the device.
-    fn set_alias(
+    fn add_address(
         &self,
         addr: Ipv4Addr,
         dest: Ipv4Addr,
@@ -125,19 +125,6 @@ impl DeviceImpl {
         let mut manager = route_manager::RouteManager::new()?;
         let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
         manager.delete(&route)?;
-        Ok(())
-    }
-
-    fn add_route(&self, addr: IpAddr, netmask: IpAddr, associate_route: bool) -> io::Result<()> {
-        if !associate_route {
-            return Ok(());
-        }
-        let if_index = self.if_index_impl()?;
-        let prefix_len = ipnet::ip_mask_to_prefix(netmask)
-            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
-        let mut manager = route_manager::RouteManager::new()?;
-        let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
-        manager.add(&route)?;
         Ok(())
     }
 
@@ -206,7 +193,7 @@ impl DeviceImpl {
             .transpose()?
             .unwrap_or(default_dest);
         self.remove_all_address_v4()?;
-        self.set_alias(address, dest, netmask, associate_route)?;
+        self.add_address(address, dest, netmask, associate_route)?;
         Ok(())
     }
     pub(crate) fn name_impl(&self) -> io::Result<String> {
@@ -299,8 +286,18 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let guard = self.op_lock.lock().unwrap();
-        self.set_network_address_impl(address, netmask, None, *guard)
+        let associate_route = self.op_lock.lock().unwrap();
+        let netmask = netmask.netmask()?;
+        let address = address.ipv4()?;
+        let default_dest = self.calc_dest_addr(address.into(), netmask.into())?;
+        let IpAddr::V4(default_dest) = default_dest else {
+            return Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                "invalid destination for address/netmask",
+            ));
+        };
+        self.add_address(address, default_dest, netmask, *associate_route)?;
+        Ok(())
     }
     /// Remove an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
@@ -308,11 +305,21 @@ impl DeviceImpl {
         let is_associate_route = *guard;
         unsafe {
             match addr {
-                IpAddr::V4(addr) => {
+                IpAddr::V4(addr_v4) => {
                     let mut req_v4 = self.request()?;
-                    req_v4.ifr_ifru.ifru_addr = sockaddr_union::from((addr, 0)).addr;
+                    req_v4.ifr_ifru.ifru_addr = sockaddr_union::from((addr_v4, 0)).addr;
                     if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
                         return Err(io::Error::from(err));
+                    }
+                    if let Ok(addrs) = crate::platform::get_if_addrs_by_name(self.name_impl()?) {
+                        for v in addrs.iter().filter(|v| v.address == addr) {
+                            let Some(netmask) = v.netmask else {
+                                continue;
+                            };
+                            if let Err(e) = self.remove_route(addr, netmask, is_associate_route) {
+                                log::warn!("remove_route {addr}-{netmask},{e}")
+                            }
+                        }
                     }
                 }
                 IpAddr::V6(addr) => {
@@ -323,16 +330,7 @@ impl DeviceImpl {
                     }
                 }
             }
-            if let Ok(addrs) = crate::platform::get_if_addrs_by_name(self.name_impl()?) {
-                for v in addrs.iter().filter(|v| v.address == addr) {
-                    let Some(netmask) = v.netmask else {
-                        continue;
-                    };
-                    if let Err(e) = self.remove_route(addr, netmask, is_associate_route) {
-                        log::warn!("remove_route {addr}-{netmask},{e}")
-                    }
-                }
-            }
+
             Ok(())
         }
     }
@@ -342,9 +340,8 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.lock().unwrap();
         let addr = addr.ipv6()?;
-        let is_associate_route = *guard;
         unsafe {
             let tun_name = self.name_impl()?;
             let mut req: in6_ifaliasreq = mem::zeroed();
@@ -363,9 +360,6 @@ impl DeviceImpl {
             req.ifra_flags = IN6_IFF_NODAD;
             if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
-            }
-            if let Err(e) = self.add_route(addr.into(), mask, is_associate_route) {
-                log::warn!("{e:?}");
             }
         }
         Ok(())
