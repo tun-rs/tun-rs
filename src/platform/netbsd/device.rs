@@ -447,6 +447,8 @@ impl DeviceImpl {
         }
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
+    /// # Note
+    /// The specified value must be less than or equal to `1500`; it's a limitation of NetBSD.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {

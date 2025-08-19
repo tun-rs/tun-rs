@@ -325,6 +325,8 @@ impl DeviceBuilderGuard<'_> {
         self
     }
 }
+/// This is a unified constructor of a device for various platforms. The specification of every API can be found by looking at
+/// the documentation of the concrete platform.
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,
