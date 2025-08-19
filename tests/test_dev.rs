@@ -333,16 +333,19 @@ fn test_op() {
         == "fd12:3456:789a:5555:2222:3333:4444:5555"
             .parse::<std::net::Ipv6Addr>()
             .unwrap()));
+    assert!(!vec.contains(&"10.26.2.100".parse::<std::net::IpAddr>().unwrap()));
 
     device.add_address_v4("10.6.0.1", 24).unwrap();
     let vec = device.addresses().unwrap();
     assert!(vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
+    assert!(vec.contains(&"10.26.3.200".parse::<std::net::IpAddr>().unwrap()));
 
     device
         .remove_address("10.6.0.1".parse::<std::net::IpAddr>().unwrap())
         .unwrap();
     let vec = device.addresses().unwrap();
     assert!(!vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
+    assert!(vec.contains(&"10.26.3.200".parse::<std::net::IpAddr>().unwrap()));
 
     device
         .add_address_v6("fdab:cdef:1234:5678:9abc:def0:1234:5678", 64)
@@ -425,7 +428,7 @@ fn create_tap() {
         .unwrap();
     let dev_name = device.name().unwrap();
     assert_eq!(dev_name.as_str(), name);
-    #[cfg(all(unix,not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         use std::os::fd::IntoRawFd;
         let fd = device.into_raw_fd();
