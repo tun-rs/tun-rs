@@ -10,17 +10,10 @@ use crate::platform::macos::tuntap::TunTap;
 use crate::platform::unix::device::{ctl, ctl_v6};
 use crate::platform::unix::Tun;
 use crate::platform::ETHER_ADDR_LEN;
-use getifaddrs::{self, Interface};
 use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
 use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
-
-#[derive(Clone, Copy, Debug)]
-struct Route {
-    addr: IpAddr,
-    netmask: IpAddr,
-}
 
 /// A TUN device using the TUN macOS driver.
 pub struct DeviceImpl {
@@ -58,21 +51,6 @@ impl DeviceImpl {
         self.tun.request_v6()
     }
 
-    fn current_route(&self) -> Option<Route> {
-        let addr = crate::platform::get_if_addrs_by_name(self.name_impl().ok()?).ok()?;
-        let addr = addr
-            .into_iter()
-            .filter(|v| v.address.is_ipv4())
-            .collect::<Vec<Interface>>();
-        let addr = addr.first()?;
-        let addr_ = addr.address;
-        let netmask = addr.netmask?;
-        Some(Route {
-            addr: addr_,
-            netmask,
-        })
-    }
-
     pub(crate) fn calc_dest_addr(&self, addr: IpAddr, netmask: IpAddr) -> io::Result<IpAddr> {
         let prefix_len = ipnet::ip_mask_to_prefix(netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
@@ -89,7 +67,6 @@ impl DeviceImpl {
         mask: Ipv4Addr,
         associate_route: bool,
     ) -> io::Result<()> {
-        let old_route = self.current_route();
         let tun_name = self.name_impl()?;
         unsafe {
             let mut req: ifaliasreq = mem::zeroed();
@@ -105,11 +82,7 @@ impl DeviceImpl {
             if let Err(err) = siocaifaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
-            let new_route = Route {
-                addr: addr.into(),
-                netmask: mask.into(),
-            };
-            if let Err(e) = self.set_route(old_route, new_route, associate_route) {
+            if let Err(e) = self.add_route(addr.into(), mask.into(), associate_route) {
                 log::warn!("{e:?}");
             }
             Ok(())
@@ -120,51 +93,51 @@ impl DeviceImpl {
             return Ok(());
         }
         let if_index = self.if_index_impl()?;
-        let prefix_len = ipnet::ip_mask_to_prefix(netmask)
-            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
         let mut manager = route_manager::RouteManager::new()?;
-        let route = route_manager::Route::new(addr, prefix_len).with_if_index(if_index);
+        let net = ipnet::IpNet::with_netmask(addr, netmask)
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+        let prefix_len = net.prefix_len();
+        let route = route_manager::Route::new(net.network(), prefix_len)
+            .with_gateway(addr)
+            .with_if_index(if_index);
         manager.delete(&route)?;
         Ok(())
     }
-
-    fn set_route(
-        &self,
-        old_route: Option<Route>,
-        new_route: Route,
-        associate_route: bool,
-    ) -> io::Result<()> {
+    fn add_route(&self, addr: IpAddr, netmask: IpAddr, associate_route: bool) -> io::Result<()> {
         if !associate_route {
             return Ok(());
         }
         let if_index = self.if_index_impl()?;
         let mut manager = route_manager::RouteManager::new()?;
-        if let Some(old_route) = old_route {
-            let prefix_len = ipnet::ip_mask_to_prefix(old_route.netmask)
-                .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
-            let route =
-                route_manager::Route::new(old_route.addr, prefix_len).with_if_index(if_index);
-            let result = manager.delete(&route);
-            if let Err(e) = result {
-                log::warn!("route {route:?} {e:?}");
-            }
-        }
-
-        let prefix_len = ipnet::ip_mask_to_prefix(new_route.netmask)
+        let net = ipnet::IpNet::with_netmask(addr, netmask)
             .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
-        let route = route_manager::Route::new(new_route.addr, prefix_len).with_if_index(if_index);
+        let prefix_len = net.prefix_len();
+        let route = route_manager::Route::new(net.network(), prefix_len)
+            .with_gateway(addr)
+            .with_if_index(if_index);
         manager.add(&route)?;
         Ok(())
     }
-    fn remove_all_address_v4(&self) -> io::Result<()> {
-        unsafe {
-            let req_v4 = self.request()?;
-            loop {
-                if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
-                    if err == nix::errno::Errno::EADDRNOTAVAIL {
-                        break;
+    fn remove_all_address_v4(&self, associate_route: bool) -> io::Result<()> {
+        let mut req_v4 = self.request()?;
+
+        if let Ok(addrs) = crate::platform::get_if_addrs_by_name(self.name_impl()?) {
+            for v in addrs {
+                let addr = v.address;
+                let Some(netmask) = v.netmask else {
+                    continue;
+                };
+                if addr.is_ipv6() || netmask.is_ipv6() {
+                    continue;
+                }
+                unsafe {
+                    req_v4.ifr_ifru.ifru_addr = sockaddr_union::from((addr, 0)).addr;
+                    if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
+                        return Err(io::Error::from(err));
                     }
-                    return Err(io::Error::from(err));
+                }
+                if let Err(e) = self.remove_route(addr, netmask, associate_route) {
+                    log::warn!("remove_route {addr}-{netmask},{e}")
                 }
             }
         }
@@ -192,7 +165,7 @@ impl DeviceImpl {
             .map(|v| v.ipv4())
             .transpose()?
             .unwrap_or(default_dest);
-        self.remove_all_address_v4()?;
+        self.remove_all_address_v4(associate_route)?;
         self.add_address(address, dest, netmask, associate_route)?;
         Ok(())
     }
@@ -216,7 +189,9 @@ impl DeviceImpl {
     /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
     /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
-        *self.op_lock.lock().unwrap() = associate_route;
+        if self.tun.is_tun() {
+            *self.op_lock.lock().unwrap() = associate_route;
+        }
     }
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
