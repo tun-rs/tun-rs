@@ -125,6 +125,8 @@ impl DeviceImpl {
         if matches!(layer, Layer::L3) {
             Self::enable_tunsifhead_impl(&tun.fd)?;
             tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
+        } else {
+            tun.set_ignore_packet_info(false);
         }
         let device = DeviceImpl {
             tun,
