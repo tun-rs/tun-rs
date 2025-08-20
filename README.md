@@ -25,17 +25,19 @@ this cross-platform.
 
 ## Supported Platforms
 
-| Platform | TUN | TAP |
-|----------|-----|-----|
-| Windows  | ✅   | ✅   |
-| Linux    | ✅   | ✅   |
-| macOS    | ✅   | ✅*  |
-| FreeBSD  | ✅   | ✅   |
-| OpenBSD  | ✅   | ✅   |
-| NetBSD   | ✅   | ✅   |
-| Android  | ✅   |     |
-| iOS      | ✅   |     |
-| Other*   | ✅   |     |
+| Platform     | TUN | TAP |
+|--------------|-----|-----|
+| Windows      | ✅   | ✅   |
+| Linux        | ✅   | ✅   |
+| macOS        | ✅   | ✅*  |
+| FreeBSD      | ✅   | ✅   |
+| OpenBSD      | ✅   | ✅   |
+| NetBSD       | ✅   | ✅   |
+| Android      | ✅   |     |
+| OpenHarmony  | ✅   |     |
+| iOS          | ✅   |     |
+| tvOS         | ✅   |     |
+| Other*       | ✅   |     |
 
 > For other Unix-like platforms, you can use raw_fd;
 
