@@ -12,8 +12,7 @@ use crate::platform::unix::device::{ctl, ctl_v6};
 use libc::{self, c_char, c_short, ifreq, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
 use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
-use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
-use std::os::unix::fs::MetadataExt;
+use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::Mutex;
 use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr};
 
@@ -207,11 +206,11 @@ impl DeviceImpl {
     }
 
     /// Set the IPv4 alias of the device.
-    fn set_alias(
+    fn add_address(
         &self,
         addr: IpAddr,
-        dest: IpAddr,
         mask: IpAddr,
+        dest: Option<IpAddr>,
         associate_route: bool,
     ) -> io::Result<()> {
         unsafe {
@@ -228,11 +227,17 @@ impl DeviceImpl {
 
                     req.ifra_ifrau.ifrau_addr =
                         crate::platform::unix::sockaddr_union::from((addr, 0)).addr;
-                    req.ifra_dstaddr = crate::platform::unix::sockaddr_union::from((dest, 0)).addr;
+                    if let Some(dest) = dest {
+                        req.ifra_dstaddr =
+                            crate::platform::unix::sockaddr_union::from((dest, 0)).addr;
+                    }
                     req.ifra_mask = crate::platform::unix::sockaddr_union::from((mask, 0)).addr;
 
                     if let Err(err) = siocaifaddr(ctl.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
+                    }
+                    if let Err(e) = self.add_route(addr, mask, associate_route) {
+                        log::warn!("add_route {addr}/{mask} {e:?}");
                     }
                 }
                 IpAddr::V6(_) => {
@@ -255,10 +260,6 @@ impl DeviceImpl {
                         return Err(io::Error::from(err));
                     }
                 }
-            }
-
-            if let Err(e) = self.add_route(addr, mask, associate_route) {
-                log::warn!("{e:?}");
             }
 
             Ok(())
@@ -324,7 +325,7 @@ impl DeviceImpl {
             if rs < 0 {
                 return Err(io::Error::last_os_error());
             }
-            let st = unsafe { st.assume_init() };
+            let st = st.assume_init();
             let typ = st.st_mode & libc::S_IFMT;
             if typ != libc::S_IFCHR && typ != libc::S_IFBLK {
                 return Err(io::Error::new(
@@ -380,8 +381,7 @@ impl DeviceImpl {
             .map(|v| v.into())
             .unwrap_or(default_dest);
         self.remove_all_address_v4()?;
-        self.set_alias(addr, dest, netmask, associate_route)?;
-        Ok(())
+        self.add_address(addr, netmask, Some(dest), associate_route)
     }
 }
 
@@ -497,7 +497,10 @@ impl DeviceImpl {
         netmask: Netmask,
     ) -> io::Result<()> {
         let guard = self.op_lock.lock().unwrap();
-        self.set_network_address_impl(address, netmask, None, *guard)
+        let addr = address.ipv4()?.into();
+        let netmask = netmask.netmask()?.into();
+        let default_dest = self.calc_dest_addr(addr, netmask)?;
+        self.add_address(addr, netmask, Some(default_dest), *guard)
     }
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
@@ -529,31 +532,7 @@ impl DeviceImpl {
         netmask: Netmask,
     ) -> io::Result<()> {
         let guard = self.op_lock.lock().unwrap();
-        let addr = addr.ipv6()?;
-        unsafe {
-            let tun_name = self.name_impl()?;
-            let mut req: in6_aliasreq = mem::zeroed();
-            ptr::copy_nonoverlapping(
-                tun_name.as_ptr() as *const c_char,
-                req.ifra_name.as_mut_ptr(),
-                tun_name.len(),
-            );
-            req.ifra_ifrau.ifrau_addr = sockaddr_union::from((addr, 0)).addr6;
-            let network_addr = ipnet::IpNet::new(addr.into(), netmask.prefix()?)
-                .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
-            let mask = network_addr.netmask();
-            req.ifra_prefixmask = sockaddr_union::from((mask, 0)).addr6;
-            req.ifra_lifetime.ia6t_vltime = 0xffffffff_u32;
-            req.ifra_lifetime.ia6t_pltime = 0xffffffff_u32;
-            req.ifra_flags = IN6_IFF_NODAD;
-            if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
-                return Err(io::Error::from(err));
-            }
-            if let Err(e) = self.add_route(addr.into(), mask, *guard) {
-                log::warn!("{e:?}");
-            }
-        }
-        Ok(())
+        self.add_address(addr.ipv6()?.into(), netmask.netmask()?.into(), None, *guard)
     }
     /// Sets the MAC (hardware) address for the interface.
     ///
