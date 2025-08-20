@@ -311,7 +311,7 @@ impl DeviceBuilderGuard<'_> {
     /// Only works in TAP mode.
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     pub fn reuse_dev(&mut self, reuse: bool) -> &mut Self {
         self.0.reuse_dev = Some(reuse);
         self
