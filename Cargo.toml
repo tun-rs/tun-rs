@@ -1,6 +1,6 @@
 [package]
 name = "tun-rs"
-version = "2.7.0"
+version = "2.7.1"
 edition = "2021"
 authors = ["xmh0511, vnt-dev"]
 license = "Apache-2.0"
@@ -137,4 +137,5 @@ required-features = ["async_tokio"]
 [[example]]
 name = "read_interruptible"
 required-features = ["interruptible"]
+
 
