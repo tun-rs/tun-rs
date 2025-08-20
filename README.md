@@ -137,8 +137,8 @@ use tun_rs::SyncDevice;
 
 fn main() -> std::io::Result<()> {
     // Pass a valid fd value
-    let fd = 0;
-    let dev = unsafe { SyncDevice::from_fd(fd) };
+    let fd = 0; // exposition-only
+    let dev = unsafe { SyncDevice::from_fd(fd)? };
     // let async_dev = unsafe { tun_rs::AsyncDevice::from_fd(fd)?};
 
     let mut buf = [0; 4096];
