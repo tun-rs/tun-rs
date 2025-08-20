@@ -40,6 +40,7 @@ loop {
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 pub use crate::builder::*;
 pub use crate::platform::*;
@@ -58,6 +59,7 @@ pub use async_device::*;
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 mod builder;
 mod platform;

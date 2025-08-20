@@ -34,6 +34,14 @@ jobs:
           cargo check --features async_io,async_framed --target x86_64-unknown-linux-ohos
           cargo check --features interruptible --target x86_64-unknown-linux-ohos
           
+          rustup target add x86_64-unknown-netbsd
+          cargo check --target x86_64-unknown-netbsd
+          cargo check --features async_tokio --target x86_64-unknown-netbsd
+          cargo check --features async_tokio,async_framed --target x86_64-unknown-netbsd
+          cargo check --features async_io,async_framed --target x86_64-unknown-netbsd
+          cargo check --features interruptible --target x86_64-unknown-netbsd
+          cargo clippy --target x86_64-unknown-netbsd  --features async_io -- -D warnings
+          
           rustup target add i686-pc-windows-msvc
           cargo check --target i686-pc-windows-msvc
           cargo check --features async_tokio --target i686-pc-windows-msvc

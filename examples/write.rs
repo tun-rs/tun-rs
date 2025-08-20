@@ -32,6 +32,7 @@ fn main() -> std::io::Result<()> {
     target_os = "ios",
     target_os = "tvos",
     target_os = "android",
+    target_os = "netbsd",
     all(target_os = "linux", target_env = "ohos")
 ))]
 fn main_entry(_quit: Receiver<()>) -> std::io::Result<()> {

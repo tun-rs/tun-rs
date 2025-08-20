@@ -18,6 +18,7 @@ pub enum Layer {
         target_os = "freebsd",
         target_os = "macos",
         target_os = "openbsd",
+        target_os = "netbsd",
     ))]
     L2,
     /// Network Layer (default for TUN interfaces).
@@ -42,11 +43,16 @@ pub(crate) struct DeviceConfig {
     /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to be false to obtain the platform's default routing behavior.
-    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))]
     pub(crate) associate_route: Option<bool>,
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     pub(crate) reuse_dev: Option<bool>,
     /// If true, the feth device will be kept after the program exits;
     /// if false (default), the device will be destroyed automatically.
@@ -73,7 +79,12 @@ pub(crate) struct DeviceConfig {
     #[cfg(windows)]
     pub(crate) mac_address: Option<String>,
     /// switch of Enable/Disable packet information for network driver
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     pub(crate) packet_information: Option<bool>,
     /// Enable/Disable TUN offloads.
     /// After enabling, use `recv_multiple`/`send_multiple` for data transmission.
@@ -97,7 +108,7 @@ type IPV4 = (
 ///
 /// Creating a basic IPv4 TUN interface:
 ///
-/// ```no_run
+/// ````no_run
 /// use std::net::Ipv4Addr;
 /// use tun_rs::DeviceBuilder;
 ///
@@ -109,11 +120,11 @@ type IPV4 = (
 ///         .build_sync()?;
 ///     Ok(())
 /// }
-/// ```
+/// ````
 ///
 /// Creating an IPv6 TUN interface:
 ///
-/// ```no_run
+/// ````no_run
 /// use std::net::Ipv6Addr;
 /// use tun_rs::DeviceBuilder;
 ///
@@ -125,17 +136,18 @@ type IPV4 = (
 ///         .build_sync()?;
 ///     Ok(())
 /// }
-/// ```
+/// ````
 ///
 /// Creating an L2 TAP interface (platform-dependent):
 ///
-/// ```no_run
+/// ````no_run
 /// #[cfg(any(
 ///     target_os = "windows",
 ///     all(target_os = "linux", not(target_env = "ohos")),
 ///     target_os = "freebsd",
 ///     target_os = "macos",
-///     target_os = "openbsd"
+///     target_os = "openbsd",
+///     target_os = "netbsd"
 /// ))]
 /// use tun_rs::{DeviceBuilder, Layer};
 ///
@@ -144,7 +156,8 @@ type IPV4 = (
 ///     all(target_os = "linux", not(target_env = "ohos")),
 ///     target_os = "freebsd",
 ///     target_os = "macos",
-///     target_os = "openbsd"
+///     target_os = "openbsd",
+///     target_os = "netbsd"
 /// ))]
 /// fn main() -> std::io::Result<()> {
 ///     let tap = DeviceBuilder::new()
@@ -155,7 +168,7 @@ type IPV4 = (
 ///         .build_sync()?;
 ///     Ok(())
 /// }
-/// ```
+/// ````
 #[doc(hidden)]
 pub struct DeviceBuilderGuard<'a>(&'a mut DeviceBuilder);
 
@@ -186,7 +199,8 @@ impl DeviceBuilderGuard<'_> {
         target_os = "linux",
         target_os = "freebsd",
         target_os = "openbsd",
-        target_os = "macos"
+        target_os = "macos",
+        target_os = "netbsd"
     ))]
     pub fn mac_addr(&mut self, mac_addr: [u8; 6]) -> &mut Self {
         self.0.mac_addr = Some(mac_addr);
@@ -264,7 +278,12 @@ impl DeviceBuilderGuard<'_> {
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     pub fn packet_information(&mut self, packet_information: bool) -> &mut Self {
         self.0.packet_information = Some(packet_information);
         self
@@ -279,7 +298,12 @@ impl DeviceBuilderGuard<'_> {
     /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to be false to obtain the platform's default routing behavior.
-    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))]
     pub fn associate_route(&mut self, associate_route: bool) -> &mut Self {
         self.0.associate_route = Some(associate_route);
         self
@@ -287,7 +311,7 @@ impl DeviceBuilderGuard<'_> {
     /// Only works in TAP mode.
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     pub fn reuse_dev(&mut self, reuse: bool) -> &mut Self {
         self.0.reuse_dev = Some(reuse);
         self
@@ -301,6 +325,8 @@ impl DeviceBuilderGuard<'_> {
         self
     }
 }
+/// This is a unified constructor of a device for various platforms. The specification of every API can be found by looking at
+/// the documentation of the concrete platform.
 #[derive(Default)]
 pub struct DeviceBuilder {
     dev_name: Option<String>,
@@ -308,9 +334,14 @@ pub struct DeviceBuilder {
     description: Option<String>,
     #[cfg(target_os = "macos")]
     peer_feth: Option<String>,
-    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))]
     associate_route: Option<bool>,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     reuse_dev: Option<bool>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     persist: Option<bool>,
@@ -326,7 +357,8 @@ pub struct DeviceBuilder {
         target_os = "linux",
         target_os = "freebsd",
         target_os = "openbsd",
-        target_os = "macos"
+        target_os = "macos",
+        target_os = "netbsd"
     ))]
     mac_addr: Option<[u8; 6]>,
     #[cfg(windows)]
@@ -342,7 +374,12 @@ pub struct DeviceBuilder {
     #[cfg(windows)]
     delete_driver: Option<bool>,
     /// switch of Enable/Disable packet information for network driver
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     packet_information: Option<bool>,
     #[cfg(target_os = "linux")]
     tx_queue_len: Option<u32>,
@@ -399,7 +436,8 @@ impl DeviceBuilder {
         target_os = "linux",
         target_os = "freebsd",
         target_os = "openbsd",
-        target_os = "macos"
+        target_os = "macos",
+        target_os = "netbsd"
     ))]
     pub fn mac_addr(mut self, mac_addr: [u8; 6]) -> Self {
         self.mac_addr = Some(mac_addr);
@@ -555,7 +593,12 @@ impl DeviceBuilder {
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
         self.packet_information = Some(packet_information);
         self
@@ -570,7 +613,12 @@ impl DeviceBuilder {
     /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
     /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
     /// Set this to be false to obtain the platform's default routing behavior.
-    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))]
     pub fn associate_route(mut self, associate_route: bool) -> Self {
         self.associate_route = Some(associate_route);
         self
@@ -578,7 +626,7 @@ impl DeviceBuilder {
     /// Only works in TAP mode.
     /// If true (default), the existing device with the given name will be used if possible.
     /// If false, an error will be returned if a device with the specified name already exists.
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     pub fn reuse_dev(mut self, reuse: bool) -> Self {
         self.reuse_dev = Some(reuse);
         self
@@ -604,9 +652,14 @@ impl DeviceBuilder {
             description: self.description.take(),
             #[cfg(target_os = "macos")]
             peer_feth: self.peer_feth.take(),
-            #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "freebsd",
+                target_os = "openbsd",
+                target_os = "netbsd"
+            ))]
             associate_route: self.associate_route,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
             reuse_dev: self.reuse_dev,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             persist: self.persist,
@@ -630,7 +683,12 @@ impl DeviceBuilder {
                         s
                     })
             }),
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "linux",
+                target_os = "freebsd",
+                target_os = "netbsd"
+            ))]
             packet_information: self.packet_information.take(),
             #[cfg(target_os = "linux")]
             offload: self.offload.take(),
@@ -658,7 +716,8 @@ impl DeviceBuilder {
             target_os = "linux",
             target_os = "freebsd",
             target_os = "macos",
-            target_os = "openbsd"
+            target_os = "openbsd",
+            target_os = "netbsd"
         ))]
         if let Some(mac_addr) = self.mac_addr {
             device.set_mac_address(mac_addr)?;
@@ -702,7 +761,7 @@ impl DeviceBuilder {
     /// # Ergonomic
     ///
     /// For example:
-    /// ````
+    /// ````no_run
     /// use tun_rs::DeviceBuilder;
     /// let builder = DeviceBuilder::new().name("tun1");
     /// #[cfg(target_os = "macos")]
@@ -714,7 +773,7 @@ impl DeviceBuilder {
     /// This is tedious and breaks the calling chain.
     ///
     /// With `with`, we can just set platform-specific parameters as follows without breaking the calling chain:
-    /// ````
+    /// ````no_run
     /// use tun_rs::DeviceBuilder;
     /// let dev = DeviceBuilder::new().name("tun1").with(|opt|{
     ///    #[cfg(windows)]

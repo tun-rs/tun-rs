@@ -9,13 +9,11 @@ use std::sync::Arc;
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
+    target_os = "macos",
     target_os = "openbsd",
     target_os = "netbsd",
-    target_os = "macos"
 ))]
 use tun_rs::DeviceBuilder;
-#[allow(unused_imports)]
-use tun_rs::InterruptEvent;
 #[cfg(any(
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
@@ -61,41 +59,31 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
     use std::net::IpAddr;
     let dev = Arc::new(
         DeviceBuilder::new()
+            .name("utun66")
             .ipv4(Ipv4Addr::new(10, 0, 0, 12), 24, None)
+            .ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)
             .mtu(1400)
             .build_sync()?,
     );
+    println!("addr {:?}", dev.addresses());
 
     println!("if_index = {:?}", dev.if_index());
-    #[cfg(unix)]
-    dev.set_nonblocking(true)?;
-
-    let event = Arc::new(InterruptEvent::new()?);
-    let event_clone = event.clone();
-    let join = std::thread::spawn(move || {
+    println!("mtu = {:?}", dev.mtu());
+    #[cfg(windows)]
+    {
+        dev.set_mtu_v6(2000)?;
+        println!("mtu ipv6 = {:?}", dev.mtu_v6());
+        println!("version = {:?}", dev.version());
+    }
+    let _join = std::thread::spawn(move || {
         let mut buf = [0; 4096];
         loop {
-            match dev.recv_intr(&mut buf, &event_clone) {
-                Ok(len) => {
-                    println!("read_interruptible Ok({len})");
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {
-                    // If the interrupt event is to be reused, it must be reset before the next wait.
-                    if event_clone.is_trigger() {
-                        event_clone.reset().unwrap();
-                        println!("read_interruptible Err({e:?})");
-                    }
-                    return;
-                }
-                Err(e) => {
-                    println!("Error: {e:?}");
-                    return;
-                }
-            }
+            let amount = dev.recv(&mut buf)?;
+            println!("{:?}", &buf[0..amount]);
         }
+        #[allow(unreachable_code)]
+        std::io::Result::Ok(())
     });
     _ = quit.recv();
-    event.trigger()?;
-    join.join().unwrap();
     Ok(())
 }

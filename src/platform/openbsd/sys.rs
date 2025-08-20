@@ -238,3 +238,7 @@ ioctl_write_ptr!(siocsiflladdr, b'i', 31, ifreq);
 ioctl_write_ptr!(siocdifaddr_in6, b'i', 25, in6_ifreq);
 
 ioctl_write_ptr!(siocaifaddr_in6, b'i', 26, in6_aliasreq);
+
+ioctl_write_ptr!(siocifdestroy, b'i', 121, ifreq);
+
+ioctl_write_ptr!(siocifcreate, b'i', 122, ifreq);

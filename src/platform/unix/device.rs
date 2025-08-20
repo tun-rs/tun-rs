@@ -5,6 +5,7 @@ use crate::platform::DeviceImpl;
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 use libc::{AF_INET, AF_INET6, SOCK_DGRAM};
 use std::io;
@@ -26,7 +27,7 @@ impl AsFd for DeviceImpl {
         unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
     }
 }
-#[cfg(not(target_os = "freebsd"))]
+#[cfg(not(any(target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
 impl std::os::unix::io::IntoRawFd for DeviceImpl {
     fn into_raw_fd(self) -> RawFd {
         self.tun.into_raw_fd()
@@ -117,6 +118,7 @@ impl DeviceImpl {
     target_os = "macos",
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 impl DeviceImpl {
     /// Retrieves the interface index for the network interface.
@@ -125,7 +127,11 @@ impl DeviceImpl {
     /// C-compatible string (CString) and then calls the libc function `if_nametoindex`
     /// to retrieve the corresponding interface index.
     pub fn if_index(&self) -> io::Result<u32> {
-        let if_name = std::ffi::CString::new(self.name()?)?;
+        let _guard = self.op_lock.lock().unwrap();
+        self.if_index_impl()
+    }
+    pub(crate) fn if_index_impl(&self) -> io::Result<u32> {
+        let if_name = std::ffi::CString::new(self.name_impl()?)?;
         unsafe { Ok(libc::if_nametoindex(if_name.as_ptr())) }
     }
     /// Retrieves all IP addresses associated with the network interface.
@@ -134,13 +140,13 @@ impl DeviceImpl {
     /// then iterates over the returned list of interface addresses, extracting and collecting
     /// the IP addresses into a vector.
     pub fn addresses(&self) -> io::Result<Vec<std::net::IpAddr>> {
-        Ok(crate::platform::get_if_addrs_by_name(self.name()?)?
+        Ok(crate::platform::get_if_addrs_by_name(self.name_impl()?)?
             .iter()
             .map(|v| v.address)
             .collect())
     }
 }
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos",))]
 impl DeviceImpl {
     /// Returns whether the TUN device is set to ignore packet information (PI).
     ///
@@ -151,6 +157,7 @@ impl DeviceImpl {
     /// * `true` - The TUN device ignores packet information.
     /// * `false` - The TUN device includes packet information.
     pub fn ignore_packet_info(&self) -> bool {
+        let _guard = self.op_lock.lock().unwrap();
         self.tun.ignore_packet_info()
     }
     /// Sets whether the TUN device should ignore packet information (PI).
@@ -163,6 +170,7 @@ impl DeviceImpl {
     /// * `ign` - If `true`, the TUN device will ignore packet information.
     ///   `  ` If `false`, it will include packet information.
     pub fn set_ignore_packet_info(&self, ign: bool) {
+        let _guard = self.op_lock.lock().unwrap();
         self.tun.set_ignore_packet_info(ign)
     }
 }
@@ -170,6 +178,7 @@ impl DeviceImpl {
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 pub(crate) unsafe fn ctl() -> io::Result<Fd> {
     Fd::new(libc::socket(AF_INET, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0))
@@ -184,6 +193,7 @@ pub(crate) unsafe fn ctl() -> io::Result<Fd> {
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "freebsd",
     target_os = "openbsd",
+    target_os = "netbsd",
 ))]
 pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
     Fd::new(libc::socket(AF_INET6, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0))

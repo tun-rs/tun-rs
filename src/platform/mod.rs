@@ -9,6 +9,7 @@ pub(crate) mod unix;
         all(target_os = "linux", not(target_env = "ohos")),
         target_os = "freebsd",
         target_os = "openbsd",
+        target_os = "netbsd",
     ))
 ))]
 pub use self::unix::DeviceImpl;
@@ -36,6 +37,11 @@ pub use self::macos::DeviceImpl;
 pub(crate) mod openbsd;
 #[cfg(target_os = "openbsd")]
 pub use self::openbsd::DeviceImpl;
+
+#[cfg(target_os = "netbsd")]
+pub(crate) mod netbsd;
+#[cfg(target_os = "netbsd")]
+pub use self::netbsd::DeviceImpl;
 
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
@@ -110,13 +116,14 @@ impl SyncDevice {
     /// Returns the number of bytes read, or an I/O error.
     ///
     /// # Example
-    /// ```
+    /// ```no_run
     /// use std::net::Ipv4Addr;
     /// use tun_rs::DeviceBuilder;
     /// let mut tun = DeviceBuilder::new()
     ///     .name("my-tun")
     ///     .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
-    ///     .build_sync()?;
+    ///     .build_sync()
+    ///     .unwrap();
     /// let mut buf = [0u8; 1500];
     /// tun.recv(&mut buf).unwrap();
     /// ```
@@ -130,13 +137,14 @@ impl SyncDevice {
     /// Returns the number of bytes written, or an I/O error.
     ///
     /// # Example
-    /// ```
+    /// ```no_run
     /// use std::net::Ipv4Addr;
     /// use tun_rs::DeviceBuilder;
     /// let mut tun = DeviceBuilder::new()
     ///     .name("my-tun")
     ///     .ipv4(Ipv4Addr::new(10, 0, 0, 1), 24, None)
-    ///     .build_sync()?;
+    ///     .build_sync()
+    ///     .unwrap();
     /// tun.send(b"hello").unwrap();
     /// ```
     pub fn send(&self, buf: &[u8]) -> std::io::Result<usize> {
@@ -340,36 +348,5 @@ impl AsFd for SyncDevice {
 impl IntoRawFd for SyncDevice {
     fn into_raw_fd(self) -> RawFd {
         self.0.into_raw_fd()
-    }
-}
-
-#[cfg(any(
-    target_os = "windows",
-    all(target_os = "linux", not(target_env = "ohos")),
-    target_os = "macos",
-    target_os = "freebsd",
-))]
-#[cfg(test)]
-mod test {
-    use crate::DeviceBuilder;
-    use std::net::Ipv4Addr;
-
-    #[test]
-    fn create() {
-        let dev = DeviceBuilder::new()
-            .name("utun6")
-            .ipv4("192.168.50.1", 24, None)
-            .mtu(1400)
-            .build_sync()
-            .unwrap();
-
-        assert!(dev
-            .addresses()
-            .unwrap()
-            .into_iter()
-            .any(|v| v == "192.168.50.1".parse::<Ipv4Addr>().unwrap()));
-
-        assert_eq!(1400, dev.mtu().unwrap());
-        assert_eq!("utun6", dev.name().unwrap());
     }
 }

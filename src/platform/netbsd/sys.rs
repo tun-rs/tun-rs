@@ -1,10 +1,43 @@
-use libc::{c_char, c_int, c_uint, ifreq, sockaddr, sockaddr_in6, time_t, IFNAMSIZ};
-use nix::{ioctl_readwrite, ioctl_write_ptr};
+use libc::{c_char, c_int, c_uint, sockaddr, sockaddr_in6, sockaddr_storage, time_t, IFNAMSIZ};
+use nix::{ioctl_read, ioctl_readwrite, ioctl_write_ptr};
 use std::ffi::c_void;
 
-//pub const IN6_IFF_NODAD: i32 = 0x0020;
-pub const IN6_IFF_NODAD: i32 = 0x100;
-pub const ND6_IFF_AUTO_LINKLOCAL: i32 = 0x20;
+// https://github.com/justincormack/netbsd-src/blob/master/src/sys/sys/sockio.h
+// https://github.com/justincormack/netbsd-src/blob/master/src/sys/net/if.h
+pub const IN6_IFF_NODAD: i32 = 0x0020;
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ifreq {
+    pub ifr_name: [c_char; IFNAMSIZ],
+    pub ifr_ifru: ifr_ifru,
+}
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union ifr_ifru {
+    pub ifru_addr: sockaddr,
+    pub ifru_dstaddr: sockaddr,
+    pub ifru_broadaddr: sockaddr,
+    pub ifru_space: sockaddr_storage,
+    pub ifru_flags: libc::c_short,
+    pub ifru_addrflags: libc::c_int,
+    pub ifru_metric: libc::c_int,
+    pub ifru_mtu: libc::c_int,
+    pub ifru_dlt: libc::c_int,
+    pub ifru_value: libc::c_uint,
+    pub ifru_data: *mut c_void,
+    pub ifru_b: ifru_b,
+}
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ifru_b {
+    pub b_buflen: u32,
+    pub b_buf: *mut c_void,
+}
 
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
@@ -14,41 +47,35 @@ pub struct ctl_info {
     pub ctl_id: c_uint,
     pub ctl_name: [c_char; 96],
 }
-
+#[allow(dead_code)]
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union ifra_ifrau {
+    pub ifrau_addr: sockaddr,
+    pub ifrau_align: c_int,
+}
 #[allow(non_camel_case_types)]
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct ifaliasreq {
-    pub ifran: [c_char; IFNAMSIZ],
-    pub addr: sockaddr,
-    pub dstaddr: sockaddr,
-    pub mask: sockaddr,
-    pub ifra_vhid: c_int,
+    pub ifra_name: [c_char; IFNAMSIZ],
+    pub ifra_addr: sockaddr,
+    pub ifra_dstaddr: sockaddr, // == ifra_broadaddr
+    pub ifra_mask: sockaddr,
 }
 
 #[allow(non_camel_case_types)]
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct in6_ifaliasreq {
+pub struct in6_aliasreq {
     pub ifra_name: [c_char; IFNAMSIZ],
     pub ifra_addr: sockaddr_in6,
     pub ifra_dstaddr: sockaddr_in6,
     pub ifra_prefixmask: sockaddr_in6,
-    pub ifra_flags: libc::c_int,
-    pub in6_addrlifetime: in6_addrlifetime,
-    pub ifra_vhid: libc::c_int,
+    pub ifra_flags: c_int,
+    pub ifra_lifetime: in6_addrlifetime,
 }
-
-// #[allow(non_camel_case_types)]
-// #[repr(C)]
-// #[derive(Copy, Clone)]
-// pub struct in_aliasreq  {
-//     pub ifra_name: [c_char; IFNAMSIZ],
-//     pub ifra_addr: sockaddr_in,
-//     pub ifra_dstaddr: sockaddr_in,
-//     pub ifra_mask: sockaddr_in,
-// 	pub ifra_vhid:c_int
-// }
 
 #[allow(non_camel_case_types)]
 #[repr(C)]
@@ -204,30 +231,7 @@ pub struct icmp6_ifstat {
     pub ifs6_out_mlddone: u_quad_t,
 }
 
-#[allow(non_camel_case_types)]
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct in6_ndireq {
-    pub ifra_name: [c_char; IFNAMSIZ],
-    pub ndi: nd_ifinfo,
-}
-#[allow(non_camel_case_types)]
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct nd_ifinfo {
-    pub linkmtu: u32,
-    pub maxmtu: u32,
-    pub basereachable: u32,
-    pub reachable: u32,
-    pub retrans: u32,
-    pub flags: u32,
-    pub recalctm: c_int,
-    pub chlim: u8,
-    pub initialized: u8,
-    pub randomseed0: [u8; 8],
-    pub randomseed1: [u8; 8],
-    pub randomid: [u8; 8],
-}
+// https://github.com/openbsd/src/blob/25ed657ec9c4285c385bc3b3556c0dc8eb6d6665/sys/sys/sockio.h#L114
 
 ioctl_write_ptr!(siocsifflags, b'i', 16, ifreq);
 ioctl_readwrite!(siocgifflags, b'i', 17, ifreq);
@@ -244,26 +248,23 @@ ioctl_readwrite!(siocgifbrdaddr, b'i', 35, ifreq);
 ioctl_write_ptr!(siocsifnetmask, b'i', 22, ifreq);
 ioctl_readwrite!(siocgifnetmask, b'i', 37, ifreq);
 
-ioctl_write_ptr!(siocsifmtu, b'i', 52, ifreq);
-ioctl_readwrite!(siocgifmtu, b'i', 51, ifreq);
+ioctl_write_ptr!(siocsifmtu, b'i', 127, ifreq);
+ioctl_readwrite!(siocgifmtu, b'i', 126, ifreq);
 
-ioctl_write_ptr!(siocaifaddr, b'i', 43, ifaliasreq);
+ioctl_write_ptr!(siocaifaddr, b'i', 26, ifaliasreq);
 ioctl_write_ptr!(siocdifaddr, b'i', 25, ifreq);
-
-ioctl_write_ptr!(siocifcreate, b'i', 122, ifreq);
 
 ioctl_write_ptr!(siocsifphyaddr, b'i', 70, ifaliasreq);
 
-ioctl_write_ptr!(siocsifname, b'i', 40, ifreq);
+ioctl_write_ptr!(siocdifaddr_in6, b'i', 25, in6_ifreq);
 
-ioctl_write_ptr!(siocsiflladdr, b'i', 60, ifreq);
+ioctl_write_ptr!(siocaifaddr_in6, b'i', 107, in6_aliasreq);
 
 ioctl_write_ptr!(siocifdestroy, b'i', 121, ifreq);
 
-ioctl_write_ptr!(siocdifaddr_in6, b'i', 25, in6_ifreq);
+ioctl_write_ptr!(siocifcreate, b'i', 122, ifreq);
 
-ioctl_write_ptr!(siocaifaddr_in6, b'i', 27, in6_ifaliasreq);
+ioctl_read!(tapgifname, b'e', 0, ifreq);
 
-ioctl_write_ptr!(sioctunsifhead, b't', 96, c_int);
-
-ioctl_readwrite!(siocsifinfoin6, b'i', 109, in6_ndireq);
+// http://fxr.watson.org/fxr/source/net/if_tun.h?v=NETBSD
+ioctl_write_ptr!(sioctunsifhead, b't', 66, c_int);
