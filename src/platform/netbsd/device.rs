@@ -232,6 +232,7 @@ impl DeviceImpl {
             // Tap does not have PI
             tun.set_ignore_packet_info(false);
         } else {
+            Self::enable_tunsifhead_impl(&tun.fd)?;
             tun.set_ignore_packet_info(true);
         }
         Ok(Self {

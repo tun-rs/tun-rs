@@ -83,6 +83,7 @@ pub(crate) struct DeviceConfig {
         target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
+        target_os = "openbsd",
         target_os = "netbsd"
     ))]
     pub(crate) packet_information: Option<bool>,
@@ -271,7 +272,7 @@ impl DeviceBuilderGuard<'_> {
         self
     }
     /// Enables or disables packet information for the network driver
-    /// on macOS, Linux.
+    /// on macOS, Linux, freebsd, netbsd
     ///
     /// This option is disabled by default (`false`).
     /// # Note
@@ -282,6 +283,7 @@ impl DeviceBuilderGuard<'_> {
         target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
+        target_os = "openbsd",
         target_os = "netbsd"
     ))]
     pub fn packet_information(&mut self, packet_information: bool) -> &mut Self {
@@ -378,6 +380,7 @@ pub struct DeviceBuilder {
         target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
+        target_os = "openbsd",
         target_os = "netbsd"
     ))]
     packet_information: Option<bool>,
@@ -597,6 +600,7 @@ impl DeviceBuilder {
         target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
+        target_os = "openbsd",
         target_os = "netbsd"
     ))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
@@ -687,6 +691,7 @@ impl DeviceBuilder {
                 target_os = "macos",
                 target_os = "linux",
                 target_os = "freebsd",
+                target_os = "openbsd",
                 target_os = "netbsd"
             ))]
             packet_information: self.packet_information.take(),

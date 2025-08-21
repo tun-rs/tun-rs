@@ -60,6 +60,8 @@ impl DeviceImpl {
         let tun = Tun::new(dev_fd);
         if layer == Layer::L2 {
             tun.set_ignore_packet_info(false);
+        } else {
+            tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
         }
         Ok(DeviceImpl {
             name,

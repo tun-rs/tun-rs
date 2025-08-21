@@ -330,7 +330,7 @@ impl TunTap {
     pub(crate) fn ignore_packet_info(&self) -> bool {
         match &self {
             TunTap::Tun(tun) => tun.ignore_packet_info(),
-            TunTap::Tap(_) => true,
+            TunTap::Tap(_) => false,
         }
     }
     pub(crate) fn set_ignore_packet_info(&self, ign: bool) {
