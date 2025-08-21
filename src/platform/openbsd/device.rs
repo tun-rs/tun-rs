@@ -189,6 +189,8 @@ impl DeviceImpl {
         if name.starts_with("tap") {
             // Tap does not have PI
             tun.set_ignore_packet_info(false);
+        } else {
+            tun.set_ignore_packet_info(true);
         }
         Ok(Self {
             name,
