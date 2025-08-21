@@ -228,6 +228,13 @@ impl DeviceImpl {
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
         let name = Self::name_of_fd(tun.as_raw_fd())?;
+        if name.starts_with("tap") {
+            // Tap does not have PI
+            tun.set_ignore_packet_info(false);
+        } else {
+            Self::enable_tunsifhead_impl(&tun.fd)?;
+            tun.set_ignore_packet_info(true);
+        }
         Ok(Self {
             name,
             tun,
@@ -605,6 +612,8 @@ impl DeviceImpl {
     /// # Returns
     /// * `true` - The TUN device ignores packet information.
     /// * `false` - The TUN device includes packet information.
+    /// # Note
+    /// Retrieve whether the packet is ignored for the TUN Device; The TAP device always returns `false`.
     pub fn ignore_packet_info(&self) -> bool {
         let _guard = self.op_lock.lock().unwrap();
         self.tun.ignore_packet_info()
@@ -619,6 +628,8 @@ impl DeviceImpl {
     /// * `ign`
     ///     - If `true`, the TUN device will ignore packet information.
     ///     - If `false`, it will include packet information.
+    /// # Note
+    /// This only works for a TUN device; The invocation will be ignored if the device is a TAP.
     pub fn set_ignore_packet_info(&self, ign: bool) {
         let _guard = self.op_lock.lock().unwrap();
         if let Ok(name) = self.name_impl() {
