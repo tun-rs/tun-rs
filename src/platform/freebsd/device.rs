@@ -290,13 +290,12 @@ impl DeviceImpl {
         manager.add(&route)?;
         Ok(())
     }
-    /// Retrieves the name of the network interface.
-    pub(crate) fn name_impl(&self) -> std::io::Result<String> {
+    fn name_of_fd(tun: &Tun) -> io::Result<String> {
         use std::path::PathBuf;
         unsafe {
             let mut path_info: kinfo_file = std::mem::zeroed();
             path_info.kf_structsize = KINFO_FILE_SIZE;
-            if fcntl(self.tun.as_raw_fd(), F_KINFO, &mut path_info as *mut _) < 0 {
+            if fcntl(tun.as_raw_fd(), F_KINFO, &mut path_info as *mut _) < 0 {
                 return Err(io::Error::last_os_error());
             }
             let dev_path = CStr::from_ptr(path_info.kf_path.as_ptr() as *const c_char)
@@ -313,6 +312,10 @@ impl DeviceImpl {
                 .to_string();
             Ok(device_name)
         }
+    }
+    /// Retrieves the name of the network interface.
+    pub(crate) fn name_impl(&self) -> std::io::Result<String> {
+        Self::name_of_fd(&self.tun)
     }
 
     fn remove_all_address_v4(&self) -> io::Result<()> {
