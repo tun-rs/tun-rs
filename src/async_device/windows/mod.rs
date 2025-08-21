@@ -203,7 +203,7 @@ impl AsyncDevice {
         let (cancel_guard, exit_guard) = canceller.guard(device);
         blocking::unblock(move || {
             exit_guard.call(|device, cancel_event_handle| {
-                device.wait_readable_interruptible(cancel_event_handle)
+                device.wait_readable_interruptible(cancel_event_handle, None)
             })
         })
         .await?;

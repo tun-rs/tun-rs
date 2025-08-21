@@ -289,8 +289,9 @@ impl Tun {
         &self,
         buf: &mut [u8],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
-        self.fd.read_interruptible(buf, event)
+        self.fd.read_interruptible(buf, event, timeout)
     }
     #[cfg(feature = "interruptible")]
     #[inline]
@@ -306,8 +307,9 @@ impl Tun {
     pub(crate) fn wait_readable_interruptible(
         &self,
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
-        self.fd.wait_readable_interruptible(event)
+        self.fd.wait_readable_interruptible(event, timeout)
     }
     #[cfg(feature = "interruptible")]
     #[inline]

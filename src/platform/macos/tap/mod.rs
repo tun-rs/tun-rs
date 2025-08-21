@@ -356,7 +356,7 @@ impl Tap {
         &self,
         event: &crate::InterruptEvent,
     ) -> io::Result<()> {
-        self.s_bpf_fd.wait_readable_interruptible(event)
+        self.s_bpf_fd.wait_readable_interruptible(event, None)
     }
     #[cfg(feature = "interruptible")]
     #[inline]

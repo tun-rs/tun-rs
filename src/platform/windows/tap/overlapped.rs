@@ -152,12 +152,26 @@ impl OverlappedEvent {
     pub fn wait(&self) -> io::Result<()> {
         ffi::wait_for_single_object(self.event.as_raw_handle(), INFINITE)
     }
-    pub fn wait_interruptible(&self, interrupt_event: &OwnedHandle) -> io::Result<()> {
+    pub fn wait_interruptible(
+        &self,
+        interrupt_event: &OwnedHandle,
+        timeout: Option<std::time::Duration>,
+    ) -> io::Result<()> {
         let handles = [self.event.as_raw_handle(), interrupt_event.as_raw_handle()];
         unsafe {
-            let wait_ret = WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE);
+            let wait_ret = WaitForMultipleObjects(
+                2,
+                handles.as_ptr(),
+                0,
+                timeout
+                    .map(|t| t.as_millis().min(INFINITE as _) as _)
+                    .unwrap_or(INFINITE),
+            );
             match wait_ret {
                 windows_sys::Win32::Foundation::WAIT_OBJECT_0 => Ok(()),
+                windows_sys::Win32::Foundation::WAIT_TIMEOUT => {
+                    Err(io::Error::from(io::ErrorKind::TimedOut))
+                }
                 _ => {
                     if wait_ret == windows_sys::Win32::Foundation::WAIT_OBJECT_0 + 1 {
                         Err(io::Error::new(

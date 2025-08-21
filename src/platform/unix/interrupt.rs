@@ -9,9 +9,10 @@ impl Fd {
         &self,
         buf: &mut [u8],
         event: &InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
         loop {
-            self.wait_readable_interruptible(event)?;
+            self.wait_readable_interruptible(event, timeout)?;
             return match self.read(buf) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     continue;
@@ -26,7 +27,7 @@ impl Fd {
         event: &InterruptEvent,
     ) -> io::Result<usize> {
         loop {
-            self.wait_readable_interruptible(event)?;
+            self.wait_readable_interruptible(event, None)?;
             return match self.readv(bufs) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     continue;
@@ -69,6 +70,7 @@ impl Fd {
     pub fn wait_readable_interruptible(
         &self,
         interrupted_event: &InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
         let fd = self.as_raw_fd() as libc::c_int;
         let event_fd = interrupted_event.as_event_fd();
@@ -86,10 +88,21 @@ impl Fd {
             },
         ];
 
-        let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+        let result = unsafe {
+            libc::poll(
+                fds.as_mut_ptr(),
+                fds.len() as libc::nfds_t,
+                timeout
+                    .map(|t| t.as_millis().min(i32::MAX as _) as _)
+                    .unwrap_or(-1),
+            )
+        };
 
         if result == -1 {
             return Err(io::Error::last_os_error());
+        }
+        if result == 0 {
+            return Err(io::Error::from(io::ErrorKind::TimedOut));
         }
         if fds[0].revents & libc::POLLIN != 0 {
             return Ok(());
