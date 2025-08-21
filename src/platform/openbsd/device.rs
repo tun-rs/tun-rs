@@ -395,6 +395,8 @@ impl DeviceImpl {
     /// # Returns
     /// * `true` - The TUN device ignores packet information.
     /// * `false` - The TUN device includes packet information.
+    /// # Note
+    /// Retrieve whether the packet is ignored for the TUN Device; The TAP device always returns `false`.
     pub fn ignore_packet_info(&self) -> bool {
         let _guard = self.op_lock.lock().unwrap();
         self.tun.ignore_packet_info()
@@ -409,6 +411,8 @@ impl DeviceImpl {
     /// * `ign`
     ///     - If `true`, the TUN device will ignore packet information.
     ///     - If `false`, it will include packet information.
+    /// # Note
+    /// This only works for a TUN device; The invocation will be ignored if the device is a TAP.
     pub fn set_ignore_packet_info(&self, ign: bool) {
         let _guard = self.op_lock.lock().unwrap();
         if let Ok(name) = self.name_impl() {
