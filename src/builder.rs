@@ -271,14 +271,15 @@ impl DeviceBuilderGuard<'_> {
         self.0.multi_queue = Some(multi_queue);
         self
     }
-    /// Enables or disables packet information for the network driver
-    /// on macOS, Linux, freebsd, netbsd
+    /// Enables or disables packet information for the network driver(TUN)
+    /// on macOS, Linux, freebsd, openbsd, netbsd.
     ///
     /// This option is disabled by default (`false`).
     /// # Note
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
+    /// The set value `v` can be retrieved by `ignore_packet_info`, the returned value is `!v`.
     #[cfg(any(
         target_os = "macos",
         target_os = "linux",
@@ -588,14 +589,15 @@ impl DeviceBuilder {
         self.multi_queue = Some(multi_queue);
         self
     }
-    /// Enables or disables packet information for the network driver
-    /// on macOS, Linux.
+    /// Enables or disables packet information for the network driver(TUN)
+    /// on macOS, Linux, freebsd, openbsd, netbsd.
     ///
     /// This option is disabled by default (`false`).
     /// # Note
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
+    /// The set value `v` can be retrieved by `ignore_packet_info`, the returned value is `!v`.
     #[cfg(any(
         target_os = "macos",
         target_os = "linux",
