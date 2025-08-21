@@ -188,7 +188,7 @@ impl DeviceImpl {
         let name = Self::name_of_fd(&tun)?;
         if name.starts_with("tap") {
             // Tap does not have PI
-            tun.set_ignore_packet_info(false)
+            tun.set_ignore_packet_info(false);
         }
         Ok(Self {
             name,

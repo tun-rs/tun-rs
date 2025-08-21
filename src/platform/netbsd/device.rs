@@ -228,6 +228,10 @@ impl DeviceImpl {
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
         let name = Self::name_of_fd(tun.as_raw_fd())?;
+        if name.starts_with("tap") {
+            // Tap does not have PI
+            tun.set_ignore_packet_info(false);
+        }
         Ok(Self {
             name,
             tun,
