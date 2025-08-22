@@ -226,7 +226,16 @@ impl SyncDevice {
         bufs: &mut [IoSliceMut<'_>],
         event: &InterruptEvent,
     ) -> std::io::Result<usize> {
-        self.0.readv_interruptible(bufs, event)
+        self.0.readv_interruptible(bufs, event, None)
+    }
+    #[cfg(all(unix, feature = "interruptible"))]
+    pub fn recv_vectored_intr_timeout(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &InterruptEvent,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<usize> {
+        self.0.readv_interruptible(bufs, event, timeout)
     }
     #[cfg(feature = "interruptible")]
     pub fn wait_readable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {

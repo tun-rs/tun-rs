@@ -326,9 +326,10 @@ impl Tap {
         &self,
         buf: &mut [u8],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
         loop {
-            self.wait_readable_interruptible(event)?;
+            self.wait_readable_interruptible(event, timeout)?;
             match self.recv(buf) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                 rs => return rs,
@@ -341,9 +342,10 @@ impl Tap {
         &self,
         bufs: &mut [IoSliceMut<'_>],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
         loop {
-            self.wait_readable_interruptible(event)?;
+            self.wait_readable_interruptible(event, timeout)?;
             match self.recv_vectored(bufs) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                 rs => return rs,
@@ -355,8 +357,9 @@ impl Tap {
     pub(crate) fn wait_readable_interruptible(
         &self,
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
-        self.s_bpf_fd.wait_readable_interruptible(event, None)
+        self.s_bpf_fd.wait_readable(Some(event), timeout)
     }
     #[cfg(feature = "interruptible")]
     #[inline]
@@ -365,7 +368,15 @@ impl Tap {
         buf: &[u8],
         event: &crate::InterruptEvent,
     ) -> io::Result<usize> {
-        self.s_ndrv_fd.write_interruptible(buf, event)
+        loop {
+            self.wait_writable_interruptible(event)?;
+            return match self.s_ndrv_fd.write(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    continue;
+                }
+                rs => rs,
+            };
+        }
     }
     #[cfg(feature = "interruptible")]
     #[inline]
@@ -374,7 +385,15 @@ impl Tap {
         bufs: &[IoSlice<'_>],
         event: &crate::InterruptEvent,
     ) -> io::Result<usize> {
-        self.s_ndrv_fd.writev_interruptible(bufs, event)
+        loop {
+            self.wait_writable_interruptible(event)?;
+            return match self.s_ndrv_fd.writev(bufs) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    continue;
+                }
+                rs => rs,
+            };
+        }
     }
     #[cfg(feature = "interruptible")]
     #[inline]
@@ -382,7 +401,7 @@ impl Tap {
         &self,
         event: &crate::InterruptEvent,
     ) -> io::Result<()> {
-        self.s_ndrv_fd.wait_writable_interruptible(event)
+        self.s_ndrv_fd.wait_writable(Some(event), None)
     }
 }
 impl AsRawFd for Tap {

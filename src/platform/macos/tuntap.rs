@@ -188,7 +188,7 @@ impl TunTap {
     ) -> io::Result<usize> {
         match &self {
             TunTap::Tun(tun) => tun.read_interruptible(buf, event, timeout),
-            TunTap::Tap(tap) => tap.read_interruptible(buf, event),
+            TunTap::Tap(tap) => tap.read_interruptible(buf, event, timeout),
         }
     }
     #[cfg(feature = "interruptible")]
@@ -197,10 +197,11 @@ impl TunTap {
         &self,
         bufs: &mut [IoSliceMut<'_>],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
         match &self {
-            TunTap::Tun(tun) => tun.readv_interruptible(bufs, event),
-            TunTap::Tap(tap) => tap.readv_interruptible(bufs, event),
+            TunTap::Tun(tun) => tun.readv_interruptible(bufs, event, timeout),
+            TunTap::Tap(tap) => tap.readv_interruptible(bufs, event, timeout),
         }
     }
     #[cfg(feature = "interruptible")]
@@ -212,7 +213,7 @@ impl TunTap {
     ) -> io::Result<()> {
         match &self {
             TunTap::Tun(tun) => tun.wait_readable_interruptible(event, timeout),
-            TunTap::Tap(tap) => tap.wait_readable_interruptible(event),
+            TunTap::Tap(tap) => tap.wait_readable_interruptible(event, timeout),
         }
     }
     #[cfg(feature = "interruptible")]

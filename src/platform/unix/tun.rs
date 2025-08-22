@@ -299,8 +299,9 @@ impl Tun {
         &self,
         bufs: &mut [IoSliceMut<'_>],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
-        self.fd.readv_interruptible(bufs, event)
+        self.fd.readv_interruptible(bufs, event, timeout)
     }
     #[cfg(feature = "interruptible")]
     #[inline]
