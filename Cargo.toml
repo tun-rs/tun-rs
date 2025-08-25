@@ -138,4 +138,8 @@ required-features = ["async_tokio"]
 name = "read_interruptible"
 required-features = ["interruptible"]
 
+[[example]]
+name = "read_timeout"
+required-features = ["interruptible"]
+
 

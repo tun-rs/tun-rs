@@ -222,11 +222,15 @@ impl TapDevice {
         feature = "async_tokio",
         feature = "async_io"
     ))]
-    pub fn wait_readable_interruptible(&self, interrupt_event: &OwnedHandle) -> io::Result<()> {
+    pub fn wait_readable_interruptible(
+        &self,
+        interrupt_event: &OwnedHandle,
+        timeout: Option<std::time::Duration>,
+    ) -> io::Result<()> {
         let guard = self.read_io_overlapped.lock().unwrap();
         let event = guard.overlapped_event();
         drop(guard);
-        event.wait_interruptible(interrupt_event)
+        event.wait_interruptible(interrupt_event, timeout)
     }
     pub fn wait_readable(&self) -> io::Result<()> {
         let guard = self.read_io_overlapped.lock().unwrap();
@@ -285,7 +289,7 @@ impl TapDevice {
                     let guard = self.write_io_overlapped.lock().unwrap();
                     let event = guard.overlapped_event();
                     drop(guard);
-                    event.wait_interruptible(interrupt_event)?
+                    event.wait_interruptible(interrupt_event, None)?
                 }
                 Err(e) => return Err(e),
             }
