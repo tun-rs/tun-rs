@@ -125,6 +125,8 @@ impl DeviceImpl {
         if matches!(layer, Layer::L3) {
             Self::enable_tunsifhead_impl(&tun.fd)?;
             tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
+        } else {
+            tun.set_ignore_packet_info(false);
         }
         let device = DeviceImpl {
             tun,
@@ -134,12 +136,18 @@ impl DeviceImpl {
         Ok(device)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
-        tun.set_ignore_packet_info(false);
+        let name = Self::name_of_fd(&tun)?;
+        if name.starts_with("tap") {
+            // Tap does not have PI
+            tun.set_ignore_packet_info(false);
+        } else {
+            Self::enable_tunsifhead_impl(&tun.fd)?;
+            tun.set_ignore_packet_info(true);
+        }
         let dev = Self {
             tun,
             op_lock: Mutex::new(true),
         };
-        dev.set_ignore_packet_info(true);
         Ok(dev)
     }
 
@@ -283,13 +291,12 @@ impl DeviceImpl {
         manager.add(&route)?;
         Ok(())
     }
-    /// Retrieves the name of the network interface.
-    pub(crate) fn name_impl(&self) -> std::io::Result<String> {
+    fn name_of_fd(tun: &Tun) -> io::Result<String> {
         use std::path::PathBuf;
         unsafe {
             let mut path_info: kinfo_file = std::mem::zeroed();
             path_info.kf_structsize = KINFO_FILE_SIZE;
-            if fcntl(self.tun.as_raw_fd(), F_KINFO, &mut path_info as *mut _) < 0 {
+            if fcntl(tun.as_raw_fd(), F_KINFO, &mut path_info as *mut _) < 0 {
                 return Err(io::Error::last_os_error());
             }
             let dev_path = CStr::from_ptr(path_info.kf_path.as_ptr() as *const c_char)
@@ -306,6 +313,10 @@ impl DeviceImpl {
                 .to_string();
             Ok(device_name)
         }
+    }
+    /// Retrieves the name of the network interface.
+    pub(crate) fn name_impl(&self) -> std::io::Result<String> {
+        Self::name_of_fd(&self.tun)
     }
 
     fn remove_all_address_v4(&self) -> io::Result<()> {
@@ -395,6 +406,8 @@ impl DeviceImpl {
     /// # Returns
     /// * `true` - The TUN device ignores packet information.
     /// * `false` - The TUN device includes packet information.
+    /// # Note
+    /// Retrieve whether the packet is ignored for the TUN Device; The TAP device always returns `false`.
     pub fn ignore_packet_info(&self) -> bool {
         let _guard = self.op_lock.lock().unwrap();
         self.tun.ignore_packet_info()
@@ -409,6 +422,8 @@ impl DeviceImpl {
     /// * `ign`
     ///     - If `true`, the TUN device will ignore packet information.
     ///     - If `false`, it will include packet information.
+    /// # Note
+    /// This only works for a TUN device; The invocation will be ignored if the device is a TAP.
     pub fn set_ignore_packet_info(&self, ign: bool) {
         let _guard = self.op_lock.lock().unwrap();
         if let Ok(name) = self.name_impl() {

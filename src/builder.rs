@@ -83,6 +83,7 @@ pub(crate) struct DeviceConfig {
         target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
+        target_os = "openbsd",
         target_os = "netbsd"
     ))]
     pub(crate) packet_information: Option<bool>,
@@ -270,18 +271,20 @@ impl DeviceBuilderGuard<'_> {
         self.0.multi_queue = Some(multi_queue);
         self
     }
-    /// Enables or disables packet information for the network driver
-    /// on macOS, Linux.
+    /// Enables or disables packet information for the network driver(TUN)
+    /// on macOS, Linux, freebsd, openbsd, netbsd.
     ///
     /// This option is disabled by default (`false`).
     /// # Note
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
+    /// The set value `v` can be retrieved by `ignore_packet_info`, the returned value is `!v`.
     #[cfg(any(
         target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
+        target_os = "openbsd",
         target_os = "netbsd"
     ))]
     pub fn packet_information(&mut self, packet_information: bool) -> &mut Self {
@@ -378,6 +381,7 @@ pub struct DeviceBuilder {
         target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
+        target_os = "openbsd",
         target_os = "netbsd"
     ))]
     packet_information: Option<bool>,
@@ -585,18 +589,20 @@ impl DeviceBuilder {
         self.multi_queue = Some(multi_queue);
         self
     }
-    /// Enables or disables packet information for the network driver
-    /// on macOS, Linux.
+    /// Enables or disables packet information for the network driver(TUN)
+    /// on macOS, Linux, freebsd, openbsd, netbsd.
     ///
     /// This option is disabled by default (`false`).
     /// # Note
     /// There is no native way to enable/disable packet information on macOS.
     /// The elimination of the packet information on macOS according to this setting
     /// is processed by this library.
+    /// The set value `v` can be retrieved by `ignore_packet_info`, the returned value is `!v`.
     #[cfg(any(
         target_os = "macos",
         target_os = "linux",
         target_os = "freebsd",
+        target_os = "openbsd",
         target_os = "netbsd"
     ))]
     pub fn packet_information(mut self, packet_information: bool) -> Self {
@@ -687,6 +693,7 @@ impl DeviceBuilder {
                 target_os = "macos",
                 target_os = "linux",
                 target_os = "freebsd",
+                target_os = "openbsd",
                 target_os = "netbsd"
             ))]
             packet_information: self.packet_information.take(),
