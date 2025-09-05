@@ -44,7 +44,7 @@ scopeguard = "1.2.0"
 winreg = "0.55"
 widestring = "1.0.2"
 c2rust-bitfields = "0.20"
-windows-sys = { version = "0.60", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",
