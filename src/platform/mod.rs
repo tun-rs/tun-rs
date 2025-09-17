@@ -111,6 +111,14 @@ impl SyncDevice {
     pub unsafe fn from_fd(fd: RawFd) -> std::io::Result<Self> {
         Ok(SyncDevice(DeviceImpl::from_fd(fd)?))
     }
+    /// # Safety
+    /// The fd passed in must be a valid, open file descriptor.
+    /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
+    /// and therefore will not close it when dropped.  
+    /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
+    pub(crate) unsafe fn borrow_raw(fd: RawFd) -> std::io::Result<Self> {
+        Ok(SyncDevice(DeviceImpl::borrow_raw(fd)?))
+    }
     /// Receives data from the device into the provided buffer.
     ///
     /// Returns the number of bytes read, or an I/O error.
@@ -348,5 +356,35 @@ impl AsFd for SyncDevice {
 impl IntoRawFd for SyncDevice {
     fn into_raw_fd(self) -> RawFd {
         self.0.into_raw_fd()
+    }
+}
+
+#[cfg(unix)]
+pub struct BorrowedSyncDevice<'dev> {
+    dev: SyncDevice,
+    _phantom: std::marker::PhantomData<&'dev SyncDevice>,
+}
+#[cfg(unix)]
+impl Deref for BorrowedSyncDevice<'_> {
+    type Target = SyncDevice;
+    fn deref(&self) -> &Self::Target {
+        &self.dev
+    }
+}
+#[cfg(unix)]
+impl BorrowedSyncDevice<'_> {
+    /// # Safety
+    /// The fd passed in must be a valid, open file descriptor.
+    /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
+    /// and therefore will not close it when dropped.  
+    /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
+    pub unsafe fn borrow_raw(fd: RawFd) -> std::io::Result<Self> {
+        #[allow(unused_unsafe)]
+        unsafe {
+            Ok(Self {
+                dev: SyncDevice::borrow_raw(fd)?,
+                _phantom: std::marker::PhantomData,
+            })
+        }
     }
 }

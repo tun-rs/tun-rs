@@ -40,6 +40,15 @@ impl DeviceImpl {
         let tun = Fd::new_unchecked(fd);
         DeviceImpl::from_tun(Tun::new(tun))
     }
+    /// # Safety
+    /// The fd passed in must be a valid, open file descriptor.
+    /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
+    /// and therefore will not close it when dropped.  
+    /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
+    pub(crate) unsafe fn borrow_raw(fd: RawFd) -> io::Result<Self> {
+        let tun = Fd::new_unchecked_with_borrow(fd, true);
+        DeviceImpl::from_tun(Tun::new(tun))
+    }
     pub(crate) fn is_nonblocking(&self) -> io::Result<bool> {
         self.tun.is_nonblocking()
     }
