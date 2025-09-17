@@ -116,6 +116,7 @@ impl SyncDevice {
     /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
     /// and therefore will not close it when dropped.  
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
+    #[cfg(unix)]
     pub(crate) unsafe fn borrow_raw(fd: RawFd) -> std::io::Result<Self> {
         Ok(SyncDevice(DeviceImpl::borrow_raw(fd)?))
     }
