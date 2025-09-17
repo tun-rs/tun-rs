@@ -105,6 +105,15 @@ impl SyncDevice {
     pub unsafe fn from_fd(fd: RawFd) -> std::io::Result<Self> {
         Ok(SyncDevice(DeviceImpl::from_fd(fd)?))
     }
+    /// # Safety
+    /// The fd passed in must be a valid, open file descriptor.
+    /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
+    /// and therefore will not close it when dropped.  
+    /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
+    #[cfg(unix)]
+    pub unsafe fn borrow_raw(fd: RawFd) -> std::io::Result<Self> {
+        Ok(SyncDevice(DeviceImpl::borrow_raw(fd)?))
+    }
     /// Receives data from the device into the provided buffer.
     ///
     /// Returns the number of bytes read, or an I/O error.

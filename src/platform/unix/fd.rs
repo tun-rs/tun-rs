@@ -7,6 +7,7 @@ use libc::{self, fcntl, F_GETFL, O_NONBLOCK};
 /// POSIX file descriptor support for `io` traits.
 pub(crate) struct Fd {
     pub(crate) inner: RawFd,
+    owned: bool,
 }
 
 impl Fd {
@@ -24,7 +25,16 @@ impl Fd {
         Ok(unsafe { Self::new_unchecked(value) })
     }
     pub(crate) unsafe fn new_unchecked(value: RawFd) -> Self {
-        Fd { inner: value }
+        Fd {
+            inner: value,
+            owned: true,
+        }
+    }
+    pub(crate) unsafe fn new_unchecked_with_owned(value: RawFd, owned: bool) -> Self {
+        Fd {
+            inner: value,
+            owned,
+        }
     }
     pub(crate) fn is_nonblocking(&self) -> io::Result<bool> {
         unsafe {
@@ -149,7 +159,7 @@ impl IntoRawFd for Fd {
 
 impl Drop for Fd {
     fn drop(&mut self) {
-        if self.inner >= 0 {
+        if self.inner >= 0 && self.owned {
             unsafe { libc::close(self.inner) };
         }
     }

@@ -55,6 +55,14 @@ impl AsyncDevice {
     pub unsafe fn from_fd(fd: RawFd) -> io::Result<AsyncDevice> {
         AsyncDevice::new_dev(DeviceImpl::from_fd(fd)?)
     }
+    /// # Safety
+    /// The fd passed in must be a valid, open file descriptor.
+    /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
+    /// and therefore will not close it when dropped.  
+    /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
+    pub unsafe fn borrow_raw(fd: RawFd) -> io::Result<AsyncDevice> {
+        AsyncDevice::new_dev(DeviceImpl::borrow_raw(fd)?)
+    }
     pub fn into_fd(self) -> io::Result<RawFd> {
         Ok(self.into_device()?.into_raw_fd())
     }
