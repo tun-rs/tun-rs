@@ -77,24 +77,27 @@ impl DeviceImpl {
         &self,
         buf: &mut [u8],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
-        self.tun.read_interruptible(buf, event)
+        self.tun.read_interruptible(buf, event, timeout)
     }
     #[cfg(feature = "interruptible")]
     pub(crate) fn readv_interruptible(
         &self,
         bufs: &mut [IoSliceMut<'_>],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
-        self.tun.readv_interruptible(bufs, event)
+        self.tun.readv_interruptible(bufs, event, timeout)
     }
     #[cfg(feature = "interruptible")]
     #[inline]
     pub(crate) fn wait_readable_interruptible(
         &self,
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
-        self.tun.wait_readable_interruptible(event)
+        self.tun.wait_readable_interruptible(event, timeout)
     }
     #[cfg(feature = "interruptible")]
     pub(crate) fn write_interruptible(

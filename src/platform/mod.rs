@@ -210,7 +210,16 @@ impl SyncDevice {
     /// This method is only available when the `interruptible` feature is enabled.
     #[cfg(feature = "interruptible")]
     pub fn recv_intr(&self, buf: &mut [u8], event: &InterruptEvent) -> std::io::Result<usize> {
-        self.0.read_interruptible(buf, event)
+        self.0.read_interruptible(buf, event, None)
+    }
+    #[cfg(feature = "interruptible")]
+    pub fn recv_intr_timeout(
+        &self,
+        buf: &mut [u8],
+        event: &InterruptEvent,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<usize> {
+        self.0.read_interruptible(buf, event, timeout)
     }
     /// Like [`recv_intr`](Self::recv_intr), but reads into multiple buffers.
     ///
@@ -226,11 +235,28 @@ impl SyncDevice {
         bufs: &mut [IoSliceMut<'_>],
         event: &InterruptEvent,
     ) -> std::io::Result<usize> {
-        self.0.readv_interruptible(bufs, event)
+        self.0.readv_interruptible(bufs, event, None)
+    }
+    #[cfg(all(unix, feature = "interruptible"))]
+    pub fn recv_vectored_intr_timeout(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &InterruptEvent,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<usize> {
+        self.0.readv_interruptible(bufs, event, timeout)
     }
     #[cfg(feature = "interruptible")]
     pub fn wait_readable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {
-        self.0.wait_readable_interruptible(event)
+        self.0.wait_readable_interruptible(event, None)
+    }
+    #[cfg(feature = "interruptible")]
+    pub fn wait_readable_intr_timeout(
+        &self,
+        event: &InterruptEvent,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<()> {
+        self.0.wait_readable_interruptible(event, timeout)
     }
     #[cfg(feature = "interruptible")]
     pub fn send_intr(&self, buf: &[u8], event: &InterruptEvent) -> std::io::Result<usize> {
@@ -323,7 +349,7 @@ impl SyncDevice {
         event: &InterruptEvent,
     ) -> std::io::Result<usize> {
         self.recv_multiple0(original_buffer, bufs, sizes, offset, |tun, buf| {
-            tun.read_interruptible(buf, event)
+            tun.read_interruptible(buf, event, None)
         })
     }
 }

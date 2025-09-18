@@ -171,10 +171,14 @@ impl WinTunAdapter {
         }
         Err(io::Error::other("The interface has been disabled"))
     }
-    fn wait_readable_interruptible(&self, interrupt_event: &OwnedHandle) -> io::Result<()> {
+    fn wait_readable_interruptible(
+        &self,
+        interrupt_event: &OwnedHandle,
+        timeout: Option<std::time::Duration>,
+    ) -> io::Result<()> {
         let guard = self.session.read().unwrap();
         if let Some(session) = guard.as_ref() {
-            return session.wait_readable_interruptible(&self.event, interrupt_event);
+            return session.wait_readable_interruptible(&self.event, interrupt_event, timeout);
         }
         Err(io::Error::other("The interface has been disabled"))
     }
@@ -281,6 +285,7 @@ impl WinTunSession {
         &self,
         inner_event: &OwnedHandle,
         interrupt_event: &OwnedHandle,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
         //Wait on both the read handle and the shutdown handle so that we stop when requested
         let handles = [
@@ -291,10 +296,20 @@ impl WinTunSession {
         let result = unsafe {
             //SAFETY: We abide by the requirements of WaitForMultipleObjects, handles is a
             //pointer to valid, aligned, stack memory
-            WaitForMultipleObjects(3, &handles as _, 0, INFINITE)
+            WaitForMultipleObjects(
+                3,
+                &handles as _,
+                0,
+                timeout
+                    .map(|t| t.as_millis().min(INFINITE as _) as u32)
+                    .unwrap_or(INFINITE),
+            )
         };
         match result {
             WAIT_FAILED => Err(io::Error::last_os_error()),
+            windows_sys::Win32::Foundation::WAIT_TIMEOUT => {
+                Err(io::Error::from(io::ErrorKind::TimedOut))
+            }
             _ => {
                 if result == WAIT_OBJECT_0 {
                     //We have data!
@@ -484,9 +499,10 @@ impl TunDevice {
     pub(crate) fn wait_readable_interruptible(
         &self,
         interrupt_event: &OwnedHandle,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
         self.win_tun_adapter
-            .wait_readable_interruptible(interrupt_event)
+            .wait_readable_interruptible(interrupt_event, timeout)
     }
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.win_tun_adapter.recv(buf)
