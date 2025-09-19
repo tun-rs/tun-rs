@@ -11,7 +11,7 @@ use ::tokio::io::Interest;
 ///
 /// # Streams
 ///
-/// If you need to produce a [`Stream`], you can look at [`DeviceFramed`](crate::async_framed::DeviceFramed).
+/// If you need to produce a `Stream`, you can look at `DeviceFramed`.
 ///
 /// **Note:** `DeviceFramed` is only available when the `async_framed` feature is enabled.
 ///

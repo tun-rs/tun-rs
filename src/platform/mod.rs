@@ -376,7 +376,7 @@ impl Deref for BorrowedSyncDevice<'_> {
 impl BorrowedSyncDevice<'_> {
     /// # Safety
     /// The fd passed in must be a valid, open file descriptor.
-    /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
+    /// Unlike [`SyncDevice::from_fd`], this function does **not** take ownership of `fd`,
     /// and therefore will not close it when dropped.  
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
     pub unsafe fn borrow_raw(fd: RawFd) -> std::io::Result<Self> {

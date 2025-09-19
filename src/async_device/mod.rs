@@ -43,7 +43,7 @@ impl std::ops::Deref for BorrowedAsyncDevice<'_> {
 impl BorrowedAsyncDevice<'_> {
     /// # Safety
     /// The fd passed in must be a valid, open file descriptor.
-    /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
+    /// Unlike [`AsyncDevice::from_fd`], this function does **not** take ownership of `fd`,
     /// and therefore will not close it when dropped.  
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
     pub unsafe fn borrow_raw(fd: std::os::fd::RawFd) -> std::io::Result<Self> {
