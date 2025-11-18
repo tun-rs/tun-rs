@@ -299,8 +299,9 @@ impl Tun {
         &self,
         buf: &mut [u8],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
-        self.fd.read_interruptible(buf, event)
+        self.fd.read_interruptible(buf, event, timeout)
     }
     #[cfg(all(
         feature = "interruptible",
@@ -317,14 +318,15 @@ impl Tun {
         &self,
         buf: &mut [u8],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
         if self.ignore_packet_info() {
             let mut head = [0u8; PIL];
             let bufs = &mut [IoSliceMut::new(&mut head), IoSliceMut::new(buf)];
-            let len = self.fd.readv_interruptible(bufs, event)?;
+            let len = self.fd.readv_interruptible(bufs, event, timeout)?;
             Ok(len.saturating_sub(PIL))
         } else {
-            self.fd.read_interruptible(buf, event)
+            self.fd.read_interruptible(buf, event, timeout)
         }
     }
     #[cfg(all(
@@ -343,8 +345,9 @@ impl Tun {
         &self,
         bufs: &mut [IoSliceMut<'_>],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
-        self.fd.readv_interruptible(bufs, event)
+        self.fd.readv_interruptible(bufs, event, timeout)
     }
     #[cfg(all(
         feature = "interruptible",
@@ -361,6 +364,7 @@ impl Tun {
         &self,
         bufs: &mut [IoSliceMut<'_>],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
         if self.ignore_packet_info() {
             if crate::platform::unix::fd::max_iov() - 1 < bufs.len() {
@@ -378,10 +382,10 @@ impl Tun {
             let part: &mut [IoSliceMut] = unsafe {
                 std::slice::from_raw_parts_mut(iov_block.as_mut_ptr() as *mut IoSliceMut, offset)
             };
-            let len = self.fd.readv_interruptible(part, event)?;
+            let len = self.fd.readv_interruptible(part, event, timeout)?;
             Ok(len.saturating_sub(PIL))
         } else {
-            self.fd.readv_interruptible(bufs, event)
+            self.fd.readv_interruptible(bufs, event, timeout)
         }
     }
     #[cfg(feature = "interruptible")]
@@ -389,8 +393,9 @@ impl Tun {
     pub(crate) fn wait_readable_interruptible(
         &self,
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
-        self.fd.wait_readable_interruptible(event)
+        self.fd.wait_readable_interruptible(event, timeout)
     }
     #[cfg(all(
         feature = "interruptible",

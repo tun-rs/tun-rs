@@ -137,10 +137,11 @@ impl DeviceImpl {
     pub(crate) fn wait_readable_interruptible(
         &self,
         event: &crate::platform::windows::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
         match &self.driver {
-            Driver::Tap(tap) => tap.wait_readable_interruptible(&event.handle),
-            Driver::Tun(tun) => tun.wait_readable_interruptible(&event.handle),
+            Driver::Tap(tap) => tap.wait_readable_interruptible(&event.handle, timeout),
+            Driver::Tun(tun) => tun.wait_readable_interruptible(&event.handle, timeout),
         }
     }
     #[cfg(feature = "interruptible")]
@@ -148,9 +149,10 @@ impl DeviceImpl {
         &self,
         buf: &mut [u8],
         event: &crate::InterruptEvent,
+        timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
         loop {
-            self.wait_readable_interruptible(event)?;
+            self.wait_readable_interruptible(event, timeout)?;
             match self.try_recv(buf) {
                 Ok(rs) => {
                     return Ok(rs);
