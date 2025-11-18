@@ -33,7 +33,7 @@ fn main() -> Result<(), std::io::Error> {
         tx.send(()).expect("Signal error.");
         true
     })
-        .expect("Error setting Ctrl-C handler");
+    .expect("Error setting Ctrl-C handler");
 
     main_entry(rx)?;
     handle.join().unwrap();
