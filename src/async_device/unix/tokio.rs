@@ -11,7 +11,7 @@ use ::tokio::io::Interest;
 ///
 /// # Streams
 ///
-/// If you need to produce a [`Stream`], you can look at [`DeviceFramed`](crate::async_framed::DeviceFramed).
+/// If you need to produce a `Stream`, you can look at `DeviceFramed`.
 ///
 /// **Note:** `DeviceFramed` is only available when the `async_framed` feature is enabled.
 ///
@@ -174,7 +174,7 @@ impl AsyncDevice {
         mut op: impl FnMut(&DeviceImpl) -> io::Result<R>,
     ) -> io::Result<R> {
         self.0
-            .async_io(Interest::READABLE.add(Interest::ERROR), |device| op(device))
+            .async_io(Interest::READABLE, |device| op(device))
             .await
     }
     pub(crate) async fn write_with<R>(
@@ -190,8 +190,7 @@ impl AsyncDevice {
         &self,
         f: impl FnOnce(&DeviceImpl) -> io::Result<R>,
     ) -> io::Result<R> {
-        self.0
-            .try_io(Interest::READABLE.add(Interest::ERROR), |device| f(device))
+        self.0.try_io(Interest::READABLE, |device| f(device))
     }
 
     pub(crate) fn try_write_io<R>(

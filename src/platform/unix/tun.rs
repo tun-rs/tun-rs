@@ -283,7 +283,17 @@ impl Tun {
     pub(crate) fn set_ignore_packet_info(&self, ign: bool) {
         self.ignore_packet_information.store(ign, Ordering::Relaxed);
     }
-    #[cfg(feature = "interruptible")]
+    #[cfg(all(
+        feature = "interruptible",
+        not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "openbsd",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        ))
+    ))]
     #[inline]
     pub(crate) fn read_interruptible(
         &self,
@@ -293,7 +303,42 @@ impl Tun {
     ) -> io::Result<usize> {
         self.fd.read_interruptible(buf, event, timeout)
     }
-    #[cfg(feature = "interruptible")]
+    #[cfg(all(
+        feature = "interruptible",
+        any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "openbsd",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ))]
+    pub(crate) fn read_interruptible(
+        &self,
+        buf: &mut [u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        if self.ignore_packet_info() {
+            let mut head = [0u8; PIL];
+            let bufs = &mut [IoSliceMut::new(&mut head), IoSliceMut::new(buf)];
+            let len = self.fd.readv_interruptible(bufs, event)?;
+            Ok(len.saturating_sub(PIL))
+        } else {
+            self.fd.read_interruptible(buf, event)
+        }
+    }
+    #[cfg(all(
+        feature = "interruptible",
+        not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "openbsd",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        ))
+    ))]
     #[inline]
     pub(crate) fn readv_interruptible(
         &self,
@@ -302,6 +347,44 @@ impl Tun {
         timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
         self.fd.readv_interruptible(bufs, event, timeout)
+    }
+    #[cfg(all(
+        feature = "interruptible",
+        any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "openbsd",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ))]
+    pub(crate) fn readv_interruptible(
+        &self,
+        bufs: &mut [IoSliceMut<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        if self.ignore_packet_info() {
+            if crate::platform::unix::fd::max_iov() - 1 < bufs.len() {
+                return Err(io::Error::from(io::ErrorKind::InvalidInput));
+            }
+            let offset = bufs.len() + 1;
+            let mut head = [0u8; PIL];
+            let mut iov_block: [std::mem::MaybeUninit<IoSliceMut>;
+                crate::platform::unix::fd::max_iov()] =
+                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+            iov_block[0] = std::mem::MaybeUninit::new(IoSliceMut::new(&mut head));
+            for (index, buf) in bufs.iter_mut().enumerate() {
+                iov_block[index + 1] = std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut()));
+            }
+            let part: &mut [IoSliceMut] = unsafe {
+                std::slice::from_raw_parts_mut(iov_block.as_mut_ptr() as *mut IoSliceMut, offset)
+            };
+            let len = self.fd.readv_interruptible(part, event)?;
+            Ok(len.saturating_sub(PIL))
+        } else {
+            self.fd.readv_interruptible(bufs, event)
+        }
     }
     #[cfg(feature = "interruptible")]
     #[inline]
@@ -312,7 +395,17 @@ impl Tun {
     ) -> io::Result<()> {
         self.fd.wait_readable_interruptible(event, timeout)
     }
-    #[cfg(feature = "interruptible")]
+    #[cfg(all(
+        feature = "interruptible",
+        not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "openbsd",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        ))
+    ))]
     #[inline]
     pub(crate) fn write_interruptible(
         &self,
@@ -321,7 +414,44 @@ impl Tun {
     ) -> io::Result<usize> {
         self.fd.write_interruptible(buf, event)
     }
-    #[cfg(feature = "interruptible")]
+    #[cfg(all(
+        feature = "interruptible",
+        any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "openbsd",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ))]
+    pub(crate) fn write_interruptible(
+        &self,
+        buf: &[u8],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        if self.ignore_packet_info() {
+            let ipv6 = is_ipv6(buf)?;
+            let head = generate_packet_information(ipv6);
+            let len = self
+                .fd
+                .writev_interruptible(&[IoSlice::new(&head), IoSlice::new(buf)], event)?;
+            Ok(len.saturating_sub(PIL))
+        } else {
+            self.fd.write_interruptible(buf, event)
+        }
+    }
+    #[cfg(all(
+        feature = "interruptible",
+        not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "openbsd",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        ))
+    ))]
     #[inline]
     pub(crate) fn writev_interruptible(
         &self,
@@ -329,6 +459,44 @@ impl Tun {
         event: &crate::InterruptEvent,
     ) -> io::Result<usize> {
         self.fd.writev_interruptible(bufs, event)
+    }
+    #[cfg(all(
+        feature = "interruptible",
+        any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "openbsd",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        )
+    ))]
+    pub(crate) fn writev_interruptible(
+        &self,
+        bufs: &[IoSlice<'_>],
+        event: &crate::InterruptEvent,
+    ) -> io::Result<usize> {
+        if self.ignore_packet_info() {
+            if crate::platform::unix::fd::max_iov() - 1 < bufs.len() {
+                return Err(io::Error::from(io::ErrorKind::InvalidInput));
+            }
+            let buf = bufs
+                .iter()
+                .find(|b| !b.is_empty())
+                .map_or(&[][..], |b| &**b);
+            let ipv6 = is_ipv6(buf)?;
+            let head = generate_packet_information(ipv6);
+            let mut iov_block = [IoSlice::new(&head); crate::platform::unix::fd::max_iov()];
+            for (index, buf) in bufs.iter().enumerate() {
+                iov_block[index + 1] = *buf;
+            }
+            let len = self
+                .fd
+                .writev_interruptible(&iov_block[..bufs.len() + 1], event)?;
+            Ok(len.saturating_sub(PIL))
+        } else {
+            self.fd.writev_interruptible(bufs, event)
+        }
     }
     #[cfg(feature = "interruptible")]
     #[inline]

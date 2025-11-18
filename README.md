@@ -137,9 +137,17 @@ use tun_rs::SyncDevice;
 
 fn main() -> std::io::Result<()> {
     // Pass a valid fd value
-    let fd = 0; // exposition-only
+    let fd:RawFd = 0; // exposition-only
+    // take the ownership of `fd`
     let dev = unsafe { SyncDevice::from_fd(fd)? };
+    // borrow fd without taking its ownership
+    // let dev = unsafe { tun_rs::BorrowedSyncDevice::borrow_raw(fd)? };
+
+    // take the ownership of `fd`
     // let async_dev = unsafe { tun_rs::AsyncDevice::from_fd(fd)?};
+
+    // borrow fd without taking its ownership
+    // let async_dev = unsafe { tun_rs::BorrowedAsyncDevice::borrow_raw(fd)?};  
 
     let mut buf = [0; 4096];
     loop {

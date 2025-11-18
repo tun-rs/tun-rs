@@ -1,6 +1,6 @@
 [package]
 name = "tun-rs"
-version = "2.7.2"
+version = "2.7.4"
 edition = "2021"
 authors = ["xmh0511, vnt-dev"]
 license = "Apache-2.0"
@@ -43,8 +43,8 @@ encoding_rs = "0.8.35"
 scopeguard = "1.2.0"
 winreg = "0.55"
 widestring = "1.0.2"
-c2rust-bitfields = "0.20"
-windows-sys = { version = "0.60", features = [
+c2rust-bitfields = "0.21"
+windows-sys = { version = "0.61", features = [
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",
@@ -141,5 +141,7 @@ required-features = ["interruptible"]
 [[example]]
 name = "read_timeout"
 required-features = ["interruptible"]
+
+
 
 
