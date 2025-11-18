@@ -33,7 +33,7 @@ fn main() -> Result<(), std::io::Error> {
         tx.send(()).expect("Signal error.");
         true
     })
-    .expect("Error setting Ctrl-C handler");
+        .expect("Error setting Ctrl-C handler");
 
     main_entry(rx)?;
     handle.join().unwrap();
@@ -69,12 +69,24 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
     dev.set_nonblocking(true)?;
 
     let event = Arc::new(InterruptEvent::new()?);
+    let event_clone = event.clone();
     let join = std::thread::spawn(move || {
         let mut buf = [0; 4096];
         loop {
-            match dev.recv_intr_timeout(&mut buf, &event, Some(Duration::from_millis(1000))) {
+            match dev.recv_intr_timeout(&mut buf, &event_clone, Some(Duration::from_millis(1000))) {
                 Ok(len) => {
-                    println!("read_interruptible Ok({len})");
+                    println!("recv_intr_timeout Ok({len})");
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                    println!("read_interruptible Err({e:?})");
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                    // If the interrupt event is to be reused, it must be reset before the next wait.
+                    if event_clone.is_trigger() {
+                        event_clone.reset().unwrap();
+                        println!("read_interruptible Err({e:?})");
+                    }
+                    return;
                 }
                 Err(e) => {
                     println!("Error: {e:?}");
@@ -84,6 +96,8 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
         }
     });
     _ = quit.recv();
+    std::thread::sleep(Duration::from_millis(100));
+    event.trigger()?;
     join.join().unwrap();
     Ok(())
 }
