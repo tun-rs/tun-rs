@@ -19,6 +19,7 @@ ioctl_read_bad!(siocgifmtu, 0x8921, ifreq);
 ioctl_write_ptr_bad!(siocsifmtu, 0x8922, ifreq);
 ioctl_write_ptr_bad!(siocsifname, 0x8923, ifreq);
 
+ioctl_read_bad!(siocgifhwaddr, 0x8927, ifreq);
 ioctl_write_ptr_bad!(siocsifhwaddr, 0x8924, ifreq);
 ioctl_read_bad!(tx_queue_len, 0x8942, ifreq);
 ioctl_write_ptr_bad!(change_tx_queue_len, 0x8943, ifreq);
