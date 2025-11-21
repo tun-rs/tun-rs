@@ -19,7 +19,6 @@ use libc::{
     self, c_char, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI, IFF_RUNNING,
     IFF_TAP, IFF_TUN, IFF_UP, IFNAMSIZ, O_RDWR,
 };
-use mac_address::mac_address_by_name;
 use std::net::Ipv6Addr;
 use std::sync::{Arc, Mutex};
 use std::{
@@ -817,10 +816,20 @@ impl DeviceImpl {
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let _guard = self.op_lock.lock().unwrap();
-        let mac = mac_address_by_name(&self.name_impl()?)
-            .map_err(|e| io::Error::other(e.to_string()))?
-            .ok_or(io::Error::from(io::ErrorKind::NotFound))?;
-        Ok(mac.bytes())
+        unsafe {
+            let mut req = self.request()?;
+
+            siocgifhwaddr(ctl()?.as_raw_fd(), &mut req).map_err(io::Error::from)?;
+
+            let hw = &req.ifr_ifru.ifru_hwaddr.sa_data;
+
+            let mut mac = [0u8; ETHER_ADDR_LEN as usize];
+            for (i, b) in hw.iter().take(6).enumerate() {
+                mac[i] = *b as u8;
+            }
+
+            Ok(mac)
+        }
     }
 }
 
