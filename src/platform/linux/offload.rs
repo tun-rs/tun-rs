@@ -895,13 +895,12 @@ pub fn apply_tcp_coalesce_accounting<B: ExpandBuffer>(
                 // checksum offset. Downstream checksum offloading will combine
                 // this with computation of the tcp header and payload checksum.
                 let addr_len = if item.key.is_v6 { 16 } else { 4 };
-                let addr_offset = if item.key.is_v6 {
+                let src_addr_at = if item.key.is_v6 {
                     IPV6_SRC_ADDR_OFFSET
                 } else {
                     IPV4_SRC_ADDR_OFFSET
                 };
 
-                let src_addr_at = offset + addr_offset;
                 let src_addr =
                     unsafe { &*(&pkt[src_addr_at..src_addr_at + addr_len] as *const [u8]) };
                 let dst_addr = unsafe {
@@ -973,13 +972,12 @@ pub fn apply_udp_coalesce_accounting<B: ExpandBuffer>(
                 // Calculate the pseudo header checksum and place it at the UDP
                 // checksum offset. Downstream checksum offloading will combine
                 // this with computation of the udp header and payload checksum.
-                let (addr_len, addr_offset) = if item.key.is_v6 {
+                let (addr_len, src_addr_at) = if item.key.is_v6 {
                     (16, IPV6_SRC_ADDR_OFFSET)
                 } else {
                     (4, IPV4_SRC_ADDR_OFFSET)
                 };
 
-                let src_addr_at = offset + addr_offset;
                 let src_addr =
                     unsafe { &*(&pkt[src_addr_at..(src_addr_at + addr_len)] as *const [u8]) };
                 let dst_addr = unsafe {
