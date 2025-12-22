@@ -220,7 +220,10 @@ impl Fd {
             libc::select(
                 nfds + 1,
                 &mut readfds,
-                writefds.as_mut().map_or_else(std::ptr::null_mut, |p| p),
+                writefds
+                    .as_mut()
+                    .map(|p| p as *mut _)
+                    .unwrap_or_else(std::ptr::null_mut),
                 &mut errorfds,
                 tv_ptr,
             )
