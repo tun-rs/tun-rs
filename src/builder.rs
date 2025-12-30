@@ -399,7 +399,7 @@ pub struct DeviceBuilder {
 impl DeviceBuilder {
     /// Creates a new DeviceBuilder instance with default settings.
     pub fn new() -> Self {
-        Self::default()
+        Self::default().enable(true)
     }
     /// Sets the device name.
     pub fn name<S: Into<String>>(mut self, dev_name: S) -> Self {
@@ -651,6 +651,15 @@ impl DeviceBuilder {
         self.enabled = Some(enable);
         self
     }
+
+    /// Keeps the device enable state unchanged.
+    ///
+    /// This method does not explicitly enable or disable the device.
+    /// The existing system state is preserved.
+    pub fn inherit_enable_state(mut self) -> Self {
+        self.enabled = None;
+        self
+    }
     pub(crate) fn build_config(&mut self) -> DeviceConfig {
         DeviceConfig {
             dev_name: self.dev_name.take(),
@@ -743,7 +752,9 @@ impl DeviceBuilder {
                 device.add_address_v6(address, prefix)?;
             }
         }
-        device.enabled(self.enabled.unwrap_or(true))?;
+        if let Some(enabled) = self.enabled {
+            device.enabled(enabled)?;
+        }
         Ok(())
     }
     /// Builds a synchronous device instance and applies all configuration parameters.
