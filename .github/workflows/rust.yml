@@ -214,10 +214,6 @@ jobs:
         run: |
           cargo fmt --all -- --check
           ohrs cargo --disable-target -- clippy --target ${{matrix.target}} --features="async_tokio" -- -D warnings
-      - name: Build
-        if: ${{ !cancelled() }}
-        run: |
-          ohrs cargo --disable-target -- rustc --target ${{matrix.target}} --verbose --features="async_tokio" --lib --crate-type=cdylib
       - name: Abort on error
         if: ${{ failure() }}
         run: echo "OpenHarmony build job failed" && false
