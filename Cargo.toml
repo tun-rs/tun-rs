@@ -13,6 +13,7 @@ documentation = "https://docs.rs/tun-rs"
 crate-type = ["staticlib", "cdylib", "lib"]
 
 [dependencies]
+libc = { version = "0.2", features = ["extra_traits"] }
 bytes = { version = "1" }
 log = "0.4"
 blocking = { version = "1.6", optional = true }
@@ -33,13 +34,6 @@ futures = { version = "0.3", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "android", target_os="freebsd", target_os="openbsd", target_os = "netbsd"))'.dependencies]
 nix = { version = "0.31", features = ["ioctl", "net"] }
-
-[target.'cfg(not(target_os = "netbsd"))'.dependencies]
-libc = { version = "0.2", features = ["extra_traits"] }
-
-[target.'cfg(target_os = "netbsd")'.dependencies]
-libc = { version = "=0.2.177", features = ["extra_traits"] }
-
 
 [target.'cfg(any(target_os = "linux",target_os = "windows"))'.dependencies]
 netconfig-rs = "0.1.5"
