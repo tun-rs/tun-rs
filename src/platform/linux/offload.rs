@@ -1252,6 +1252,21 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             (0, IPPROTO_UDP)
         };
 
+    let src_addr_bytes = &input[src_addr_offset..src_addr_offset + addr_len];
+    let dst_addr_bytes = &input[src_addr_offset + addr_len..src_addr_offset + 2 * addr_len];
+    let transport_header_len = (hdr.hdr_len - hdr.csum_start) as usize;
+
+    let nonlast_segment_data_len = hdr.gso_size as usize;
+    let nonlast_len_for_pseudo = (transport_header_len + nonlast_segment_data_len) as u16;
+    let nonlast_total_len = hdr.hdr_len as usize + nonlast_segment_data_len;
+
+    let nonlast_transport_csum_no_fold = pseudo_header_checksum_no_fold(
+        protocol as u8,
+        src_addr_bytes,
+        dst_addr_bytes,
+        nonlast_len_for_pseudo,
+    );
+
     let mut next_segment_data_at = hdr.hdr_len as usize;
     let mut i = 0;
 
@@ -1260,12 +1275,33 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             return Err(io::Error::other("ErrTooManySegments"));
         }
 
-        let mut next_segment_end = next_segment_data_at + hdr.gso_size as usize;
-        if next_segment_end > input.len() {
-            next_segment_end = input.len();
-        }
-        let segment_data_len = next_segment_end - next_segment_data_at;
-        let total_len = hdr.hdr_len as usize + segment_data_len;
+        let next_segment_end = next_segment_data_at + hdr.gso_size as usize;
+        let (next_segment_end, segment_data_len, total_len, transport_csum_no_fold) =
+            if next_segment_end > input.len() {
+                let last_segment_data_len = input.len() - next_segment_data_at;
+                let last_len_for_pseudo = (transport_header_len + last_segment_data_len) as u16;
+
+                let last_total_len = hdr.hdr_len as usize + last_segment_data_len;
+                let last_transport_csum_no_fold = pseudo_header_checksum_no_fold(
+                    protocol as u8,
+                    src_addr_bytes,
+                    dst_addr_bytes,
+                    last_len_for_pseudo,
+                );
+                (
+                    input.len(),
+                    last_segment_data_len,
+                    last_total_len,
+                    last_transport_csum_no_fold,
+                )
+            } else {
+                (
+                    next_segment_end,
+                    hdr.gso_size as usize,
+                    nonlast_total_len,
+                    nonlast_transport_csum_no_fold,
+                )
+            };
 
         sizes[i] = total_len;
         let out = &mut out_bufs[i].as_mut()[out_offset..];
@@ -1315,14 +1351,6 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             .as_mut()
             .copy_from_slice(&input[next_segment_data_at..next_segment_end]);
 
-        let transport_header_len = (hdr.hdr_len - hdr.csum_start) as usize;
-        let len_for_pseudo = (transport_header_len + segment_data_len) as u16;
-        let transport_csum_no_fold = pseudo_header_checksum_no_fold(
-            protocol as u8,
-            &input[src_addr_offset..src_addr_offset + addr_len],
-            &input[src_addr_offset + addr_len..src_addr_offset + 2 * addr_len],
-            len_for_pseudo,
-        );
         let transport_csum = !checksum(
             &out[hdr.csum_start as usize..total_len],
             transport_csum_no_fold,
