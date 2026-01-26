@@ -1284,7 +1284,11 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             let ipv4_csum = !checksum(&out[..iph_len], 0);
             BigEndian::write_u16(&mut out[10..12], ipv4_csum);
         } else {
-            BigEndian::write_u16(&mut out[4..6], (total_len - iph_len) as u16);
+            // For IPv6 we are responsible for updating the payload length field.
+            // IPv6 extensions are not checksumed, but included in the payload length.
+            const IPV6_FIXED_HDR_LEN: usize = 40;
+            let payload_len = total_len - IPV6_FIXED_HDR_LEN;
+            BigEndian::write_u16(&mut out[4..6], payload_len as u16);
         }
 
         out[hdr.csum_start as usize..hdr.hdr_len as usize]
