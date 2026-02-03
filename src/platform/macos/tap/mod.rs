@@ -126,7 +126,16 @@ impl Tap {
             let mut nd: libc::sockaddr_ndrv = std::mem::zeroed();
             nd.snd_len = size_of::<libc::sockaddr_ndrv>() as u8;
             nd.snd_family = libc::AF_NDRV as u8;
-            nd.snd_name[..peer_feth.name.len()].copy_from_slice(peer_feth.name.as_bytes());
+            // Ensure the name fits within snd_name to prevent buffer overflow
+            let name_bytes = peer_feth.name.as_bytes();
+            if name_bytes.len() > nd.snd_name.len() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Interface name '{}' is too long (max {} bytes)", 
+                            peer_feth.name, nd.snd_name.len())
+                ));
+            }
+            nd.snd_name[..name_bytes.len()].copy_from_slice(name_bytes);
             if libc::bind(
                 s_ndrv_fd.inner,
                 &nd as *const _ as *const libc::sockaddr,

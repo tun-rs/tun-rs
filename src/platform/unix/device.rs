@@ -14,7 +14,8 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
 
 impl FromRawFd for DeviceImpl {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        DeviceImpl::from_fd(fd).unwrap()
+        // SAFETY: Caller guarantees fd is valid per FromRawFd trait contract
+        DeviceImpl::from_fd(fd).expect("Failed to create device from file descriptor")
     }
 }
 impl AsRawFd for DeviceImpl {
