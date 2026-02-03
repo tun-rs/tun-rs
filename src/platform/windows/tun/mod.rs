@@ -239,7 +239,13 @@ impl WinTunSession {
         }
     }
     fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
-        assert!(buf.len() <= u32::MAX as _);
+        if buf.len() > u32::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Buffer too large: {} bytes exceeds maximum size of {} bytes", 
+                        buf.len(), u32::MAX)
+            ));
+        }
         let win_tun = &self.win_tun;
         let handle = self.handle;
         let bytes_ptr = unsafe { win_tun.WintunAllocateSendPacket(handle, buf.len() as u32) };
