@@ -123,8 +123,10 @@ impl DeviceImpl {
 
         if let Ok(addrs) = crate::platform::get_if_addrs_by_name(self.name_impl()?) {
             for v in addrs {
-                let addr = v.address;
-                let Some(netmask) = v.netmask else {
+                let Some(addr) = v.address.ip_addr() else {
+                    continue;
+                };
+                let Some(netmask) = v.address.netmask() else {
                     continue;
                 };
                 if addr.is_ipv6() || netmask.is_ipv6() {
@@ -287,8 +289,8 @@ impl DeviceImpl {
                         return Err(io::Error::from(err));
                     }
                     if let Ok(addrs) = crate::platform::get_if_addrs_by_name(self.name_impl()?) {
-                        for v in addrs.iter().filter(|v| v.address == addr) {
-                            let Some(netmask) = v.netmask else {
+                        for v in addrs.iter().filter(|v| v.address.ip_addr() == Some(addr)) {
+                            let Some(netmask) = v.address.netmask() else {
                                 continue;
                             };
                             if let Err(e) = self.remove_route(addr, netmask, is_associate_route) {

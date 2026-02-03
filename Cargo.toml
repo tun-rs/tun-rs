@@ -26,7 +26,7 @@ async-io = { version = "2.3", optional = true }
 
 ipnet = "2"
 byteorder = "1.5.0"
-getifaddrs = "0.2.0"
+getifaddrs = "0.6.0"
 
 futures-core = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
@@ -70,10 +70,6 @@ libloading = "0.8"
 
 [target.'cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd",target_os = "netbsd"))'.dependencies]
 route_manager = "0.2.9"
-
-
-[target.'cfg(any(target_os = "freebsd", target_os = "openbsd"))'.dependencies]
-mac_address = "1.1.8"
 
 [build-dependencies]
 bindgen = { version = "0.72.0", optional = true }

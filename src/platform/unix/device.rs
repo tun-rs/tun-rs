@@ -168,7 +168,7 @@ impl DeviceImpl {
     pub fn addresses(&self) -> io::Result<Vec<std::net::IpAddr>> {
         Ok(crate::platform::get_if_addrs_by_name(self.name_impl()?)?
             .iter()
-            .map(|v| v.address)
+            .filter_map(|v| v.address.ip_addr())
             .collect())
     }
 }
