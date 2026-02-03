@@ -244,9 +244,7 @@ impl Tun {
             }
             let offset = bufs.len() + 1;
             let mut head = [0u8; PIL];
-            let mut iov_block: [std::mem::MaybeUninit<IoSliceMut>;
-                crate::platform::unix::fd::max_iov()] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+            let mut iov_block = [std::mem::MaybeUninit::uninit(); crate::platform::unix::fd::max_iov()];
             iov_block[0] = std::mem::MaybeUninit::new(IoSliceMut::new(&mut head));
             for (index, buf) in bufs.iter_mut().enumerate() {
                 iov_block[index + 1] = std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut()));
@@ -372,9 +370,7 @@ impl Tun {
             }
             let offset = bufs.len() + 1;
             let mut head = [0u8; PIL];
-            let mut iov_block: [std::mem::MaybeUninit<IoSliceMut>;
-                crate::platform::unix::fd::max_iov()] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+            let mut iov_block = [std::mem::MaybeUninit::uninit(); crate::platform::unix::fd::max_iov()];
             iov_block[0] = std::mem::MaybeUninit::new(IoSliceMut::new(&mut head));
             for (index, buf) in bufs.iter_mut().enumerate() {
                 iov_block[index + 1] = std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut()));
