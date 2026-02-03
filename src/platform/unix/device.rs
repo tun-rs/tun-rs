@@ -14,19 +14,21 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
 
 impl FromRawFd for DeviceImpl {
     /// # Safety
-    /// 
+    ///
     /// The caller must ensure that `fd` is a valid, open file descriptor for a TUN/TAP device.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// This function will panic if the provided file descriptor is invalid or cannot be used
     /// to create a TUN/TAP device. This is acceptable because providing an invalid fd violates
     /// the safety contract of `FromRawFd`.
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         // If this panics, the caller violated the safety contract by providing an invalid fd
-        DeviceImpl::from_fd(fd).expect("Failed to create device from file descriptor. \
+        DeviceImpl::from_fd(fd).expect(
+            "Failed to create device from file descriptor. \
                                          The provided fd must be a valid, open file descriptor \
-                                         for a TUN/TAP device.")
+                                         for a TUN/TAP device.",
+        )
     }
 }
 impl AsRawFd for DeviceImpl {

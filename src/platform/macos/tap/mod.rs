@@ -131,8 +131,11 @@ impl Tap {
             if name_bytes.len() > nd.snd_name.len() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    format!("Interface name '{}' is too long (max {} bytes)", 
-                            peer_feth.name, nd.snd_name.len())
+                    format!(
+                        "Interface name '{}' is too long (max {} bytes)",
+                        peer_feth.name,
+                        nd.snd_name.len()
+                    ),
                 ));
             }
             nd.snd_name[..name_bytes.len()].copy_from_slice(name_bytes);

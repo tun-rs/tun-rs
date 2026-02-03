@@ -242,8 +242,11 @@ impl WinTunSession {
         if buf.len() > u32::MAX as usize {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("Buffer too large: {} bytes exceeds maximum size of {} bytes", 
-                        buf.len(), u32::MAX)
+                format!(
+                    "Buffer too large: {} bytes exceeds maximum size of {} bytes",
+                    buf.len(),
+                    u32::MAX
+                ),
             ));
         }
         let win_tun = &self.win_tun;
