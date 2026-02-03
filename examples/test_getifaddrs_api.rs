@@ -4,7 +4,7 @@ use getifaddrs::{getifaddrs, Address};
 fn main() {
     println!("Testing getifaddrs 0.6.0 API behavior:");
     println!("========================================\n");
-    
+
     match getifaddrs() {
         Ok(interfaces) => {
             let mut count = 0;
@@ -14,10 +14,10 @@ fn main() {
                     println!("... (showing first 5 interfaces only)");
                     break;
                 }
-                
+
                 println!("Interface: {}", interface.name);
                 println!("  Index: {:?}", interface.index);
-                
+
                 // Test Address enum and helper methods
                 match &interface.address {
                     Address::V4(_) => {
@@ -40,14 +40,16 @@ fn main() {
                     }
                     Address::Mac(mac) => {
                         println!("  Type: MAC");
-                        println!("  MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", 
-                                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+                        println!(
+                            "  MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+                        );
                     }
                 }
-                
+
                 println!();
             }
-            
+
             println!("\nAPI compatibility verified:");
             println!("✓ Address is an enum (V4, V6, Mac)");
             println!("✓ ip_addr() method extracts IP addresses");
