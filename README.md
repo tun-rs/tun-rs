@@ -220,14 +220,19 @@ async fn main() -> std::io::Result<()> {
 
 ### Using Raw File Descriptor (Unix)
 
-Create a device from an existing file descriptor:
+Create a device from an existing file descriptor (useful for iOS, Android, or custom TUN implementations):
 
 ```rust
 use tun_rs::SyncDevice;
 use std::os::unix::io::RawFd;
 
 fn main() -> std::io::Result<()> {
-    let fd: RawFd = /* valid fd from platform API */;
+    // The fd must be a valid file descriptor obtained from:
+    // - iOS: NEPacketTunnelProvider's packetFlow.value(forKeyPath: "socket.fileDescriptor")
+    // - Android: VpnService.Builder().establish().getFd()
+    // - Linux: open("/dev/net/tun", O_RDWR)
+    // - Or any other platform-specific TUN device API
+    let fd: RawFd = get_tun_fd_from_platform(); // Your platform-specific function
     
     // Take ownership of the file descriptor
     let dev = unsafe { SyncDevice::from_fd(fd)? };
@@ -243,6 +248,12 @@ fn main() -> std::io::Result<()> {
         let amount = dev.recv(&mut buf)?;
         println!("Received: {:?}", &buf[0..amount]);
     }
+}
+
+// Placeholder - replace with your actual implementation
+fn get_tun_fd_from_platform() -> RawFd {
+    // See iOS/Android sections below for concrete examples
+    panic!("Implement platform-specific fd acquisition")
 }
 ```
 
