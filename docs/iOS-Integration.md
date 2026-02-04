@@ -281,7 +281,8 @@ static SHOULD_STOP: AtomicBool = AtomicBool::new(false);
 
 #[no_mangle]
 pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
-    SHOULD_STOP.store(false, Ordering::SeqCst);
+    // Relaxed ordering is sufficient for a simple flag with no dependent variables
+    SHOULD_STOP.store(false, Ordering::Relaxed);
     
     // Create device from file descriptor
     let tun = unsafe {
@@ -301,7 +302,7 @@ pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
     // Main packet processing loop
     loop {
         // Check if we should stop
-        if SHOULD_STOP.load(Ordering::SeqCst) {
+        if SHOULD_STOP.load(Ordering::Relaxed) {
             println!("Stop signal received, exiting tunnel loop");
             break;
         }
@@ -336,7 +337,7 @@ pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
 #[no_mangle]
 pub extern "C" fn stop_tun() {
     println!("Stopping tunnel...");
-    SHOULD_STOP.store(true, Ordering::SeqCst);
+    SHOULD_STOP.store(true, Ordering::Relaxed);
 }
 ```
 
@@ -354,7 +355,8 @@ static SHOULD_STOP: AtomicBool = AtomicBool::new(false);
 
 #[no_mangle]
 pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
-    SHOULD_STOP.store(false, Ordering::SeqCst);
+    // Relaxed ordering is sufficient for a simple flag with no dependent variables
+    SHOULD_STOP.store(false, Ordering::Relaxed);
     
     // Create a Tokio runtime
     let rt = match Runtime::new() {
@@ -382,7 +384,7 @@ pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
         let mut buf = vec![0u8; 4096];
         
         loop {
-            if SHOULD_STOP.load(Ordering::SeqCst) {
+            if SHOULD_STOP.load(Ordering::Relaxed) {
                 println!("Stop signal received");
                 break;
             }
@@ -411,7 +413,7 @@ pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
 #[no_mangle]
 pub extern "C" fn stop_tun() {
     println!("Stopping tunnel...");
-    SHOULD_STOP.store(true, Ordering::SeqCst);
+    SHOULD_STOP.store(true, Ordering::Relaxed);
 }
 ```
 
