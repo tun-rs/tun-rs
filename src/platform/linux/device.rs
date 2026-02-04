@@ -230,6 +230,29 @@ impl DeviceImpl {
         }
     }
     /// Make the device persistent.
+    ///
+    /// By default, TUN/TAP devices are destroyed when the process exits.
+    /// Calling this method makes the device persist after the program terminates,
+    /// allowing it to be reused by other processes.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .name("persistent-tun")
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Make the device persistent so it survives after program exit
+    /// dev.persist()?;
+    /// println!("Device will persist after program exits");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn persist(&self) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
@@ -241,7 +264,27 @@ impl DeviceImpl {
         }
     }
 
-    /// Set the owner of the device.
+    /// Set the owner (UID) of the device.
+    ///
+    /// This allows non-root users to access the TUN/TAP device.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Set ownership to UID 1000 (typical first user on Linux)
+    /// dev.user(1000)?;
+    /// println!("Device ownership set to UID 1000");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn user(&self, value: i32) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
@@ -253,7 +296,27 @@ impl DeviceImpl {
         }
     }
 
-    /// Set the group of the device.
+    /// Set the group (GID) of the device.
+    ///
+    /// This allows members of a specific group to access the TUN/TAP device.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Set group ownership to GID 1000
+    /// dev.group(1000)?;
+    /// println!("Device group ownership set to GID 1000");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn group(&self, value: i32) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
@@ -579,6 +642,25 @@ impl DeviceImpl {
     /// checks that its length does not exceed the maximum allowed (IFNAMSIZ),
     /// and then copies it into an interface request structure. It then uses a system call
     /// (via `siocsifname`) to apply the new name.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .name("tun0")
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Rename the device
+    /// dev.set_name("vpn-tun")?;
+    /// println!("Device renamed to vpn-tun");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn set_name(&self, value: &str) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
@@ -641,6 +723,24 @@ impl DeviceImpl {
     ///
     /// This function populates an interface request with the broadcast address via a system call,
     /// converts it into a sockaddr structure, and then extracts the IP address.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Get the broadcast address
+    /// let broadcast = dev.broadcast()?;
+    /// println!("Broadcast address: {}", broadcast);
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn broadcast(&self) -> io::Result<IpAddr> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
@@ -669,6 +769,24 @@ impl DeviceImpl {
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
     /// Remove all previous set IPv4 addresses and set the specified address.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Change the primary IPv4 address
+    /// dev.set_network_address("10.1.0.1", 24, None)?;
+    /// println!("Updated device address to 10.1.0.1/24");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -684,7 +802,28 @@ impl DeviceImpl {
         }
         Ok(())
     }
-    /// Add IPv4 network address, netmask
+    /// Add IPv4 network address and netmask to the interface.
+    ///
+    /// This allows multiple IPv4 addresses on a single TUN/TAP device.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Add additional IPv4 addresses
+    /// dev.add_address_v4("10.0.1.1", 24)?;
+    /// dev.add_address_v4("10.0.2.1", 24)?;
+    /// println!("Added multiple IPv4 addresses");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -703,6 +842,28 @@ impl DeviceImpl {
     /// resets the address to `0.0.0.0` (unspecified).
     /// For IPv6 addresses, it retrieves the interface addresses by name and removes the matching address,
     /// taking into account its prefix length.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use std::net::IpAddr;
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Add an additional address
+    /// dev.add_address_v4("10.0.1.1", 24)?;
+    ///
+    /// // Later, remove it
+    /// dev.remove_address("10.0.1.1".parse::<IpAddr>().unwrap())?;
+    /// println!("Removed address 10.0.1.1");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         match addr {
@@ -737,6 +898,25 @@ impl DeviceImpl {
     /// This function creates an `in6_ifreq` structure, fills in the interface index,
     /// prefix length, and IPv6 address (converted into a sockaddr structure),
     /// and then applies it using a system call.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Add IPv6 addresses
+    /// dev.add_address_v6("fd00::1", 64)?;
+    /// dev.add_address_v6("fd00::2", 64)?;
+    /// println!("Added IPv6 addresses");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn add_address_v6<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         &self,
         addr: IPv6,
@@ -782,6 +962,25 @@ impl DeviceImpl {
     ///
     /// This function creates an interface request, sets the `ifru_mtu` field to the new value,
     /// and then applies it via a system call.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .mtu(1400)
+    ///     .build_sync()?;
+    ///
+    /// // Change MTU to accommodate larger packets
+    /// dev.set_mtu(9000)?; // Jumbo frames
+    /// println!("MTU set to 9000 bytes");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {

@@ -19,7 +19,31 @@ pub trait Decoder {
 
     /// The type of unrecoverable frame decoding errors.
     type Error: From<io::Error>;
+
+    /// Attempts to decode a frame from the provided buffer.
+    ///
+    /// Returns `Ok(Some(frame))` if a complete frame was decoded,
+    /// `Ok(None)` if more data is needed, or `Err` on decoding errors.
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>;
+
+    /// Decodes a frame from the buffer when the stream has ended.
+    ///
+    /// This method is called when the underlying stream reaches EOF. The default
+    /// implementation attempts a normal decode and returns an error if data remains
+    /// in the buffer, indicating incomplete frames.
+    ///
+    /// Override this method if your decoder needs special handling for the end of stream,
+    /// such as flushing partial frames or performing cleanup.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - Buffer containing any remaining data
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(frame))` - Successfully decoded a final frame
+    /// - `Ok(None)` - No more frames and buffer is empty (normal EOF)
+    /// - `Err` - Incomplete data remains or decoding error
     fn decode_eof(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.decode(buf)? {
             Some(frame) => Ok(Some(frame)),
@@ -179,9 +203,17 @@ where
             codec,
         }
     }
+
+    /// Returns the size of the read buffer in bytes.
+    ///
+    /// This indicates how much space is available for receiving packet data.
     pub fn read_buffer_size(&self) -> usize {
         self.r_state.read_buffer_size()
     }
+
+    /// Returns the size of the write buffer in bytes.
+    ///
+    /// This indicates how much space is available for buffering outbound packets.
     pub fn write_buffer_size(&self) -> usize {
         self.w_state.write_buffer_size()
     }
@@ -211,6 +243,9 @@ where
     }
 
     /// Returns a mutable reference to the read buffer.
+    ///
+    /// This allows direct manipulation of the buffer contents, which can be useful
+    /// for advanced use cases or optimization.
     pub fn read_buffer_mut(&mut self) -> &mut BytesMut {
         &mut self.r_state.rd
     }
@@ -252,7 +287,15 @@ where
     }
 }
 
-/// A `Stream`-only abstraction over an `AsyncDevice`, using a `Decoder` to
+/// A `Stream`-only abstraction over an `AsyncDevice` that extracts frames from raw packet input.
+///
+/// `DeviceFramedRead` provides a read-only framing interface for the underlying device,
+/// using a `Decoder` to parse incoming packets into structured frames. This is useful
+/// when reading and writing logic need to be handled independently, such as in split
+/// or concurrent tasks.
+///
+/// Internally, it maintains a receive buffer and optional packet processing
+/// for GRO (Generic Receive Offload) support on Linux with offload enabled.
 ///
 /// # Examples
 ///
@@ -283,15 +326,6 @@ where
 ///     Ok(())
 /// }
 /// ```
-///
-/// extract frames from raw packet input.
-///
-/// This struct provides a read-only framing interface for the underlying device,
-/// decoupled from writing. It is useful when the reading and writing logic
-/// need to be handled independently, such as in split or concurrent tasks.
-///
-/// Internally, it maintains a receipt buffer and optional packet splitter
-/// for GRO (Generic Receive Offload) support on Linux.
 ///
 /// See [`DeviceFramed`] for a unified read/write interface.
 pub struct DeviceFramedRead<C, T = AsyncDevice> {
@@ -332,6 +366,10 @@ where
             codec,
         }
     }
+
+    /// Returns the size of the read buffer in bytes.
+    ///
+    /// This indicates how much space is available for receiving packet data.
     pub fn read_buffer_size(&self) -> usize {
         self.state.read_buffer_size()
     }
@@ -359,7 +397,17 @@ where
     }
 }
 
-/// A `Sink`-only abstraction over an `AsyncDevice`, using an `Encoder` to
+/// A `Sink`-only abstraction over an `AsyncDevice` that serializes outbound frames into raw packets.
+///
+/// `DeviceFramedWrite` provides a write-only framing interface for the underlying device,
+/// using an `Encoder` to convert structured frames into raw packet bytes. This allows
+/// decoupled and concurrent handling of outbound data, which is especially useful in
+/// async contexts where reads and writes occur in different tasks.
+///
+/// Internally, it manages a send buffer and optional packet processing
+/// for GSO (Generic Segmentation Offload) support on Linux with offload enabled.
+///
+/// See [`DeviceFramed`] for a unified read/write interface.
 ///
 /// # Examples
 ///
@@ -388,17 +436,6 @@ where
 ///     Ok(())
 /// }
 /// ```
-///
-/// serialize outbound frames into raw packets.
-///
-/// This struct provides a write-only framing interface for the underlying device,
-/// allowing decoupled and concurrent handling of outbound data. It is especially
-/// useful in async contexts where reads and writes occur in different tasks.
-///
-/// Internally, it manages a send buffer and optional packet aggregator
-/// for GSO (Generic Segmentation Offload) support on Linux.
-///
-/// See [`DeviceFramed`] for a unified read/write interface.
 pub struct DeviceFramedWrite<C, T = AsyncDevice> {
     dev: T,
     codec: C,
@@ -437,6 +474,10 @@ where
             codec,
         }
     }
+
+    /// Returns the size of the write buffer in bytes.
+    ///
+    /// This indicates how much space is available for buffering outbound packets.
     pub fn write_buffer_size(&self) -> usize {
         self.state.send_buffer_size
     }
