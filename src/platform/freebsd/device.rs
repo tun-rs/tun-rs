@@ -8,7 +8,7 @@ use crate::{
     ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask,
 };
 
-use crate::platform::unix::device::{ctl, ctl_v6};
+use crate::platform::unix::device::{ctl, ctl_v6, copy_device_name};
 use libc::{
     self, c_char, c_short, fcntl, ifreq, kinfo_file, AF_LINK, F_KINFO, IFF_RUNNING, IFF_UP,
     IFNAMSIZ, KINFO_FILE_SIZE, O_RDWR,
@@ -154,11 +154,7 @@ impl DeviceImpl {
         unsafe {
             let tun_name = self.name_impl()?;
             let mut req: in6_ndireq = mem::zeroed();
-            ptr::copy_nonoverlapping(
-                tun_name.as_ptr() as *const c_char,
-                req.ifra_name.as_mut_ptr(),
-                tun_name.len(),
-            );
+            copy_device_name(&tun_name, req.ifra_name.as_mut_ptr(), IFNAMSIZ);
             req.ndi.flags &= !(ND6_IFF_AUTO_LINKLOCAL as u32);
             if let Err(err) = siocsifinfoin6(ctl_v6()?.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
@@ -255,12 +251,7 @@ impl DeviceImpl {
     unsafe fn request(&self) -> std::io::Result<ifreq> {
         let mut req: ifreq = mem::zeroed();
         let tun_name = self.name_impl()?;
-        ptr::copy_nonoverlapping(
-            tun_name.as_ptr() as *const c_char,
-            req.ifr_name.as_mut_ptr(),
-            tun_name.len(),
-        );
-
+        copy_device_name(&tun_name, req.ifr_name.as_mut_ptr(), IFNAMSIZ);
         Ok(req)
     }
 
@@ -268,11 +259,7 @@ impl DeviceImpl {
     unsafe fn request_v6(&self) -> std::io::Result<in6_ifreq> {
         let tun_name = self.name_impl()?;
         let mut req: in6_ifreq = mem::zeroed();
-        ptr::copy_nonoverlapping(
-            tun_name.as_ptr() as *const c_char,
-            req.ifra_name.as_mut_ptr(),
-            tun_name.len(),
-        );
+        copy_device_name(&tun_name, req.ifra_name.as_mut_ptr(), IFNAMSIZ);
         req.ifr_ifru.ifru_flags = IN6_IFF_NODAD as _;
         Ok(req)
     }

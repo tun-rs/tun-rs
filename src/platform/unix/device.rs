@@ -238,3 +238,20 @@ pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
     _ = fd.set_cloexec();
     Ok(fd)
 }
+
+/// Helper function to safely copy a device name into a C buffer.
+/// This reduces code duplication across BSD platforms for setting interface names.
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
+pub(crate) unsafe fn copy_device_name(name: &str, dest: *mut libc::c_char, max_len: usize) {
+    use std::ptr;
+    let copy_len = name.len().min(max_len - 1);
+    ptr::copy_nonoverlapping(
+        name.as_ptr() as *const libc::c_char,
+        dest,
+        copy_len,
+    );
+}
