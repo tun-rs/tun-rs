@@ -134,6 +134,7 @@ impl Tun {
         target_os = "freebsd",
         target_os = "netbsd",
     ))]
+    #[inline]
     pub(crate) fn send(&self, buf: &[u8]) -> io::Result<usize> {
         if self.ignore_packet_info() {
             let ipv6 = is_ipv6(buf)?;
@@ -207,6 +208,7 @@ impl Tun {
         target_os = "freebsd",
         target_os = "netbsd",
     ))]
+    #[inline]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         if self.ignore_packet_info() {
             let mut head = [0u8; PIL];
@@ -237,6 +239,7 @@ impl Tun {
         target_os = "freebsd",
         target_os = "netbsd",
     ))]
+    #[inline]
     pub(crate) fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         if self.ignore_packet_info() {
             if crate::platform::unix::fd::max_iov() - 1 < bufs.len() {

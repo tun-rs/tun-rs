@@ -72,17 +72,21 @@ impl DeviceImpl {
     }
 
     /// Recv a packet from tun device
+    #[inline]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.tun.recv(buf)
     }
+    #[inline]
     pub(crate) fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         self.tun.recv_vectored(bufs)
     }
 
     /// Send a packet to tun device
+    #[inline]
     pub(crate) fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.tun.send(buf)
     }
+    #[inline]
     pub(crate) fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.tun.send_vectored(bufs)
     }
