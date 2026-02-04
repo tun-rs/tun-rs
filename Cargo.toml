@@ -155,3 +155,7 @@ harness = false
 [[bench]]
 name = "bytescodec_memory"
 harness = false
+
+[[bench]]
+name = "bytescodec_reserve"
+harness = false
