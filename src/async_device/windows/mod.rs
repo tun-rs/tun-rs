@@ -175,10 +175,7 @@ impl AsyncDevice {
                 }
             } else {
                 let device = self.inner.clone();
-                // Use Arc to avoid buffer copy. Trade-off: Arc reference counting overhead
-                // vs. copying the entire buffer. For typical packet sizes (1500+ bytes),
-                // avoiding the copy is more efficient. Arc drops when the blocking task completes.
-                let buf: Arc<[u8]> = Arc::from(src);
+                let buf = src.to_vec();
                 let task = blocking::unblock(move || device.send(&buf));
                 guard.replace(task);
                 drop(guard);
@@ -240,10 +237,7 @@ impl AsyncDevice {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             rs => return rs,
         }
-        // Use Arc to avoid buffer copy. Trade-off: Arc reference counting overhead
-        // vs. copying the entire buffer. For typical packet sizes (1500+ bytes),
-        // avoiding the copy is more efficient. Arc drops when the blocking task completes.
-        let buf: Arc<[u8]> = Arc::from(buf);
+        let buf = buf.to_vec();
         let device = self.inner.clone();
         let mut canceller = Canceller::new_cancelable()?;
         let (cancel_guard, exit_guard) = canceller.guard(device);
