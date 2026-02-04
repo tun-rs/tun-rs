@@ -285,6 +285,33 @@ impl SyncDevice {
     /// even if multiple buffers are provided.
     ///
     /// Returns the total number of bytes read from the packet, or an error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(unix)]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    /// use std::io::IoSliceMut;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Prepare multiple buffers for receiving data
+    /// let mut header = [0u8; 20];
+    /// let mut payload = [0u8; 1480];
+    /// let mut bufs = [
+    ///     IoSliceMut::new(&mut header),
+    ///     IoSliceMut::new(&mut payload),
+    /// ];
+    ///
+    /// // Read one packet into the buffers
+    /// let n = dev.recv_vectored(&mut bufs)?;
+    /// println!("Received {} bytes total", n);
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     #[cfg(unix)]
     pub fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> std::io::Result<usize> {
         self.0.recv_vectored(bufs)
@@ -295,6 +322,32 @@ impl SyncDevice {
     /// the provided buffers as one packet.
     ///
     /// Returns the total number of bytes written for the packet, or an error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(unix)]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    /// use std::io::IoSlice;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Send a packet with header and payload in separate buffers
+    /// let header = [0x45, 0x00, 0x00, 0x14]; // IPv4 header
+    /// let payload = b"Hello, TUN!";
+    /// let bufs = [
+    ///     IoSlice::new(&header),
+    ///     IoSlice::new(payload),
+    /// ];
+    ///
+    /// let n = dev.send_vectored(&bufs)?;
+    /// println!("Sent {} bytes", n);
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     #[cfg(unix)]
     pub fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
         self.0.send_vectored(bufs)
@@ -302,6 +355,27 @@ impl SyncDevice {
     /// Checks whether the device is currently operating in nonblocking mode.
     ///
     /// Returns `true` if nonblocking mode is enabled, `false` otherwise, or an error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(unix)]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Check current nonblocking mode
+    /// if dev.is_nonblocking()? {
+    ///     println!("Device is in nonblocking mode");
+    /// } else {
+    ///     println!("Device is in blocking mode");
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     #[cfg(unix)]
     pub fn is_nonblocking(&self) -> std::io::Result<bool> {
         self.0.is_nonblocking()
@@ -312,17 +386,85 @@ impl SyncDevice {
     /// - `nonblocking`: Pass `true` to enable nonblocking mode, `false` to disable.
     ///
     /// Returns an empty result on success or an I/O error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(unix)]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Enable nonblocking mode for non-blocking I/O
+    /// dev.set_nonblocking(true)?;
+    ///
+    /// // Now recv() will return WouldBlock if no data is available
+    /// let mut buf = [0u8; 1500];
+    /// match dev.recv(&mut buf) {
+    ///     Ok(n) => println!("Received {} bytes", n),
+    ///     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+    ///         println!("No data available");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     #[cfg(unix)]
     pub fn set_nonblocking(&self, nonblocking: bool) -> std::io::Result<()> {
         self.0.set_nonblocking(nonblocking)
     }
 
+    /// Creates a new queue for multi-queue TUN/TAP devices on Linux.
+    ///
     /// # Prerequisites
-    /// - The `IFF_MULTI_QUEUE` flag must be enabled.
+    /// - The `IFF_MULTI_QUEUE` flag must be enabled (via `.multi_queue(true)` in DeviceBuilder).
     /// - The system must support network interface multi-queue functionality.
     ///
     /// # Description
     /// When multi-queue is enabled, create a new queue by duplicating an existing one.
+    /// This allows parallel packet processing across multiple threads/CPU cores.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    /// use std::thread;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.multi_queue(true)  // Enable multi-queue support
+    ///     })
+    ///     .build_sync()?;
+    ///
+    /// // Clone the device to create a new queue
+    /// let dev_clone = dev.try_clone()?;
+    ///
+    /// // Use the cloned device in another thread for parallel processing
+    /// thread::spawn(move || {
+    ///     let mut buf = [0u8; 1500];
+    ///     loop {
+    ///         if let Ok(n) = dev_clone.recv(&mut buf) {
+    ///             println!("Thread 2 received {} bytes", n);
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// // Process packets in the main thread
+    /// let mut buf = [0u8; 1500];
+    /// loop {
+    ///     let n = dev.recv(&mut buf)?;
+    ///     println!("Thread 1 received {} bytes", n);
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     pub fn try_clone(&self) -> std::io::Result<SyncDevice> {
         let device_impl = self.0.try_clone()?;
