@@ -75,7 +75,7 @@ tun-rs delivers **exceptional performance** compared to other TUN implementation
 - **Peak Performance**: Up to **70.6 Gbps** with concurrent sync operations + offload
 - **Best Async Performance**: **35.7 Gbps** async without channel buffering + offload
 - **Optimized Async**: **31.4 Gbps** with BytesPool optimization
-- **Rust vs Go**: tun-rs outperforms equivalent Go implementations by up to **2.3x**
+- **Rust vs Go**: Peak-to-peak, tun-rs achieves **2.3x higher throughput** (70.6 vs 30.1 Gbps)
 
 ### 📊 Performance Comparison
 
@@ -256,7 +256,7 @@ fn main() -> std::io::Result<()> {
 // - Linux: fd = open("/dev/net/tun", O_RDWR) or use DeviceBuilder instead
 fn get_tun_fd_from_platform() -> RawFd {
     // See the iOS and Android sections below for complete working examples
-    panic!("Replace with your platform-specific fd acquisition code")
+    unimplemented!("Replace with your platform-specific fd acquisition code")
 }
 ```
 
