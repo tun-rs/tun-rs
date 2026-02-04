@@ -147,3 +147,11 @@ required-features = ["interruptible"]
 [[bench]]
 name = "bytescodec_decode"
 harness = false
+
+[[bench]]
+name = "bytescodec_reuse"
+harness = false
+
+[[bench]]
+name = "bytescodec_memory"
+harness = false
