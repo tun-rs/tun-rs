@@ -848,8 +848,8 @@ impl DeviceImpl {
     /// ```no_run
     /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     /// # {
-    /// use tun_rs::DeviceBuilder;
     /// use std::net::IpAddr;
+    /// use tun_rs::DeviceBuilder;
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)

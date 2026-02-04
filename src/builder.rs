@@ -132,7 +132,7 @@ let dev = DeviceBuilder::new()
 # Ok::<(), std::io::Error>(())
 ```
 
-Additional addresses can be added after creation using [`crate::SyncDevice::add_address_v4`] 
+Additional addresses can be added after creation using [`crate::SyncDevice::add_address_v4`]
 and [`crate::SyncDevice::add_address_v6`] methods.
 
 ## Configuration Precedence
@@ -246,7 +246,7 @@ pub enum Layer {
         target_os = "netbsd",
     ))]
     L2,
-    
+
     /// Network Layer (IP packets).
     ///
     /// TUN mode operates at Layer 3, handling IP packets directly.

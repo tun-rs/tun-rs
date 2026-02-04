@@ -1,16 +1,16 @@
 /*!
 # Linux Offload Support Module
 
-This module provides Generic Receive Offload (GRO) and Generic Segmentation Offload (GSO) 
+This module provides Generic Receive Offload (GRO) and Generic Segmentation Offload (GSO)
 support for Linux TUN devices, significantly improving throughput for TCP and UDP traffic.
 
 ## Overview
 
 Modern network cards and drivers use offload techniques to reduce CPU overhead:
 
-- **GSO (Generic Segmentation Offload)**: Allows sending large packets that are segmented by 
+- **GSO (Generic Segmentation Offload)**: Allows sending large packets that are segmented by
   the kernel/driver, reducing per-packet processing overhead.
-  
+
 - **GRO (Generic Receive Offload)**: Coalesces multiple received packets into larger segments,
   reducing the number of packets passed to the application.
 
@@ -55,7 +55,7 @@ let mut gro_table = GROTable::default();
 loop {
     // Receive multiple packets at once
     let num = dev.recv_multiple(&mut original_buffer, &mut bufs, &mut sizes, 0)?;
-    
+
     for i in 0..num {
         // Process each packet
         println!("Packet {}: {} bytes", i, sizes[i]);
@@ -271,7 +271,7 @@ impl VirtioNetHdr {
             Ok(hdr.assume_init())
         }
     }
-    
+
     /// Encode a virtio network header into a byte buffer.
     ///
     /// Writes this header into the first [`VIRTIO_NET_HDR_LEN`] bytes of the buffer.
@@ -285,7 +285,7 @@ impl VirtioNetHdr {
     /// ```no_run
     /// # #[cfg(target_os = "linux")]
     /// # {
-    /// use tun_rs::{VirtioNetHdr, VIRTIO_NET_HDR_LEN, VIRTIO_NET_HDR_GSO_NONE};
+    /// use tun_rs::{VirtioNetHdr, VIRTIO_NET_HDR_GSO_NONE, VIRTIO_NET_HDR_LEN};
     ///
     /// let header = VirtioNetHdr {
     ///     gso_type: VIRTIO_NET_HDR_GSO_NONE,
@@ -1899,13 +1899,8 @@ pub fn gso_none_checksum(in_buf: &mut [u8], csum_start: u16, csum_offset: u16) {
 /// let mut sizes = vec![0; IDEAL_BATCH_SIZE];
 ///
 /// loop {
-///     let num = dev.recv_multiple(
-///         &mut original_buffer,
-///         &mut bufs,
-///         &mut sizes,
-///         0
-///     )?;
-///     
+///     let num = dev.recv_multiple(&mut original_buffer, &mut bufs, &mut sizes, 0)?;
+///
 ///     // GRO table is automatically used by recv_multiple
 ///     // to coalesce packets
 ///     for i in 0..num {
@@ -2000,7 +1995,7 @@ pub trait ExpandBuffer: AsRef<[u8]> + AsMut<[u8]> {
     /// The capacity is the total amount of memory allocated, which may be
     /// greater than the current length of the buffer.
     fn buf_capacity(&self) -> usize;
-    
+
     /// Resizes the buffer to the specified length, filling new space with the given value.
     ///
     /// If `new_len` is greater than the current length, the buffer is extended
@@ -2012,7 +2007,7 @@ pub trait ExpandBuffer: AsRef<[u8]> + AsMut<[u8]> {
     /// * `new_len` - The new length of the buffer
     /// * `value` - The byte value to fill any new space with
     fn buf_resize(&mut self, new_len: usize, value: u8);
-    
+
     /// Extends the buffer by appending data from a slice.
     ///
     /// This method appends all bytes from `src` to the end of the buffer,

@@ -19,13 +19,13 @@ pub trait Decoder {
 
     /// The type of unrecoverable frame decoding errors.
     type Error: From<io::Error>;
-    
+
     /// Attempts to decode a frame from the provided buffer.
     ///
     /// Returns `Ok(Some(frame))` if a complete frame was decoded,
     /// `Ok(None)` if more data is needed, or `Err` on decoding errors.
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>;
-    
+
     /// Decodes a frame from the buffer when the stream has ended.
     ///
     /// This method is called when the underlying stream reaches EOF. The default
@@ -203,14 +203,14 @@ where
             codec,
         }
     }
-    
+
     /// Returns the size of the read buffer in bytes.
     ///
     /// This indicates how much space is available for receiving packet data.
     pub fn read_buffer_size(&self) -> usize {
         self.r_state.read_buffer_size()
     }
-    
+
     /// Returns the size of the write buffer in bytes.
     ///
     /// This indicates how much space is available for buffering outbound packets.
@@ -366,7 +366,7 @@ where
             codec,
         }
     }
-    
+
     /// Returns the size of the read buffer in bytes.
     ///
     /// This indicates how much space is available for receiving packet data.
@@ -474,7 +474,7 @@ where
             codec,
         }
     }
-    
+
     /// Returns the size of the write buffer in bytes.
     ///
     /// This indicates how much space is available for buffering outbound packets.

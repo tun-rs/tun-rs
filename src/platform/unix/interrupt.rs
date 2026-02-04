@@ -346,10 +346,10 @@ impl Fd {
 /// ```no_run
 /// # #[cfg(all(unix, feature = "interruptible"))]
 /// # {
-/// use tun_rs::{DeviceBuilder, InterruptEvent};
 /// use std::sync::Arc;
 /// use std::thread;
 /// use std::time::Duration;
+/// use tun_rs::{DeviceBuilder, InterruptEvent};
 ///
 /// let device = DeviceBuilder::new()
 ///     .ipv4("10.0.0.1", 24, None)
@@ -385,8 +385,8 @@ impl Fd {
 /// ```no_run
 /// # #[cfg(all(unix, feature = "interruptible"))]
 /// # {
-/// use tun_rs::{DeviceBuilder, InterruptEvent};
 /// use std::time::Duration;
+/// use tun_rs::{DeviceBuilder, InterruptEvent};
 ///
 /// let device = DeviceBuilder::new()
 ///     .ipv4("10.0.0.1", 24, None)
@@ -461,7 +461,7 @@ impl InterruptEvent {
             })
         }
     }
-    
+
     /// Triggers the interrupt event with value 1.
     ///
     /// This will cause any blocking I/O operations waiting on this event to return
@@ -480,9 +480,9 @@ impl InterruptEvent {
     /// ```no_run
     /// # #[cfg(all(unix, feature = "interruptible"))]
     /// # {
-    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     /// use std::sync::Arc;
     /// use std::thread;
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     ///
     /// let event = Arc::new(InterruptEvent::new()?);
     /// let event_clone = event.clone();
@@ -499,7 +499,7 @@ impl InterruptEvent {
     pub fn trigger(&self) -> io::Result<()> {
         self.trigger_value(1)
     }
-    
+
     /// Triggers the interrupt event with a specific value.
     ///
     /// Similar to [`trigger()`](Self::trigger), but allows specifying a custom value
@@ -586,7 +586,7 @@ impl InterruptEvent {
     pub fn is_trigger(&self) -> bool {
         *self.state.lock().unwrap() != 0
     }
-    
+
     /// Returns the current trigger value.
     ///
     /// Returns 0 if the event is not triggered, or the value passed to
@@ -610,7 +610,7 @@ impl InterruptEvent {
     pub fn value(&self) -> i32 {
         *self.state.lock().unwrap()
     }
-    
+
     /// Resets the event to the non-triggered state.
     ///
     /// This drains any pending data from the internal pipe and sets the state back to 0.

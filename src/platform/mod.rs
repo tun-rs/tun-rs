@@ -117,8 +117,8 @@ impl SyncDevice {
     /// ```no_run
     /// # #[cfg(unix)]
     /// # {
-    /// use tun_rs::SyncDevice;
     /// use std::os::fd::RawFd;
+    /// use tun_rs::SyncDevice;
     ///
     /// // On iOS, obtain fd from PacketTunnelProvider.packetFlow
     /// // let fd: RawFd = packet_flow.value(forKeyPath: "socket.fileDescriptor") as! Int32
@@ -267,7 +267,7 @@ impl SyncDevice {
     pub fn recv_intr(&self, buf: &mut [u8], event: &InterruptEvent) -> std::io::Result<usize> {
         self.0.read_interruptible(buf, event, None)
     }
-    
+
     /// Like [`recv_intr`](Self::recv_intr), but with an optional timeout.
     ///
     /// This function reads data from the device into the provided buffer, but can be
@@ -290,8 +290,8 @@ impl SyncDevice {
     /// ```no_run
     /// # #[cfg(all(unix, feature = "interruptible"))]
     /// # {
-    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     /// use std::time::Duration;
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
@@ -343,7 +343,7 @@ impl SyncDevice {
     ) -> std::io::Result<usize> {
         self.0.readv_interruptible(bufs, event, None)
     }
-    
+
     /// Like [`recv_vectored_intr`](Self::recv_vectored_intr), but with an optional timeout.
     ///
     /// This function reads data from the device into multiple buffers using vectored I/O,
@@ -366,9 +366,9 @@ impl SyncDevice {
     /// ```no_run
     /// # #[cfg(all(unix, feature = "interruptible"))]
     /// # {
-    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     /// use std::io::IoSliceMut;
     /// use std::time::Duration;
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
@@ -377,10 +377,7 @@ impl SyncDevice {
     /// let event = InterruptEvent::new()?;
     /// let mut header = [0u8; 20];
     /// let mut payload = [0u8; 1480];
-    /// let mut bufs = [
-    ///     IoSliceMut::new(&mut header),
-    ///     IoSliceMut::new(&mut payload),
-    /// ];
+    /// let mut bufs = [IoSliceMut::new(&mut header), IoSliceMut::new(&mut payload)];
     ///
     /// // Read with timeout into multiple buffers
     /// match dev.recv_vectored_intr_timeout(&mut bufs, &event, Some(Duration::from_secs(5))) {
@@ -410,7 +407,7 @@ impl SyncDevice {
     pub fn wait_readable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {
         self.0.wait_readable_interruptible(event, None)
     }
-    
+
     /// Like [`wait_readable_intr`](Self::wait_readable_intr), but with an optional timeout.
     ///
     /// This function waits until the device becomes readable, but can be interrupted
@@ -432,8 +429,8 @@ impl SyncDevice {
     /// ```no_run
     /// # #[cfg(all(unix, feature = "interruptible"))]
     /// # {
-    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     /// use std::time::Duration;
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
@@ -471,7 +468,7 @@ impl SyncDevice {
     pub fn send_intr(&self, buf: &[u8], event: &InterruptEvent) -> std::io::Result<usize> {
         self.0.write_interruptible(buf, event)
     }
-    
+
     /// Sends data to the device from multiple buffers using vectored I/O, with interruption support.
     ///
     /// Like [`send_intr`](Self::send_intr), but uses `writev` to send from multiple
@@ -492,8 +489,8 @@ impl SyncDevice {
     /// ```no_run
     /// # #[cfg(all(unix, feature = "interruptible"))]
     /// # {
-    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     /// use std::io::IoSlice;
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
@@ -502,10 +499,7 @@ impl SyncDevice {
     /// let event = InterruptEvent::new()?;
     /// let header = [0x45, 0x00, 0x00, 0x14]; // IPv4 header
     /// let payload = b"Hello, TUN!";
-    /// let bufs = [
-    ///     IoSlice::new(&header),
-    ///     IoSlice::new(payload),
-    /// ];
+    /// let bufs = [IoSlice::new(&header), IoSlice::new(payload)];
     ///
     /// match dev.send_vectored_intr(&bufs, &event) {
     ///     Ok(n) => println!("Sent {} bytes", n),
@@ -529,7 +523,7 @@ impl SyncDevice {
     ) -> std::io::Result<usize> {
         self.0.writev_interruptible(bufs, event)
     }
-    
+
     /// Waits for the device to become writable, with interruption support.
     ///
     /// This function waits until the device is ready to accept data for sending,
@@ -592,8 +586,8 @@ impl SyncDevice {
     /// ```no_run
     /// # #[cfg(unix)]
     /// # {
-    /// use tun_rs::DeviceBuilder;
     /// use std::io::IoSliceMut;
+    /// use tun_rs::DeviceBuilder;
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
@@ -602,10 +596,7 @@ impl SyncDevice {
     /// // Prepare multiple buffers for receiving data
     /// let mut header = [0u8; 20];
     /// let mut payload = [0u8; 1480];
-    /// let mut bufs = [
-    ///     IoSliceMut::new(&mut header),
-    ///     IoSliceMut::new(&mut payload),
-    /// ];
+    /// let mut bufs = [IoSliceMut::new(&mut header), IoSliceMut::new(&mut payload)];
     ///
     /// // Read one packet into the buffers
     /// let n = dev.recv_vectored(&mut bufs)?;
@@ -629,8 +620,8 @@ impl SyncDevice {
     /// ```no_run
     /// # #[cfg(unix)]
     /// # {
-    /// use tun_rs::DeviceBuilder;
     /// use std::io::IoSlice;
+    /// use tun_rs::DeviceBuilder;
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
@@ -639,10 +630,7 @@ impl SyncDevice {
     /// // Send a packet with header and payload in separate buffers
     /// let header = [0x45, 0x00, 0x00, 0x14]; // IPv4 header
     /// let payload = b"Hello, TUN!";
-    /// let bufs = [
-    ///     IoSlice::new(&header),
-    ///     IoSlice::new(payload),
-    /// ];
+    /// let bufs = [IoSlice::new(&header), IoSlice::new(payload)];
     ///
     /// let n = dev.send_vectored(&bufs)?;
     /// println!("Sent {} bytes", n);
@@ -734,13 +722,13 @@ impl SyncDevice {
     /// ```no_run
     /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     /// # {
-    /// use tun_rs::DeviceBuilder;
     /// use std::thread;
+    /// use tun_rs::DeviceBuilder;
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.multi_queue(true)  // Enable multi-queue support
+    ///         builder.multi_queue(true) // Enable multi-queue support
     ///     })
     ///     .build_sync()?;
     ///

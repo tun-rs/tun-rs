@@ -91,7 +91,7 @@ For iOS and Android, use the file descriptor from the system VPN APIs:
     // On Android: from VpnService.Builder.establish()
     let fd = 7799; // Example value only - obtain from platform VPN APIs
     let dev = unsafe { SyncDevice::from_fd(fd).unwrap() };
-    
+
     let mut buf = [0; 65535];
     loop {
         let len = dev.recv(&mut buf).unwrap();
@@ -129,16 +129,16 @@ On Linux, enable offload for improved throughput:
 #[cfg(target_os = "linux")]
 {
     use tun_rs::{DeviceBuilder, GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
-    
+
     let dev = DeviceBuilder::new()
         .offload(true)  // Enable TSO/GSO
         .ipv4("10.0.0.1", 24, None)
         .build_sync()?;
-    
+
     let mut original_buffer = vec![0; VIRTIO_NET_HDR_LEN + 65535];
     let mut bufs = vec![vec![0u8; 1500]; IDEAL_BATCH_SIZE];
     let mut sizes = vec![0; IDEAL_BATCH_SIZE];
-    
+
     loop {
         let num = dev.recv_multiple(&mut original_buffer, &mut bufs, &mut sizes, 0)?;
         for i in 0..num {
@@ -239,7 +239,7 @@ mod platform;
 ///
 /// On certain Unix-like platforms (macOS, iOS), TUN interfaces may include a 4-byte
 /// protocol information header before each packet. This constant represents that header length.
-/// 
+///
 /// When `packet_information` is enabled in [`DeviceBuilder`], packets will include this header.
 /// The header typically contains the protocol family (e.g., AF_INET for IPv4, AF_INET6 for IPv6).
 ///
@@ -247,7 +247,7 @@ mod platform;
 ///
 /// ```no_run
 /// use tun_rs::PACKET_INFORMATION_LENGTH;
-/// 
+///
 /// let mut buf = vec![0u8; PACKET_INFORMATION_LENGTH + 1500];
 /// // Read packet with header
 /// // let len = dev.recv(&mut buf)?;

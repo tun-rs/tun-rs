@@ -17,7 +17,7 @@ in a compile error.
 ## Feature Flags
 
 - `async` (alias for `async_tokio`) - Use Tokio runtime
-- `async_tokio` - Use Tokio runtime explicitly  
+- `async_tokio` - Use Tokio runtime explicitly
 - `async_io` - Use async-io runtime (for async-std, smol, and similar runtimes)
 - `async_framed` - Enable framed I/O support with futures (requires one of the above)
 
@@ -41,12 +41,12 @@ async fn main() -> std::io::Result<()> {
     let dev = DeviceBuilder::new()
         .ipv4("10.0.0.1", 24, None)
         .build_async()?;
-    
+
     let mut buf = vec![0u8; 65536];
     loop {
         let len = dev.recv(&mut buf).await?;
         println!("Received {} bytes", len);
-        
+
         // Echo the packet back
         dev.send(&buf[..len]).await?;
     }
@@ -73,7 +73,7 @@ async fn main() -> std::io::Result<()> {
     let dev = DeviceBuilder::new()
         .ipv4("10.0.0.1", 24, None)
         .build_async()?;
-    
+
     let mut buf = vec![0u8; 65536];
     loop {
         let len = dev.recv(&mut buf).await?;
@@ -103,10 +103,10 @@ async fn use_borrowed_fd(fd: std::os::fd::RawFd) -> std::io::Result<()> {
     // SAFETY: fd must be a valid, open file descriptor
     // This does NOT take ownership and will NOT close fd
     let dev = unsafe { BorrowedAsyncDevice::borrow_raw(fd)? };
-    
+
     let mut buf = vec![0u8; 1500];
     let len = dev.recv(&mut buf).await?;
-    
+
     // fd is still valid after dev is dropped
     Ok(())
 }
@@ -119,7 +119,7 @@ async fn use_borrowed_fd(fd: std::os::fd::RawFd) -> std::io::Result<()> {
 
 - `recv(&self, buf: &mut [u8]) -> impl Future<Output = io::Result<usize>>`
   - Asynchronously read a packet from the device
-  
+
 - `send(&self, buf: &[u8]) -> impl Future<Output = io::Result<usize>>`
   - Asynchronously send a packet to the device
 
@@ -127,7 +127,7 @@ async fn use_borrowed_fd(fd: std::os::fd::RawFd) -> std::io::Result<()> {
 
 - `readable(&self) -> impl Future<Output = io::Result<()>>`
   - Wait until the device is readable
-  
+
 - `writable(&self) -> impl Future<Output = io::Result<()>>`
   - Wait until the device is writable
 
@@ -278,8 +278,8 @@ impl BorrowedAsyncDevice<'_> {
     /// ```no_run
     /// # #[cfg(unix)]
     /// # async fn example() -> std::io::Result<()> {
-    /// use tun_rs::BorrowedAsyncDevice;
     /// use std::os::fd::RawFd;
+    /// use tun_rs::BorrowedAsyncDevice;
     ///
     /// // Obtain fd from iOS PacketTunnelProvider or Android VpnService
     /// let fd: RawFd = get_vpn_fd(); // exposition-only
