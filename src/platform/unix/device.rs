@@ -72,17 +72,21 @@ impl DeviceImpl {
     }
 
     /// Recv a packet from tun device
+    #[inline]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.tun.recv(buf)
     }
+    #[inline]
     pub(crate) fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         self.tun.recv_vectored(bufs)
     }
 
     /// Send a packet to tun device
+    #[inline]
     pub(crate) fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.tun.send(buf)
     }
+    #[inline]
     pub(crate) fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.tun.send_vectored(bufs)
     }
@@ -233,4 +237,13 @@ pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
     let fd = Fd::new(libc::socket(AF_INET6, SOCK_DGRAM, 0))?;
     _ = fd.set_cloexec();
     Ok(fd)
+}
+
+/// Helper function to safely copy a device name into a C buffer.
+/// This reduces code duplication across BSD platforms for setting interface names.
+#[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd",))]
+pub(crate) unsafe fn copy_device_name(name: &str, dest: *mut libc::c_char, max_len: usize) {
+    use std::ptr;
+    let copy_len = name.len().min(max_len - 1);
+    ptr::copy_nonoverlapping(name.as_ptr() as *const libc::c_char, dest, copy_len);
 }

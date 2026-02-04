@@ -496,15 +496,18 @@ impl TunDevice {
     pub fn get_name(&self) -> io::Result<String> {
         ffi::luid_to_alias(&self.luid)
     }
+    #[inline]
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.win_tun_adapter.send(buf, None)
     }
 
     #[allow(dead_code)]
+    #[inline]
     pub(crate) fn send_interruptible(&self, buf: &[u8], event: &OwnedHandle) -> io::Result<usize> {
         self.win_tun_adapter.send(buf, Some(event))
     }
     #[allow(dead_code)]
+    #[inline]
     pub(crate) fn wait_readable_interruptible(
         &self,
         interrupt_event: &OwnedHandle,
@@ -513,12 +516,15 @@ impl TunDevice {
         self.win_tun_adapter
             .wait_readable_interruptible(interrupt_event, timeout)
     }
+    #[inline]
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.win_tun_adapter.recv(buf)
     }
+    #[inline]
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.win_tun_adapter.try_send(buf)
     }
+    #[inline]
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.win_tun_adapter.try_recv(buf)
     }

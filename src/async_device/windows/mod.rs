@@ -222,6 +222,7 @@ impl AsyncDevice {
         }
     }
     /// Attempts to read a packet without blocking.
+    #[inline]
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.inner.try_recv(buf)
     }
@@ -250,6 +251,7 @@ impl AsyncDevice {
         result
     }
     /// Attempts to write a packet without blocking.
+    #[inline]
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.try_send(buf)
     }

@@ -603,9 +603,8 @@ impl Decoder for BytesCodec {
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<BytesMut>, io::Error> {
         if !buf.is_empty() {
-            let rs = buf.clone();
-            buf.clear();
-            Ok(Some(rs))
+            // Use split_to to efficiently transfer ownership without copying
+            Ok(Some(buf.split_to(buf.len())))
         } else {
             Ok(None)
         }
