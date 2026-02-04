@@ -267,6 +267,57 @@ impl SyncDevice {
     pub fn recv_intr(&self, buf: &mut [u8], event: &InterruptEvent) -> std::io::Result<usize> {
         self.0.read_interruptible(buf, event, None)
     }
+    
+    /// Like [`recv_intr`](Self::recv_intr), but with an optional timeout.
+    ///
+    /// This function reads data from the device into the provided buffer, but can be
+    /// interrupted by the given event or by the timeout expiring.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - The buffer to store the read data
+    /// * `event` - The interrupt event that can cancel the operation
+    /// * `timeout` - Optional duration to wait before returning with a timeout error
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(n)` - Successfully read `n` bytes
+    /// - `Err(e)` with `ErrorKind::Interrupted` - Operation was interrupted by the event
+    /// - `Err(e)` with `ErrorKind::TimedOut` - Timeout expired before data was available
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(unix, feature = "interruptible"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
+    /// use std::time::Duration;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// let event = InterruptEvent::new()?;
+    /// let mut buf = vec![0u8; 1500];
+    ///
+    /// // Read with a 5-second timeout
+    /// match dev.recv_intr_timeout(&mut buf, &event, Some(Duration::from_secs(5))) {
+    ///     Ok(n) => println!("Received {} bytes", n),
+    ///     Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+    ///         println!("Timed out waiting for data");
+    ///     }
+    ///     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+    ///         println!("Interrupted by event");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
     #[cfg(feature = "interruptible")]
     pub fn recv_intr_timeout(
         &self,
@@ -292,6 +343,60 @@ impl SyncDevice {
     ) -> std::io::Result<usize> {
         self.0.readv_interruptible(bufs, event, None)
     }
+    
+    /// Like [`recv_vectored_intr`](Self::recv_vectored_intr), but with an optional timeout.
+    ///
+    /// This function reads data from the device into multiple buffers using vectored I/O,
+    /// but can be interrupted by the given event or by the timeout expiring.
+    ///
+    /// # Arguments
+    ///
+    /// * `bufs` - Multiple buffers to store the read data
+    /// * `event` - The interrupt event that can cancel the operation
+    /// * `timeout` - Optional duration to wait before returning with a timeout error
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(n)` - Successfully read `n` bytes total across all buffers
+    /// - `Err(e)` with `ErrorKind::Interrupted` - Operation was interrupted by the event
+    /// - `Err(e)` with `ErrorKind::TimedOut` - Timeout expired before data was available
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(unix, feature = "interruptible"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
+    /// use std::io::IoSliceMut;
+    /// use std::time::Duration;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// let event = InterruptEvent::new()?;
+    /// let mut header = [0u8; 20];
+    /// let mut payload = [0u8; 1480];
+    /// let mut bufs = [
+    ///     IoSliceMut::new(&mut header),
+    ///     IoSliceMut::new(&mut payload),
+    /// ];
+    ///
+    /// // Read with timeout into multiple buffers
+    /// match dev.recv_vectored_intr_timeout(&mut bufs, &event, Some(Duration::from_secs(5))) {
+    ///     Ok(n) => println!("Received {} bytes", n),
+    ///     Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+    ///         println!("Timed out");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
     #[cfg(all(unix, feature = "interruptible"))]
     pub fn recv_vectored_intr_timeout(
         &self,
@@ -305,6 +410,55 @@ impl SyncDevice {
     pub fn wait_readable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {
         self.0.wait_readable_interruptible(event, None)
     }
+    
+    /// Like [`wait_readable_intr`](Self::wait_readable_intr), but with an optional timeout.
+    ///
+    /// This function waits until the device becomes readable, but can be interrupted
+    /// by the given event or by the timeout expiring.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The interrupt event that can cancel the wait
+    /// * `timeout` - Optional duration to wait before returning with a timeout error
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` - Device is now readable
+    /// - `Err(e)` with `ErrorKind::Interrupted` - Wait was interrupted by the event
+    /// - `Err(e)` with `ErrorKind::TimedOut` - Timeout expired
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(unix, feature = "interruptible"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
+    /// use std::time::Duration;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// let event = InterruptEvent::new()?;
+    ///
+    /// // Wait for readability with timeout
+    /// match dev.wait_readable_intr_timeout(&event, Some(Duration::from_secs(10))) {
+    ///     Ok(()) => {
+    ///         println!("Device is readable");
+    ///         // Now try to read...
+    ///     }
+    ///     Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+    ///         println!("Timed out waiting for data");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
     #[cfg(feature = "interruptible")]
     pub fn wait_readable_intr_timeout(
         &self,
@@ -317,6 +471,56 @@ impl SyncDevice {
     pub fn send_intr(&self, buf: &[u8], event: &InterruptEvent) -> std::io::Result<usize> {
         self.0.write_interruptible(buf, event)
     }
+    
+    /// Sends data to the device from multiple buffers using vectored I/O, with interruption support.
+    ///
+    /// Like [`send_intr`](Self::send_intr), but uses `writev` to send from multiple
+    /// non-contiguous buffers in a single operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `bufs` - Multiple buffers containing the data to send
+    /// * `event` - The interrupt event that can cancel the operation
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(n)` - Successfully sent `n` bytes total from all buffers
+    /// - `Err(e)` with `ErrorKind::Interrupted` - Operation was interrupted by the event
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(unix, feature = "interruptible"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
+    /// use std::io::IoSlice;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// let event = InterruptEvent::new()?;
+    /// let header = [0x45, 0x00, 0x00, 0x14]; // IPv4 header
+    /// let payload = b"Hello, TUN!";
+    /// let bufs = [
+    ///     IoSlice::new(&header),
+    ///     IoSlice::new(payload),
+    /// ];
+    ///
+    /// match dev.send_vectored_intr(&bufs, &event) {
+    ///     Ok(n) => println!("Sent {} bytes", n),
+    ///     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+    ///         println!("Send was interrupted");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
     #[cfg(all(unix, feature = "interruptible"))]
     pub fn send_vectored_intr(
         &self,
@@ -325,6 +529,52 @@ impl SyncDevice {
     ) -> std::io::Result<usize> {
         self.0.writev_interruptible(bufs, event)
     }
+    
+    /// Waits for the device to become writable, with interruption support.
+    ///
+    /// This function waits until the device is ready to accept data for sending,
+    /// but can be interrupted by the given event.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The interrupt event that can cancel the wait
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` - Device is now writable
+    /// - `Err(e)` with `ErrorKind::Interrupted` - Wait was interrupted by the event
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(unix, feature = "interruptible"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, InterruptEvent};
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// let event = InterruptEvent::new()?;
+    ///
+    /// // Wait for device to be writable
+    /// match dev.wait_writable_intr(&event) {
+    ///     Ok(()) => {
+    ///         println!("Device is writable");
+    ///         // Now send data...
+    ///     }
+    ///     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+    ///         println!("Wait was interrupted");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Feature
+    ///
+    /// This method is only available when the `interruptible` feature is enabled.
     #[cfg(all(unix, feature = "interruptible"))]
     #[inline]
     pub fn wait_writable_intr(&self, event: &InterruptEvent) -> std::io::Result<()> {

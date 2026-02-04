@@ -1959,9 +1959,68 @@ impl GROTable {
     }
 }
 
+/// A trait for buffers that can be expanded and resized for offload operations.
+///
+/// This trait extends basic buffer operations (`AsRef<[u8]>` and `AsMut<[u8]>`)
+/// with methods needed for efficient packet processing with GRO/GSO offload support.
+/// It allows buffers to grow dynamically as needed during packet coalescing and
+/// segmentation operations.
+///
+/// # Required Methods
+///
+/// - `buf_capacity()` - Returns the current capacity of the buffer
+/// - `buf_resize()` - Resizes the buffer to a new length, filling with a value
+/// - `buf_extend_from_slice()` - Extends the buffer with data from a slice
+///
+/// # Implementations
+///
+/// This trait is implemented for:
+/// - `BytesMut` - The primary buffer type for async operations
+/// - `&mut BytesMut` - Mutable reference to BytesMut
+/// - `Vec<u8>` - Standard Rust vector
+/// - `&mut Vec<u8>` - Mutable reference to Vec
+///
+/// # Example
+///
+/// ```no_run
+/// # #[cfg(target_os = "linux")]
+/// # {
+/// use bytes::BytesMut;
+/// use tun_rs::ExpandBuffer;
+///
+/// let mut buffer = BytesMut::with_capacity(1500);
+/// buffer.buf_resize(20, 0); // Resize to 20 bytes, filled with zeros
+/// buffer.buf_extend_from_slice(b"packet data"); // Append data
+/// assert!(buffer.buf_capacity() >= buffer.len());
+/// # }
+/// ```
 pub trait ExpandBuffer: AsRef<[u8]> + AsMut<[u8]> {
+    /// Returns the current capacity of the buffer in bytes.
+    ///
+    /// The capacity is the total amount of memory allocated, which may be
+    /// greater than the current length of the buffer.
     fn buf_capacity(&self) -> usize;
+    
+    /// Resizes the buffer to the specified length, filling new space with the given value.
+    ///
+    /// If `new_len` is greater than the current length, the buffer is extended
+    /// and new bytes are initialized to `value`. If `new_len` is less than the
+    /// current length, the buffer is truncated.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_len` - The new length of the buffer
+    /// * `value` - The byte value to fill any new space with
     fn buf_resize(&mut self, new_len: usize, value: u8);
+    
+    /// Extends the buffer by appending data from a slice.
+    ///
+    /// This method appends all bytes from `src` to the end of the buffer,
+    /// growing the buffer as necessary.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - The slice of bytes to append to the buffer
     fn buf_extend_from_slice(&mut self, src: &[u8]);
 }
 
