@@ -1,17 +1,242 @@
+/*!
+# Device Builder Module
+
+This module provides the [`DeviceBuilder`] struct for configuring and creating TUN/TAP interfaces.
+
+## Overview
+
+The builder pattern allows you to specify all configuration parameters before creating a device.
+Configuration includes:
+- Device name
+- IP addresses (IPv4 and IPv6, single or multiple)
+- MTU (Maximum Transmission Unit)
+- Operating layer (L2/TAP or L3/TUN)
+- MAC address (for L2/TAP mode)
+- Platform-specific options (offload, multi-queue, packet information, etc.)
+
+## Basic Usage
+
+```no_run
+use tun_rs::DeviceBuilder;
+
+// Create a TUN (L3) device
+let dev = DeviceBuilder::new()
+    .name("tun0")
+    .ipv4("10.0.0.1", 24, None)
+    .mtu(1400)
+    .build_sync()?;
+# Ok::<(), std::io::Error>(())
+```
+
+## Platform-Specific Configuration
+
+The builder provides platform-specific methods accessible via the `with()` method:
+
+### Linux Specific
+
+```no_run
+# #[cfg(target_os = "linux")]
+# {
+use tun_rs::DeviceBuilder;
+
+let dev = DeviceBuilder::new()
+    .ipv4("10.0.0.1", 24, None)
+    .with(|builder| {
+        builder
+            .offload(true)        // Enable TSO/GSO offload
+            .multi_queue(true)    // Enable multi-queue support
+            .tx_queue_len(1000)   // Set transmit queue length
+    })
+    .build_sync()?;
+# Ok::<(), std::io::Error>(())
+# }
+```
+
+### Windows Specific
+
+```no_run
+# #[cfg(target_os = "windows")]
+# {
+use tun_rs::DeviceBuilder;
+
+let dev = DeviceBuilder::new()
+    .ipv4("10.0.0.1", 24, None)
+    .with(|builder| {
+        builder
+            .ring_capacity(0x40_0000)  // 4MB ring buffer
+            .wintun_log(true)          // Enable Wintun logging
+            .description("My VPN")     // Set device description
+    })
+    .build_sync()?;
+# Ok::<(), std::io::Error>(())
+# }
+```
+
+### macOS Specific
+
+```no_run
+# #[cfg(target_os = "macos")]
+# {
+use tun_rs::DeviceBuilder;
+
+let dev = DeviceBuilder::new()
+    .ipv4("10.0.0.1", 24, None)
+    .with(|builder| {
+        builder
+            .associate_route(true)        // Auto-configure routes
+            .packet_information(false)    // Disable packet headers
+    })
+    .build_sync()?;
+# Ok::<(), std::io::Error>(())
+# }
+```
+
+## Layer Selection
+
+Choose between Layer 2 (TAP) and Layer 3 (TUN):
+
+```no_run
+# #[cfg(any(target_os = "linux", target_os = "windows", target_os = "freebsd"))]
+# {
+use tun_rs::{DeviceBuilder, Layer};
+
+// TAP interface (Layer 2)
+let tap = DeviceBuilder::new()
+    .name("tap0")
+    .layer(Layer::L2)
+    .mac_addr([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
+    .build_sync()?;
+
+// TUN interface (Layer 3, default)
+let tun = DeviceBuilder::new()
+    .name("tun0")
+    .layer(Layer::L3)
+    .ipv4("10.0.0.1", 24, None)
+    .build_sync()?;
+# Ok::<(), std::io::Error>(())
+# }
+```
+
+## Multiple IP Addresses
+
+You can configure multiple IPv6 addresses during device creation:
+
+```no_run
+use tun_rs::DeviceBuilder;
+
+let dev = DeviceBuilder::new()
+    .ipv4("10.0.0.1", 24, None)
+    .ipv6("fd00::1", 64)
+    .ipv6("fd00::2", 64)
+    .build_sync()?;
+# Ok::<(), std::io::Error>(())
+```
+
+Additional addresses can be added after creation using [`crate::SyncDevice::add_address_v4`] 
+and [`crate::SyncDevice::add_address_v6`] methods.
+
+## Configuration Precedence
+
+- Most settings have sensible defaults
+- Unspecified values use platform defaults
+- Some settings are mandatory (e.g., at least one IP address for routing)
+- Platform-specific settings are ignored on other platforms
+
+## Error Handling
+
+The `build_sync()` and `build_async()` methods return `io::Result<Device>`.
+Common errors include:
+- Permission denied (need root/administrator privileges)
+- Device name already exists
+- Invalid IP address or netmask
+- Platform-specific driver not found (e.g., Wintun on Windows)
+*/
+
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 use crate::platform::{DeviceImpl, SyncDevice};
 
-/// Represents the OSI layer at which the TUN interface operates.
+/// Represents the OSI layer at which the TUN/TAP interface operates.
 ///
-/// - **L2**: Data Link Layer (available on Windows, Linux, and FreeBSD; used for TAP interfaces).
-/// - **L3**: Network Layer (default for TUN interfaces).
+/// This enum determines whether the interface works at the Data Link Layer (L2/TAP)
+/// or the Network Layer (L3/TUN).
+///
+/// # Layer 2 (TAP) - Data Link Layer
+///
+/// TAP interfaces operate at the Ethernet frame level (Layer 2), handling complete
+/// Ethernet frames including MAC addresses. This is useful for:
+/// - Bridging networks
+/// - Emulating full Ethernet connectivity
+/// - Applications requiring MAC-level control
+/// - Creating virtual switches
+///
+/// TAP mode requires setting a MAC address and can work with protocols like ARP.
+///
+/// **Platform availability**: Windows, Linux, FreeBSD, macOS, OpenBSD, NetBSD
+///
+/// # Layer 3 (TUN) - Network Layer
+///
+/// TUN interfaces operate at the IP packet level (Layer 3), handling IP packets
+/// directly without Ethernet framing. This is the default and most common mode for:
+/// - VPN implementations
+/// - IP tunneling
+/// - Point-to-point connections
+/// - Routing between networks
+///
+/// TUN mode is simpler and more efficient than TAP when Ethernet-level features
+/// are not needed.
+///
+/// **Platform availability**: All platforms
+///
+/// # Examples
+///
+/// Creating a TAP (L2) interface:
+///
+/// ```no_run
+/// # #[cfg(any(target_os = "linux", target_os = "windows", target_os = "freebsd"))]
+/// # {
+/// use tun_rs::{DeviceBuilder, Layer};
+///
+/// let tap = DeviceBuilder::new()
+///     .name("tap0")
+///     .layer(Layer::L2)
+///     .mac_addr([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
+///     .build_sync()?;
+/// # Ok::<(), std::io::Error>(())
+/// # }
+/// ```
+///
+/// Creating a TUN (L3) interface (default):
+///
+/// ```no_run
+/// use tun_rs::{DeviceBuilder, Layer};
+///
+/// // L3 is the default, explicit specification is optional
+/// let tun = DeviceBuilder::new()
+///     .name("tun0")
+///     .layer(Layer::L3)
+///     .ipv4("10.0.0.1", 24, None)
+///     .build_sync()?;
+/// # Ok::<(), std::io::Error>(())
+/// ```
+///
+/// # Platform-Specific Notes
+///
+/// - On macOS, TAP mode uses a pair of `feth` (fake ethernet) interfaces
+/// - On Windows, TAP mode requires the tap-windows driver
+/// - On Linux, both modes use the kernel TUN/TAP driver
+/// - Android and iOS only support TUN (L3) mode
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Layer {
-    /// Data Link Layer.
+    /// Data Link Layer (Ethernet frames with MAC addresses).
+    ///
+    /// TAP mode operates at Layer 2, handling complete Ethernet frames.
+    /// Requires a MAC address to be configured.
+    ///
+    /// Available on: Windows, Linux, FreeBSD, macOS, OpenBSD, NetBSD
     #[cfg(any(
         target_os = "windows",
         target_os = "linux",
@@ -21,7 +246,13 @@ pub enum Layer {
         target_os = "netbsd",
     ))]
     L2,
-    /// Network Layer (default for TUN interfaces).
+    
+    /// Network Layer (IP packets).
+    ///
+    /// TUN mode operates at Layer 3, handling IP packets directly.
+    /// This is the default and most common mode for VPN and tunneling applications.
+    ///
+    /// Available on: All platforms
     #[default]
     L3,
 }
