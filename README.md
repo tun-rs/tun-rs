@@ -250,10 +250,13 @@ fn main() -> std::io::Result<()> {
     }
 }
 
-// Placeholder - replace with your actual implementation
+// NOTE: This is example-only code. In real applications, obtain the fd from:
+// - iOS: tunFd = packetFlow.value(forKeyPath: "socket.fileDescriptor") as! Int32
+// - Android: fd = vpnInterface.getFd()  (from VpnService.Builder().establish())
+// - Linux: fd = open("/dev/net/tun", O_RDWR) or use DeviceBuilder instead
 fn get_tun_fd_from_platform() -> RawFd {
-    // See iOS/Android sections below for concrete examples
-    panic!("Implement platform-specific fd acquisition")
+    // See the iOS and Android sections below for complete working examples
+    panic!("Replace with your platform-specific fd acquisition code")
 }
 ```
 
@@ -282,6 +285,9 @@ fn main() -> std::io::Result<()> {
     let mut original_buffer = vec![0; VIRTIO_NET_HDR_LEN + 65535];
     let mut bufs = vec![vec![0u8; 1500]; IDEAL_BATCH_SIZE];
     let mut sizes = vec![0; IDEAL_BATCH_SIZE];
+    
+    // Optional: Use GROTable for Generic Receive Offload optimization
+    // let mut gro_table = GROTable::default();
     
     loop {
         let num = dev.recv_multiple(&mut original_buffer, &mut bufs, &mut sizes, 0)?;
@@ -447,11 +453,11 @@ Integrate with Android `VpnService`:
 private void startVpn() {
     VpnService.Builder builder = new VpnService.Builder();
     builder
-       .allowFamily(OsConstants.AF_INET)
-       .addAddress("10.0.0.2", 24);
+        .allowFamily(OsConstants.AF_INET)
+        .addAddress("10.0.0.2", 24);
     ParcelFileDescriptor vpnInterface = builder
-                 .setSession("tun-rs")
-                 .establish();
+        .setSession("tun-rs")
+        .establish();
     int fd = vpnInterface.getFd();
     
     // Pass fd to Rust via JNI
@@ -475,16 +481,18 @@ pub extern "C" fn startTunNative(fd: std::os::raw::c_int) {
 
 ## 🤝 Comparison with Other Libraries
 
-| Feature | tun-rs | go-tun | Other Rust TUN |
-|---------|--------|--------|----------------|
-| **Peak Throughput** | 70.6 Gbps | 30.1 Gbps | Varies |
-| **Memory Usage** | ✅ Low (3-16 MB) | ❌ High (39-43 MB) | Varies |
-| **Cross-Platform** | ✅ 11+ platforms | ⚠️ Limited | ⚠️ Limited |
-| **Async Support** | ✅ Tokio + async-io | ✅ Go runtime | ⚠️ Limited |
+| Feature | tun-rs | go-tun | tun-tap/tokio-tun |
+|---------|--------|--------|-------------------|
+| **Peak Throughput** | 70.6 Gbps | 30.1 Gbps | Not benchmarked |
+| **Memory Usage** | ✅ Low (3-16 MB) | ❌ High (39-43 MB) | Unknown |
+| **Cross-Platform** | ✅ 11+ platforms | ⚠️ Limited | ⚠️ Linux/macOS only |
+| **Async Support** | ✅ Tokio + async-io | ✅ Go runtime | ⚠️ Varies by lib |
 | **Hardware Offload** | ✅ TSO/GSO/Multi-queue | ✅ TSO/GSO | ❌ No |
 | **Multiple IPs** | ✅ Yes | ❌ No | ❌ No |
 | **TAP on macOS** | ✅ Yes (feth) | ❌ No | ❌ No |
-| **Mobile Support** | ✅ iOS/Android | ❌ No | ⚠️ Limited |
+| **Mobile Support** | ✅ iOS/Android | ❌ No | ❌ No |
+
+> **Note**: Benchmarks for go-tun were conducted in the same environment. Other Rust TUN libraries lack comprehensive cross-platform support and haven't been benchmarked in our test suite.
 
 ---
 
