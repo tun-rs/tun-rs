@@ -44,6 +44,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         
         // Search through file descriptors to find the utun socket
+        // Note: Range 0...1024 is used to ensure we find the fd. In practice, the utun
+        // socket is typically in the low range (< 100) and found quickly. This method
+        // is from WireGuard's production implementation and only runs once at tunnel startup.
         for fd: Int32 in 0...1024 {
             var addr = sockaddr_ctl()
             var ret: Int32 = -1
@@ -157,6 +160,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         
+        // Search through file descriptors to find the utun socket
+        // Note: Range 0...1024 ensures we find the fd. In practice, found quickly in low range.
         for fd: Int32 in 0...1024 {
             var addr = sockaddr_ctl()
             var ret: Int32 = -1
@@ -539,7 +544,7 @@ In your Network Extension's entitlements file:
 
 ## Notes
 
-- The file descriptor search method iterates through FDs 0-1024. This range should cover most scenarios, but you can adjust if needed.
+- The file descriptor search method iterates through FDs 0-1024. This range is from WireGuard's production implementation and covers all realistic scenarios. In practice, the utun socket is typically found in the low range (< 100) very quickly, and this only runs once at tunnel startup, so performance impact is negligible.
 - On iOS, you cannot create TUN devices directly using `DeviceBuilder`. You must use the file descriptor from `NEPacketTunnelProvider`.
 - The tunnel processing should run on a background thread/queue to avoid blocking the main thread.
 - Proper error handling and logging are crucial for debugging iOS Network Extensions, as they run in a sandboxed environment with limited debugging capabilities.

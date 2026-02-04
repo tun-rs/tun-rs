@@ -426,6 +426,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         
+        // Search for the utun socket (range 0...1024 from WireGuard; typically found quickly)
         for fd: Int32 in 0...1024 {
             var addr = sockaddr_ctl()
             var ret: Int32 = -1
@@ -672,6 +673,7 @@ private func getTunnelFileDescriptor() -> Int32? {
         }
     }
     
+    // Range 0...1024 from WireGuard implementation; typically found quickly in low range
     for fd: Int32 in 0...1024 {
         var addr = sockaddr_ctl()
         var ret: Int32 = -1
