@@ -213,9 +213,11 @@ impl Tap {
         self.s_ndrv_fd.set_nonblocking(nonblocking)?;
         Ok(())
     }
+    #[inline]
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.s_ndrv_fd.write(buf)
     }
+    #[inline]
     pub fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         self.s_ndrv_fd.writev(bufs)
     }

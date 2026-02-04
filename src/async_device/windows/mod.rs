@@ -175,7 +175,8 @@ impl AsyncDevice {
                 }
             } else {
                 let device = self.inner.clone();
-                let buf = src.to_vec();
+                // Use Arc to avoid buffer copy
+                let buf: Arc<[u8]> = Arc::from(src);
                 let task = blocking::unblock(move || device.send(&buf));
                 guard.replace(task);
                 drop(guard);
@@ -222,6 +223,7 @@ impl AsyncDevice {
         }
     }
     /// Attempts to read a packet without blocking.
+    #[inline]
     pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.inner.try_recv(buf)
     }
@@ -236,7 +238,8 @@ impl AsyncDevice {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             rs => return rs,
         }
-        let buf = buf.to_vec();
+        // Use Arc to avoid buffer copy
+        let buf: Arc<[u8]> = Arc::from(buf);
         let device = self.inner.clone();
         let mut canceller = Canceller::new_cancelable()?;
         let (cancel_guard, exit_guard) = canceller.guard(device);
@@ -250,6 +253,7 @@ impl AsyncDevice {
         result
     }
     /// Attempts to write a packet without blocking.
+    #[inline]
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.inner.try_send(buf)
     }

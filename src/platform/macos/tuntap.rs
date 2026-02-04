@@ -154,24 +154,28 @@ impl TunTap {
             TunTap::Tap(tap) => tap.set_nonblocking(nonblocking),
         }
     }
+    #[inline]
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         match &self {
             TunTap::Tun(tun) => tun.send(buf),
             TunTap::Tap(tap) => tap.send(buf),
         }
     }
+    #[inline]
     pub fn send_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         match &self {
             TunTap::Tun(tun) => tun.send_vectored(bufs),
             TunTap::Tap(tap) => tap.send_vectored(bufs),
         }
     }
+    #[inline]
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         match &self {
             TunTap::Tun(tun) => tun.recv(buf),
             TunTap::Tap(tap) => tap.recv(buf),
         }
     }
+    #[inline]
     pub fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         match &self {
             TunTap::Tun(tun) => tun.recv_vectored(bufs),

@@ -138,6 +138,7 @@ impl SyncDevice {
     /// ```
     /// # Note
     /// Blocking the current thread if no packet is available
+    #[inline]
     pub fn recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.recv(buf)
     }
@@ -156,6 +157,7 @@ impl SyncDevice {
     ///     .unwrap();
     /// tun.send(b"hello").unwrap();
     /// ```
+    #[inline]
     pub fn send(&self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.send(buf)
     }
@@ -163,6 +165,7 @@ impl SyncDevice {
     ///
     /// Returns the number of bytes read or an error if the operation would block.
     #[cfg(target_os = "windows")]
+    #[inline]
     pub fn try_recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.try_recv(buf)
     }
@@ -170,6 +173,7 @@ impl SyncDevice {
     ///
     /// Returns the number of bytes written or an error if the operation would block.
     #[cfg(target_os = "windows")]
+    #[inline]
     pub fn try_send(&self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.try_send(buf)
     }
