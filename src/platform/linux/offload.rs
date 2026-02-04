@@ -137,7 +137,7 @@ pub const VIRTIO_NET_HDR_GSO_UDP_L4: u8 = 5;
 /// This constant defines the optimal number of packets to handle per `recv_multiple`
 /// or `send_multiple` call. It balances between:
 /// - Amortizing system call overhead
-/// - Keeping latency reasonable  
+/// - Keeping latency reasonable
 /// - Memory usage for packet buffers
 ///
 /// Based on WireGuard-go's implementation.
@@ -311,7 +311,7 @@ impl VirtioNetHdr {
 
 /// Size of the virtio network header in bytes (12 bytes).
 ///
-/// This constant represents the fixed size of the [`VirtioNetHdr`] structure.
+/// This constant represents the fixed size of the `VirtioNetHdr` structure.
 /// When offload is enabled on a TUN device, this header precedes every packet.
 ///
 /// # Example

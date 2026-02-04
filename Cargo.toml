@@ -16,7 +16,7 @@ crate-type = ["staticlib", "cdylib", "lib"]
 bytes = { version = "1" }
 log = "0.4"
 blocking = { version = "1.6", optional = true }
-tokio = { version = "1.45", features = [
+tokio = { version = "1.49", features = [
     "net",
     "macros",
     "io-util",
@@ -139,4 +139,3 @@ required-features = ["interruptible"]
 [[example]]
 name = "read_timeout"
 required-features = ["interruptible"]
-
