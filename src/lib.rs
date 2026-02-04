@@ -89,7 +89,7 @@ For iOS and Android, use the file descriptor from the system VPN APIs:
     use tun_rs::SyncDevice;
     // On iOS: from PacketTunnelProvider.packetFlow
     // On Android: from VpnService.Builder.establish()
-    let fd = 7799; // exposition-only
+    let fd = 7799; // Example value only - obtain from platform VPN APIs
     let dev = unsafe { SyncDevice::from_fd(fd).unwrap() };
     
     let mut buf = [0; 65535];
