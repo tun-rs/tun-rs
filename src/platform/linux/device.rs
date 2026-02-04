@@ -723,6 +723,24 @@ impl DeviceImpl {
     ///
     /// This function populates an interface request with the broadcast address via a system call,
     /// converts it into a sockaddr structure, and then extracts the IP address.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Get the broadcast address
+    /// let broadcast = dev.broadcast()?;
+    /// println!("Broadcast address: {}", broadcast);
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn broadcast(&self) -> io::Result<IpAddr> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {

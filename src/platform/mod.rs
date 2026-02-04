@@ -102,11 +102,64 @@ pub struct SyncDevice(pub(crate) DeviceImpl);
 impl SyncDevice {
     /// Creates a new SyncDevice from a raw file descriptor.
     ///
+    /// Creates a `SyncDevice` from a raw file descriptor.
+    ///
     /// # Safety
     /// - The file descriptor (`fd`) must be an owned file descriptor.
     /// - It must be valid and open.
+    /// - The file descriptor must refer to a TUN/TAP device.
+    /// - After calling this function, the `SyncDevice` takes ownership of the fd and will close it when dropped.
     ///
     /// This function is only available on Unix platforms.
+    ///
+    /// # Example
+    ///
+    /// On iOS using PacketTunnelProvider:
+    ///
+    /// ```no_run
+    /// # #[cfg(unix)]
+    /// # {
+    /// use tun_rs::SyncDevice;
+    /// use std::os::fd::RawFd;
+    ///
+    /// // On iOS, obtain fd from PacketTunnelProvider.packetFlow
+    /// // let fd: RawFd = packet_flow.value(forKeyPath: "socket.fileDescriptor") as! Int32
+    /// let fd: RawFd = 10; // Example value - obtain from platform VPN APIs
+    ///
+    /// // SAFETY: fd must be a valid, open file descriptor to a TUN device
+    /// let dev = unsafe { SyncDevice::from_fd(fd)? };
+    ///
+    /// // Device now owns the file descriptor
+    /// let mut buf = [0u8; 1500];
+    /// let n = dev.recv(&mut buf)?;
+    /// println!("Received {} bytes", n);
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// On Android using VpnService:
+    ///
+    /// ```no_run
+    /// # #[cfg(unix)]
+    /// # {
+    /// use tun_rs::SyncDevice;
+    ///
+    /// // On Android, obtain fd from VpnService.Builder.establish()
+    /// // ParcelFileDescriptor vpnInterface = builder.establish();
+    /// // int fd = vpnInterface.getFd();
+    /// let fd = 10; // Example value - obtain from VpnService
+    ///
+    /// // SAFETY: fd must be valid and open
+    /// let dev = unsafe { SyncDevice::from_fd(fd)? };
+    ///
+    /// let mut buf = [0u8; 1500];
+    /// loop {
+    ///     let n = dev.recv(&mut buf)?;
+    ///     // Process packet...
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     #[cfg(unix)]
     pub unsafe fn from_fd(fd: RawFd) -> std::io::Result<Self> {
         Ok(SyncDevice(DeviceImpl::from_fd(fd)?))

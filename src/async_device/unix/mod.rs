@@ -71,7 +71,7 @@ impl AsyncDevice {
     }
     /// Waits for the device to become readable.
     ///
-    /// This function is usually paired with `try_recv()`.
+    /// This function is usually paired with `try_recv()` for manual readiness-based I/O.
     ///
     /// The function may complete without the device being readable. This is a
     /// false-positive and attempting a `try_recv()` will return with
@@ -83,12 +83,39 @@ impl AsyncDevice {
     /// will continue to return immediately until the readiness event is
     /// consumed by an attempt to read that fails with `WouldBlock` or
     /// `Poll::Pending`.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(unix, any(feature = "async_io", feature = "async_tokio")))]
+    /// # async fn example() -> std::io::Result<()> {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_async()?;
+    ///
+    /// // Wait for the device to be readable
+    /// dev.readable().await?;
+    ///
+    /// // Try to read (may still return WouldBlock)
+    /// let mut buf = vec![0u8; 1500];
+    /// match dev.try_recv(&mut buf) {
+    ///     Ok(n) => println!("Read {} bytes", n),
+    ///     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+    ///         println!("False positive readiness");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn readable(&self) -> io::Result<()> {
         self.0.readable().await.map(|_| ())
     }
     /// Waits for the device to become writable.
     ///
-    /// This function is usually paired with `try_send()`.
+    /// This function is usually paired with `try_send()` for manual readiness-based I/O.
     ///
     /// The function may complete without the device being writable. This is a
     /// false-positive and attempting a `try_send()` will return with
@@ -100,6 +127,35 @@ impl AsyncDevice {
     /// will continue to return immediately until the readiness event is
     /// consumed by an attempt to write that fails with `WouldBlock` or
     /// `Poll::Pending`.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(unix, any(feature = "async_io", feature = "async_tokio")))]
+    /// # async fn example() -> std::io::Result<()> {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_async()?;
+    ///
+    /// // Prepare a packet
+    /// let packet = b"Hello, TUN!";
+    ///
+    /// // Wait for the device to be writable
+    /// dev.writable().await?;
+    ///
+    /// // Try to send (may still return WouldBlock)
+    /// match dev.try_send(packet) {
+    ///     Ok(n) => println!("Sent {} bytes", n),
+    ///     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+    ///         println!("False positive writability");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn writable(&self) -> io::Result<()> {
         self.0.writable().await.map(|_| ())
     }
