@@ -719,10 +719,12 @@ impl DeviceImpl {
             IpAddr::V6(addr_v6) => {
                 let addrs = crate::platform::get_if_addrs_by_name(self.name_impl()?)?;
                 for x in addrs {
-                    if x.address == addr {
-                        if let Some(netmask) = x.netmask {
-                            let prefix = ipnet::ip_mask_to_prefix(netmask).unwrap_or(0);
-                            self.remove_address_v6_impl(addr_v6, prefix)?
+                    if let Some(ip_addr) = x.address.ip_addr() {
+                        if ip_addr == addr {
+                            if let Some(netmask) = x.address.netmask() {
+                                let prefix = ipnet::ip_mask_to_prefix(netmask).unwrap_or(0);
+                                self.remove_address_v6_impl(addr_v6, prefix)?
+                            }
                         }
                     }
                 }

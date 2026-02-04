@@ -13,7 +13,6 @@ use libc::{
     self, c_char, c_short, fcntl, ifreq, kinfo_file, AF_LINK, F_KINFO, IFF_RUNNING, IFF_UP,
     IFNAMSIZ, KINFO_FILE_SIZE, O_RDWR,
 };
-use mac_address::mac_address_by_name;
 use std::io::ErrorKind;
 use std::os::fd::{IntoRawFd, RawFd};
 use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
@@ -558,17 +557,23 @@ impl DeviceImpl {
     }
     /// Retrieves the MAC (hardware) address of the interface.
     ///
-    /// This function queries the MAC address by the interface name using a helper function.
+    /// This function queries the MAC address by the interface name using getifaddrs.
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> std::io::Result<[u8; ETHER_ADDR_LEN as usize]> {
         let _guard = self.op_lock.lock().unwrap();
-        let mac = mac_address_by_name(&self.name_impl()?)
-            .map_err(|e| io::Error::other(e.to_string()))?
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "invalid mac address",
-            ))?;
-        Ok(mac.bytes())
+        let name = self.name_impl()?;
+        let interfaces = getifaddrs::getifaddrs()?;
+        for interface in interfaces {
+            if interface.name == name {
+                if let Some(mac) = interface.address.mac_addr() {
+                    return Ok(mac);
+                }
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "MAC address not found for interface",
+        ))
     }
     /// In Layer3(i.e. TUN mode), we need to put the tun interface into "multi_af" mode, which will prepend the address
     /// family to all packets (same as NetBSD).

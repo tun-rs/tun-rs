@@ -278,7 +278,7 @@ impl DeviceImpl {
         let r = Self::get_all_adapter_address()?
             .into_iter()
             .filter(|v| v.index == Some(index))
-            .map(|v| v.address)
+            .filter_map(|v| v.address.ip_addr())
             .collect();
         Ok(r)
     }
