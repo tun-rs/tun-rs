@@ -228,7 +228,7 @@ use std::os::unix::io::RawFd;
 
 fn main() -> std::io::Result<()> {
     // The fd must be a valid file descriptor obtained from:
-    // - iOS: NEPacketTunnelProvider's packetFlow.value(forKeyPath: "socket.fileDescriptor")
+    // - iOS: Use getTunnelFileDescriptor() - see iOS section (KVO method deprecated on iOS 16+)
     // - Android: VpnService.Builder().establish().getFd()
     // - Linux: open("/dev/net/tun", O_RDWR)
     // - Or any other platform-specific TUN device API
@@ -251,7 +251,7 @@ fn main() -> std::io::Result<()> {
 }
 
 // NOTE: This is example-only code. In real applications, obtain the fd from:
-// - iOS: tunFd = packetFlow.value(forKeyPath: "socket.fileDescriptor") as! Int32
+// - iOS: Use getTunnelFileDescriptor() method (see iOS section) - KVO method deprecated on iOS 16+
 // - Android: fd = vpnInterface.getFd()  (from VpnService.Builder().establish())
 // - Linux: fd = open("/dev/net/tun", O_RDWR) or use DeviceBuilder instead
 fn get_tun_fd_from_platform() -> RawFd {
@@ -411,17 +411,63 @@ fn main() -> std::io::Result<()> {
 
 ### iOS / tvOS
 
-Integrate with `NEPacketTunnelProvider`:
+Integrate with `NEPacketTunnelProvider`. **Note:** On iOS 16+, the KVO method for getting the file descriptor may not work. Use the robust method below:
 
 ```swift
 // Swift
 class PacketTunnelProvider: NEPacketTunnelProvider {
+    
+    // Robust method to get file descriptor (iOS 16+ compatible)
+    private func getTunnelFileDescriptor() -> Int32? {
+        var ctlInfo = ctl_info()
+        withUnsafeMutablePointer(to: &ctlInfo.ctl_name) {
+            $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: $0.pointee)) {
+                _ = strcpy($0, "com.apple.net.utun_control")
+            }
+        }
+        
+        for fd: Int32 in 0...1024 {
+            var addr = sockaddr_ctl()
+            var ret: Int32 = -1
+            var len = socklen_t(MemoryLayout.size(ofValue: addr))
+            
+            withUnsafeMutablePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    ret = getpeername(fd, $0, &len)
+                }
+            }
+            
+            if ret != 0 || addr.sc_family != AF_SYSTEM {
+                continue
+            }
+            
+            if ctlInfo.ctl_id == 0 {
+                ret = ioctl(fd, CTLIOCGINFO, &ctlInfo)
+                if ret != 0 {
+                    continue
+                }
+            }
+            
+            if addr.sc_id == ctlInfo.ctl_id {
+                return fd
+            }
+        }
+        return nil
+    }
+    
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         let tunnelNetworkSettings = createTunnelSettings() // Configure TUN address, DNS, mtu, routing...
         setTunnelNetworkSettings(tunnelNetworkSettings) { [weak self] error in
-            // Get the file descriptor from packet flow
-            let tunFd = self?.packetFlow.value(forKeyPath: "socket.fileDescriptor") as! Int32
-            DispatchQueue.global(qos: .default).async {
+            guard let self = self else { return }
+            
+            // Get the file descriptor using the robust method
+            guard let tunFd = self.getTunnelFileDescriptor() else {
+                completionHandler(NSError(domain: "TunnelError", code: 2, 
+                    userInfo: [NSLocalizedDescriptionKey: "Cannot locate tunnel file descriptor"]))
+                return
+            }
+            
+            DispatchQueue.global(qos: .userInitiated).async {
                 start_tun(tunFd)
             }
             completionHandler(nil)
@@ -443,6 +489,8 @@ pub extern "C" fn start_tun(fd: std::os::raw::c_int) {
     }
 }
 ```
+
+> **📖 For complete iOS/tvOS integration guide**, including async examples, WireGuardKit method, and troubleshooting, see [docs/iOS-Integration.md](docs/iOS-Integration.md)
 
 ### Android
 
@@ -556,6 +604,7 @@ tokio::select! {
 ## 📖 Documentation
 
 - **API Documentation**: [docs.rs/tun-rs](https://docs.rs/tun-rs)
+- **iOS/tvOS Integration**: [docs/iOS-Integration.md](docs/iOS-Integration.md)
 - **Examples**: [github.com/tun-rs/tun-rs/tree/main/examples](https://github.com/tun-rs/tun-rs/tree/main/examples)
 - **Benchmark Details**: [github.com/tun-rs/tun-benchmark2](https://github.com/tun-rs/tun-benchmark2)
 
@@ -605,6 +654,55 @@ let dev = DeviceBuilder::new()
     .offload(true)
     .build_sync()?;
 ```
+</details>
+
+<details>
+<summary><b>iOS file descriptor returns nil (iOS 16+)</b></summary>
+
+**Symptom:** `packetFlow.value(forKeyPath: "socket.fileDescriptor")` returns `nil` on iOS 16+
+
+**Solution:** The KVO method is deprecated. Use the robust file descriptor search method instead:
+
+```swift
+private func getTunnelFileDescriptor() -> Int32? {
+    var ctlInfo = ctl_info()
+    withUnsafeMutablePointer(to: &ctlInfo.ctl_name) {
+        $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: $0.pointee)) {
+            _ = strcpy($0, "com.apple.net.utun_control")
+        }
+    }
+    
+    for fd: Int32 in 0...1024 {
+        var addr = sockaddr_ctl()
+        var ret: Int32 = -1
+        var len = socklen_t(MemoryLayout.size(ofValue: addr))
+        
+        withUnsafeMutablePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                ret = getpeername(fd, $0, &len)
+            }
+        }
+        
+        if ret != 0 || addr.sc_family != AF_SYSTEM {
+            continue
+        }
+        
+        if ctlInfo.ctl_id == 0 {
+            ret = ioctl(fd, CTLIOCGINFO, &ctlInfo)
+            if ret != 0 {
+                continue
+            }
+        }
+        
+        if addr.sc_id == ctlInfo.ctl_id {
+            return fd
+        }
+    }
+    return nil
+}
+```
+
+See [docs/iOS-Integration.md](docs/iOS-Integration.md) for complete examples and troubleshooting.
 </details>
 
 ---
