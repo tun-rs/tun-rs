@@ -8,7 +8,7 @@ use crate::{
     ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask,
 };
 
-use crate::platform::unix::device::{ctl, ctl_v6, copy_device_name};
+use crate::platform::unix::device::{copy_device_name, ctl, ctl_v6};
 use libc::{self, c_char, c_short, ifreq, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
 use std::io::ErrorKind;
 use std::os::fd::{IntoRawFd, RawFd};
