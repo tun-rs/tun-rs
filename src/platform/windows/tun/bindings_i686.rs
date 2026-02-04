@@ -351,7 +351,7 @@ impl wintun {
     where
         P: AsRef<::std::ffi::OsStr>,
     {
-        let library = ::libloading::Library::new(path)?;
+        let library = ::libloading::Library::new(path.as_ref())?;
         Self::from_library(library)
     }
     pub unsafe fn from_library<L>(library: L) -> Result<Self, ::libloading::Error>
