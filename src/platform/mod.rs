@@ -100,8 +100,6 @@ pub(crate) fn get_if_addrs_by_name(if_name: String) -> std::io::Result<Vec<Inter
 pub struct SyncDevice(pub(crate) DeviceImpl);
 
 impl SyncDevice {
-    /// Creates a new SyncDevice from a raw file descriptor.
-    ///
     /// Creates a `SyncDevice` from a raw file descriptor.
     ///
     /// # Safety
