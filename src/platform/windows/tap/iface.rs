@@ -333,13 +333,11 @@ pub fn set_adapter_mac_by_guid(adapter_guid: &str, new_mac: &str) -> io::Result<
     Ok(())
 }
 pub fn enable_adapter(adapter_name: &str, val: bool) -> io::Result<()> {
-    let status = if val { "enabled" } else { "disabled" };
-    let cmd = format!("netsh interface set interface \"{adapter_name}\" admin={status}");
+    let admin_status = if val { "admin=enabled" } else { "admin=disabled" };
     
-    let out = Command::new("cmd")
+    let out = Command::new("netsh")
         .creation_flags(CREATE_NO_WINDOW)
-        .arg("/C")
-        .arg(&cmd)
+        .args(["interface", "set", "interface", adapter_name, admin_status])
         .output()?;
     
     if out.status.success() {
