@@ -41,8 +41,9 @@ async fn main() -> io::Result<()> {
         .ipv4(Ipv4Addr::from([10, 0, 0, 9]), 24, None)
         .layer(Layer::L2)
         .mtu(1400)
+        .mac_addr([0x02, 0x42, 0xAC, 0x11, 0x00, 0x01])
         .build_async()?;
-    println!("mac address = {:?}", dev.mac_address());
+    println!("mac address = {:X?}", dev.mac_address()?);
     let mut buf = vec![0; 14 + 65536];
     loop {
         tokio::select! {
