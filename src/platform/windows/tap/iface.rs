@@ -4,8 +4,10 @@ use crate::platform::windows::ffi::decode_utf16;
 use scopeguard::{guard, ScopeGuard};
 use std::io;
 use std::os::windows::io::{FromRawHandle, OwnedHandle};
+use std::os::windows::process::CommandExt;
 use std::process::Command;
 use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
+use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use windows_sys::Win32::System::Registry::{
     HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE, KEY_WRITE,
 };
@@ -331,19 +333,27 @@ pub fn set_adapter_mac_by_guid(adapter_guid: &str, new_mac: &str) -> io::Result<
     Ok(())
 }
 pub fn enable_adapter(adapter_name: &str, val: bool) -> io::Result<()> {
-    let out = Command::new("wmic")
-        .args([
-            "path",
-            "win32_networkadapter",
-            "where",
-            &format!("NetConnectionID='{adapter_name}'",),
-            "call",
-            if val { "enable" } else { "disable" },
-        ])
+    let status = if val { "enabled" } else { "disabled" };
+    let cmd = format!("netsh interface set interface \"{adapter_name}\" admin={status}");
+    
+    let out = Command::new("cmd")
+        .creation_flags(CREATE_NO_WINDOW)
+        .arg("/C")
+        .arg(&cmd)
         .output()?;
+    
     if out.status.success() {
         Ok(())
     } else {
-        Err(io::Error::other("Failed to enable adapter"))
+        let error_msg = if !out.stderr.is_empty() {
+            String::from_utf8_lossy(&out.stderr).to_string()
+        } else {
+            String::from_utf8_lossy(&out.stdout).to_string()
+        };
+        Err(io::Error::other(format!(
+            "Failed to {} adapter: {}",
+            if val { "enable" } else { "disable" },
+            error_msg.trim()
+        )))
     }
 }
