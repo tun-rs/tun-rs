@@ -340,7 +340,7 @@ impl DeviceImpl {
     /// * `bufs` - A mutable slice of buffers containing the packets to send. Each buffer must
     ///   implement the [`ExpandBuffer`] trait.
     /// * `offset` - The byte offset within each buffer where the packet data begins.
-    ///   Must be >= `VIRTIO_NET_HDR_LEN` (10 bytes) if offload is enabled to accommodate the header.
+    ///   Must be >= `VIRTIO_NET_HDR_LEN` to accommodate the virtio network header when offload is enabled.
     ///
     /// # Returns
     ///
