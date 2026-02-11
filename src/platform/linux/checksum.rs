@@ -187,7 +187,7 @@ pub fn pseudo_header_checksum_no_fold(
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
+    use rand::RngExt;
     // Assuming these paths are correct for your project structure
     use crate::platform::linux::checksum::{
         checksum_no_fold_avx2, checksum_no_fold_scalar, checksum_no_fold_sse41,
