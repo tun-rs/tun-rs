@@ -1354,11 +1354,35 @@ impl DeviceBuilder {
     /// This method is available only when either async_io or async_tokio feature is enabled.
     ///
     /// # Note
-    /// Choose one of the two async runtimes; otherwise, a compile error will be incurred if both are enabled.
+    /// Both async runtimes can now be enabled simultaneously. When both are enabled,
+    /// this method returns a device compatible with the Tokio runtime (for backward compatibility).
+    /// Use `build_tokio_async()` or `build_async_io()` to explicitly choose a runtime.
     #[cfg(any(feature = "async_io", feature = "async_tokio"))]
     pub fn build_async(self) -> io::Result<crate::AsyncDevice> {
         let sync_device = self.build_sync()?;
         let device = crate::AsyncDevice::new_dev(sync_device.0)?;
+        Ok(device)
+    }
+
+    /// Build a TUN/TAP device with Tokio async runtime support.
+    ///
+    /// This method explicitly creates a device for the Tokio runtime.
+    #[cfg(feature = "async_tokio")]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    pub fn build_tokio_async(self) -> io::Result<crate::TokioAsyncDevice> {
+        let sync_device = self.build_sync()?;
+        let device = crate::TokioAsyncDevice::new_dev(sync_device.0)?;
+        Ok(device)
+    }
+
+    /// Build a TUN/TAP device with async-io runtime support.
+    ///
+    /// This method explicitly creates a device for the async-io runtime (async-std, smol, etc.).
+    #[cfg(feature = "async_io")]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    pub fn build_async_io(self) -> io::Result<crate::AsyncIoDevice> {
+        let sync_device = self.build_sync()?;
+        let device = crate::AsyncIoDevice::new_dev(sync_device.0)?;
         Ok(device)
     }
     /// To conveniently set the platform-specific parameters without breaking the calling chain.
