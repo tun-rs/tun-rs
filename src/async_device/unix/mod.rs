@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::platform::offload::{handle_gro, VirtioNetHdr, VIRTIO_NET_HDR_LEN};
 use crate::platform::DeviceImpl;
