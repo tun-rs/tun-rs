@@ -179,6 +179,48 @@ On Linux, enable offload for improved throughput:
 - **`interruptible`**: Enable interruptible I/O operations
 - **`experimental`**: Enable experimental features (unstable)
 
+### Using Multiple Async Runtimes
+
+**New in 2.8.3:** Both `async_tokio` and `async_io` features can now be enabled simultaneously, allowing
+you to use both Tokio and async-std/smol runtimes in the same application.
+
+When both features are enabled:
+- Use [`TokioAsyncDevice`] explicitly for Tokio runtime
+- Use [`AsyncIoDevice`] explicitly for async-io runtime  
+- [`AsyncDevice`] is an alias to [`TokioAsyncDevice`] (for backward compatibility)
+- Use [`DeviceBuilder::build_tokio_async()`] to create a Tokio device
+- Use [`DeviceBuilder::build_async_io()`] to create an async-io device
+- Use [`DeviceBuilder::build_async()`] for the default (Tokio when both enabled)
+
+Example with dual runtimes:
+
+```no_run
+use tun_rs::{DeviceBuilder, TokioAsyncDevice, AsyncIoDevice};
+
+// Create a device for Tokio runtime
+let tokio_dev = DeviceBuilder::new()
+    .ipv4("10.0.0.1", 24, None)
+    .build_tokio_async()?;
+
+// Use in Tokio runtime
+tokio::spawn(async move {
+    let mut buf = vec![0; 1500];
+    let len = tokio_dev.recv(&mut buf).await.unwrap();
+});
+
+// Create a device for async-std runtime
+let async_io_dev = DeviceBuilder::new()
+    .ipv4("10.0.0.2", 24, None)
+    .build_async_io()?;
+
+// Use in async-std runtime
+async_std::task::spawn(async move {
+    let mut buf = vec![0; 1500];
+    let len = async_io_dev.recv(&mut buf).await.unwrap();
+});
+# Ok::<(), std::io::Error>(())
+```
+
 ## Safety
 
 This library uses `unsafe` code in several places:
