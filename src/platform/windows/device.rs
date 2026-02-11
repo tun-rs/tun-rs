@@ -363,8 +363,10 @@ impl DeviceImpl {
     }
     /// Sets the MAC address for the device.
     ///
-    /// This operation is only supported for TAP devices; attempting to set a MAC address on a TUN device
-    /// will result in an error.
+    /// Attempting to set a MAC address will result in an error.
+    ///
+    /// #Note:
+    /// set a MAC address is only supported when creating a TUN/TAP device.
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
         match &self.driver {
