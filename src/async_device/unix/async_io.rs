@@ -315,7 +315,7 @@ impl AsyncIoDevice {
         sizes: &mut [usize],
         offset: usize,
     ) -> io::Result<usize> {
-        use crate::platform::offload::{handle_gro, VirtioNetHdr, VIRTIO_NET_HDR_LEN};
+        use crate::platform::offload::{VirtioNetHdr, VIRTIO_NET_HDR_LEN};
         
         if bufs.is_empty() || bufs.len() != sizes.len() {
             return Err(io::Error::other("bufs error"));
