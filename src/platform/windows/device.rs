@@ -298,7 +298,37 @@ impl DeviceImpl {
             destination.map(|v| v.ipv4()).transpose()?.map(|v| v.into()),
         )
     }
-    /// Add IPv4 network address, netmask
+    /// Add IPv4 network address and netmask to the interface.
+    ///
+    /// This allows configuring multiple IPv4 addresses on a single TUN/TAP device on Windows.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The IPv4 address to add
+    /// * `netmask` - The network mask (can be specified as a prefix length or full netmask)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "windows")]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Add additional IPv4 addresses
+    /// dev.add_address_v4("10.0.1.1", 24)?;
+    /// dev.add_address_v4("10.0.2.1", 24)?;
+    /// println!("Added multiple IPv4 addresses");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// Windows only. Requires administrator privileges.
     pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -316,9 +346,37 @@ impl DeviceImpl {
         let _guard = self.lock.lock().unwrap();
         netsh::delete_interface_ip(self.if_index_impl()?, addr)
     }
-    /// Adds an IPv6 address to the device.
+    /// Adds an IPv6 address and netmask to the device.
     ///
     /// Configures the IPv6 address and netmask (converted from prefix) for the interface.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The IPv6 address to add
+    /// * `netmask` - The network mask (can be specified as a prefix length or full netmask)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "windows")]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Add IPv6 addresses
+    /// dev.add_address_v6("fd00::1", 64)?;
+    /// dev.add_address_v6("fd00::2", 64)?;
+    /// println!("Added IPv6 addresses");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// Windows only. Requires administrator privileges.
     pub fn add_address_v6<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         &self,
         addr: IPv6,
@@ -384,7 +442,36 @@ impl DeviceImpl {
             Driver::Tap(tap) => tap.get_mac(),
         }
     }
-    /// Sets the interface metric (routing cost) using the `netsh` command.
+    /// Sets the interface routing metric (routing cost).
+    ///
+    /// The metric value determines the priority of this interface when multiple routes exist
+    /// to the same destination. Lower metric values have higher priority.
+    ///
+    /// # Arguments
+    ///
+    /// * `metric` - The metric value to set (lower values = higher priority)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "windows")]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Set a lower metric to prioritize this interface
+    /// dev.set_metric(10)?;
+    /// println!("Set interface metric to 10");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// Windows only. Uses the `netsh` command internally. Requires administrator privileges.
     pub fn set_metric(&self, metric: u16) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
         netsh::set_interface_metric(self.if_index_impl()?, metric)

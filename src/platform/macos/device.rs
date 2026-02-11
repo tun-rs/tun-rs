@@ -257,7 +257,39 @@ impl DeviceImpl {
         let guard = self.op_lock.lock().unwrap();
         self.set_network_address_impl(address, netmask, destination, *guard)
     }
-    /// Add IPv4 network address, netmask
+    /// Add IPv4 network address and netmask to the interface.
+    ///
+    /// On macOS, this automatically calculates and configures the destination address
+    /// based on the network address and netmask. If `associate_route` was enabled during
+    /// device creation, the route will be automatically configured.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The IPv4 address to add
+    /// * `netmask` - The network mask (can be specified as a prefix length or full netmask)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "macos")]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Add additional IPv4 addresses
+    /// dev.add_address_v4("10.0.1.1", 24)?;
+    /// dev.add_address_v4("10.0.2.1", 24)?;
+    /// println!("Added multiple IPv4 addresses");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS only. Requires administrator privileges.
     pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -311,7 +343,37 @@ impl DeviceImpl {
             Ok(())
         }
     }
-    /// Add an IPv6 address to the interface.
+    /// Add an IPv6 address and netmask to the interface.
+    ///
+    /// Configures the IPv6 address and prefix length on the TUN device.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The IPv6 address to add
+    /// * `netmask` - The network mask (can be specified as a prefix length or full netmask)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "macos")]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .build_sync()?;
+    ///
+    /// // Add IPv6 addresses
+    /// dev.add_address_v6("fd00::1", 64)?;
+    /// dev.add_address_v6("fd00::2", 64)?;
+    /// println!("Added IPv6 addresses");
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS only. Requires administrator privileges.
     pub fn add_address_v6<IPv6: ToIpv6Address, Netmask: ToIpv6Netmask>(
         &self,
         addr: IPv6,
