@@ -677,16 +677,75 @@ impl DeviceBuilderGuard<'_> {
         self.0.packet_information = Some(packet_information);
         self
     }
-    /// Available on Layer::L2;
-    /// creates a pair of `feth` devices, with `peer_feth` as the IO interface name.
+    /// Creates a pair of `feth` devices for TAP mode on macOS.
+    ///
+    /// On macOS, TAP mode (Layer 2) is implemented using a pair of fake Ethernet (`feth`)
+    /// devices. One device is used for I/O operations, and the other (specified by `peer_feth`)
+    /// is the peer interface. Both devices must be configured and brought up for proper operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `peer_feth` - The name of the peer interface (e.g., "feth1")
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "macos")]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, Layer};
+    ///
+    /// // Create a TAP interface with a peer device
+    /// let dev = DeviceBuilder::new()
+    ///     .name("feth0")
+    ///     .layer(Layer::L2)
+    ///     .with(|builder| {
+    ///         builder.peer_feth("feth1")  // Specify the peer interface name
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS only, Layer 2 (TAP) mode only.
     #[cfg(target_os = "macos")]
     pub fn peer_feth<S: Into<String>>(&mut self, peer_feth: S) -> &mut Self {
         self.0.peer_feth = Some(peer_feth.into());
         self
     }
-    /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
-    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
-    /// Set this to be false to obtain the platform's default routing behavior.
+    /// Controls automatic route management on BSD and macOS platforms.
+    ///
+    /// When enabled (the default), the library automatically adds or removes routes
+    /// to provide consistent routing behavior across all platforms. When disabled,
+    /// the system's native routing behavior is used.
+    ///
+    /// # Arguments
+    ///
+    /// * `associate_route` - `true` to enable automatic route management (default), 
+    ///   `false` to use native system routing
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// // Use native system routing without automatic route management
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.associate_route(false)  // Disable automatic route management
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS, FreeBSD, OpenBSD, NetBSD only.
     #[cfg(any(
         target_os = "macos",
         target_os = "freebsd",
@@ -697,17 +756,75 @@ impl DeviceBuilderGuard<'_> {
         self.0.associate_route = Some(associate_route);
         self
     }
-    /// Only works in TAP mode.
-    /// If true (default), the existing device with the given name will be used if possible.
-    /// If false, an error will be returned if a device with the specified name already exists.
+    /// Controls whether to reuse an existing device with the same name.
+    ///
+    /// In TAP mode, if a device with the specified name already exists:
+    /// - When `true` (default): The existing device will be reused
+    /// - When `false`: An error will be returned
+    ///
+    /// # Arguments
+    ///
+    /// * `reuse` - `true` to reuse existing devices (default), `false` to error on conflicts
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(any(target_os = "macos", target_os = "windows"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, Layer};
+    ///
+    /// // Don't reuse existing device - fail if it already exists
+    /// let dev = DeviceBuilder::new()
+    ///     .name("tap0")
+    ///     .layer(Layer::L2)
+    ///     .with(|builder| {
+    ///         builder.reuse_dev(false)  // Error if tap0 already exists
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS, Windows, NetBSD only. TAP mode (Layer 2) only.
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     pub fn reuse_dev(&mut self, reuse: bool) -> &mut Self {
         self.0.reuse_dev = Some(reuse);
         self
     }
-    /// Only works in TAP mode.
-    /// If true, the `feth` device will be kept after the program exits;
-    /// if false (default), the device will be destroyed automatically.
+    /// Controls whether the TAP device persists after the program exits.
+    ///
+    /// In TAP mode:
+    /// - When `true`: The device remains after the program terminates
+    /// - When `false` (default): The device is automatically destroyed on exit
+    ///
+    /// # Arguments
+    ///
+    /// * `persist` - `true` to keep the device after exit, `false` to auto-destroy (default)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(any(target_os = "macos", target_os = "windows"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, Layer};
+    ///
+    /// // Create a persistent TAP device that survives program exit
+    /// let dev = DeviceBuilder::new()
+    ///     .name("tap0")
+    ///     .layer(Layer::L2)
+    ///     .with(|builder| {
+    ///         builder.persist(true)  // Keep device after program exits
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS, Windows only. TAP mode (Layer 2) only.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn persist(&mut self, persist: bool) -> &mut Self {
         self.0.persist = Some(persist);

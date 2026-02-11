@@ -383,9 +383,9 @@ impl DeviceImpl {
     ///
     /// # Performance Notes
     ///
-    /// - Use [`IDEAL_BATCH_SIZE`] for optimal batch size (typically 128 packets)
+    /// - Use `IDEAL_BATCH_SIZE` for optimal batch size (typically 128 packets)
     /// - Reuse the same `GROTable` instance across calls to avoid allocations
-    /// - Enable offload via `.offload(true)` in [`DeviceBuilder`] for best performance
+    /// - Enable offload via `.offload(true)` in `DeviceBuilder` for best performance
     pub fn send_multiple<B: ExpandBuffer>(
         &self,
         gro_table: &mut GROTable,
@@ -508,7 +508,7 @@ impl DeviceImpl {
     ///
     /// # Performance Notes
     ///
-    /// - Use [`IDEAL_BATCH_SIZE`] (128) for the number of output buffers
+    /// - Use `IDEAL_BATCH_SIZE` (128) for the number of output buffers
     /// - A single `recv_multiple` call may return multiple MTU-sized packets from one large GSO packet
     /// - The performance benefit is most noticeable with TCP traffic using large send/receive windows
     pub fn recv_multiple<B: AsRef<[u8]> + AsMut<[u8]>>(
