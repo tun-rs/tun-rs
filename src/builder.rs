@@ -722,7 +722,7 @@ impl DeviceBuilderGuard<'_> {
     ///
     /// # Arguments
     ///
-    /// * `associate_route` - `true` to enable automatic route management (default), 
+    /// * `associate_route` - `true` to enable automatic route management (default),
     ///   `false` to use native system routing
     ///
     /// # Example
