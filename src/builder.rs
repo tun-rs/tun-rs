@@ -468,7 +468,35 @@ impl DeviceBuilderGuard<'_> {
         self.0.ring_capacity = Some(ring_capacity);
         self
     }
-    /// Sets the routing metric on Windows.
+    /// Sets the routing metric (routing cost) for the interface on Windows.
+    ///
+    /// The metric determines the priority of this interface when multiple routes exist
+    /// to the same destination. Lower metric values have higher priority.
+    ///
+    /// # Arguments
+    ///
+    /// * `metric` - The metric value (lower values = higher priority)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "windows")]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.metric(10)  // Set lower metric for higher priority
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// Windows only.
     #[cfg(windows)]
     pub fn metric(&mut self, metric: u16) -> &mut Self {
         self.0.metric = Some(metric);
@@ -483,20 +511,147 @@ impl DeviceBuilderGuard<'_> {
         self.0.delete_driver = Some(delete_driver);
         self
     }
-    /// Sets the transmit queue length on Linux.
+    /// Sets the transmit queue length for the network interface on Linux.
+    ///
+    /// The transmit queue length controls how many packets can be queued for
+    /// transmission by the network stack. A larger queue can help with bursty
+    /// traffic but may increase latency.
+    ///
+    /// # Arguments
+    ///
+    /// * `tx_queue_len` - The queue length in packets (typical values: 100-10000)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "linux")]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.tx_queue_len(1000)  // Set queue length to 1000 packets
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// Linux only.
     #[cfg(target_os = "linux")]
     pub fn tx_queue_len(&mut self, tx_queue_len: u32) -> &mut Self {
         self.0.tx_queue_len = Some(tx_queue_len);
         self
     }
-    /// Enables TUN offloads on Linux.
-    /// After enabling, use `recv_multiple`/`send_multiple` for data transmission.
+    /// Enables Generic Segmentation Offload (GSO) and Generic Receive Offload (GRO) on Linux.
+    ///
+    /// When enabled, the TUN device can handle larger packets, allowing the kernel to perform
+    /// segmentation and coalescing for improved network throughput. This is particularly beneficial
+    /// for high-bandwidth TCP and UDP traffic.
+    ///
+    /// After enabling offload, you should use [`recv_multiple`](crate::SyncDevice::recv_multiple)
+    /// and [`send_multiple`](crate::SyncDevice::send_multiple) for optimal performance.
+    ///
+    /// # Arguments
+    ///
+    /// * `offload` - `true` to enable offload, `false` to disable (default: false)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "linux")]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, GROTable, VIRTIO_NET_HDR_LEN, IDEAL_BATCH_SIZE};
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.offload(true)  // Enable TSO/GSO/GRO
+    ///     })
+    ///     .build_sync()?;
+    ///
+    /// // Use with recv_multiple for best performance
+    /// let mut gro_table = GROTable::default();
+    /// let mut original_buffer = vec![0u8; VIRTIO_NET_HDR_LEN + 65535];
+    /// let mut bufs = vec![vec![0u8; 1500]; IDEAL_BATCH_SIZE];
+    /// let mut sizes = vec![0; IDEAL_BATCH_SIZE];
+    ///
+    /// let num = dev.recv_multiple(&mut original_buffer, &mut bufs, &mut sizes, 0)?;
+    /// println!("Received {} packets", num);
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Performance
+    ///
+    /// Enabling offload can provide 2-10x throughput improvement for TCP traffic.
+    ///
+    /// # Platform
+    ///
+    /// Linux only. Requires kernel support for IFF_VNET_HDR (Linux 2.6.32+).
     #[cfg(target_os = "linux")]
     pub fn offload(&mut self, offload: bool) -> &mut Self {
         self.0.offload = Some(offload);
         self
     }
-    /// Enables multi-queue support on Linux.
+    /// Enables multi-queue support for parallel packet processing on Linux.
+    ///
+    /// When enabled, the TUN device can be cloned to create multiple queues, allowing
+    /// packet processing to be distributed across multiple CPU cores for improved performance.
+    /// Each queue can be used independently in separate threads.
+    ///
+    /// # Arguments
+    ///
+    /// * `multi_queue` - `true` to enable multi-queue support (default: false)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "linux")]
+    /// # {
+    /// use std::thread;
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.multi_queue(true)  // Enable multi-queue
+    ///     })
+    ///     .build_sync()?;
+    ///
+    /// // Clone the device for use in another thread
+    /// let dev_clone = dev.try_clone()?;
+    ///
+    /// thread::spawn(move || {
+    ///     let mut buf = [0u8; 1500];
+    ///     loop {
+    ///         if let Ok(n) = dev_clone.recv(&mut buf) {
+    ///             println!("Thread 2: {} bytes", n);
+    ///         }
+    ///     }
+    /// });
+    ///
+    /// // Process in main thread
+    /// let mut buf = [0u8; 1500];
+    /// loop {
+    ///     let n = dev.recv(&mut buf)?;
+    ///     println!("Thread 1: {} bytes", n);
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Performance
+    ///
+    /// Multi-queue allows parallel packet processing across CPU cores, improving throughput
+    /// for multi-core systems.
+    ///
+    /// # Platform
+    ///
+    /// Linux only. Requires kernel support for IFF_MULTI_QUEUE.
     #[cfg(target_os = "linux")]
     pub fn multi_queue(&mut self, multi_queue: bool) -> &mut Self {
         self.0.multi_queue = Some(multi_queue);
@@ -522,16 +677,75 @@ impl DeviceBuilderGuard<'_> {
         self.0.packet_information = Some(packet_information);
         self
     }
-    /// Available on Layer::L2;
-    /// creates a pair of `feth` devices, with `peer_feth` as the IO interface name.
+    /// Creates a pair of `feth` devices for TAP mode on macOS.
+    ///
+    /// On macOS, TAP mode (Layer 2) is implemented using a pair of fake Ethernet (`feth`)
+    /// devices. One device is used for I/O operations, and the other (specified by `peer_feth`)
+    /// is the peer interface. Both devices must be configured and brought up for proper operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `peer_feth` - The name of the peer interface (e.g., "feth1")
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "macos")]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, Layer};
+    ///
+    /// // Create a TAP interface with a peer device
+    /// let dev = DeviceBuilder::new()
+    ///     .name("feth0")
+    ///     .layer(Layer::L2)
+    ///     .with(|builder| {
+    ///         builder.peer_feth("feth1")  // Specify the peer interface name
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS only, Layer 2 (TAP) mode only.
     #[cfg(target_os = "macos")]
     pub fn peer_feth<S: Into<String>>(&mut self, peer_feth: S) -> &mut Self {
         self.0.peer_feth = Some(peer_feth.into());
         self
     }
-    /// If true (default), the program will automatically add or remove routes on macOS or FreeBSD to provide consistent routing behavior across all platforms.
-    /// If false, the program will not modify or manage routes in any way, allowing the system to handle all routing natively.
-    /// Set this to be false to obtain the platform's default routing behavior.
+    /// Controls automatic route management on BSD and macOS platforms.
+    ///
+    /// When enabled (the default), the library automatically adds or removes routes
+    /// to provide consistent routing behavior across all platforms. When disabled,
+    /// the system's native routing behavior is used.
+    ///
+    /// # Arguments
+    ///
+    /// * `associate_route` - `true` to enable automatic route management (default),
+    ///   `false` to use native system routing
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// // Use native system routing without automatic route management
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.associate_route(false)  // Disable automatic route management
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS, FreeBSD, OpenBSD, NetBSD only.
     #[cfg(any(
         target_os = "macos",
         target_os = "freebsd",
@@ -542,17 +756,75 @@ impl DeviceBuilderGuard<'_> {
         self.0.associate_route = Some(associate_route);
         self
     }
-    /// Only works in TAP mode.
-    /// If true (default), the existing device with the given name will be used if possible.
-    /// If false, an error will be returned if a device with the specified name already exists.
+    /// Controls whether to reuse an existing device with the same name.
+    ///
+    /// In TAP mode, if a device with the specified name already exists:
+    /// - When `true` (default): The existing device will be reused
+    /// - When `false`: An error will be returned
+    ///
+    /// # Arguments
+    ///
+    /// * `reuse` - `true` to reuse existing devices (default), `false` to error on conflicts
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(any(target_os = "macos", target_os = "windows"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, Layer};
+    ///
+    /// // Don't reuse existing device - fail if it already exists
+    /// let dev = DeviceBuilder::new()
+    ///     .name("tap0")
+    ///     .layer(Layer::L2)
+    ///     .with(|builder| {
+    ///         builder.reuse_dev(false)  // Error if tap0 already exists
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS, Windows, NetBSD only. TAP mode (Layer 2) only.
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     pub fn reuse_dev(&mut self, reuse: bool) -> &mut Self {
         self.0.reuse_dev = Some(reuse);
         self
     }
-    /// Only works in TAP mode.
-    /// If true, the `feth` device will be kept after the program exits;
-    /// if false (default), the device will be destroyed automatically.
+    /// Controls whether the TAP device persists after the program exits.
+    ///
+    /// In TAP mode:
+    /// - When `true`: The device remains after the program terminates
+    /// - When `false` (default): The device is automatically destroyed on exit
+    ///
+    /// # Arguments
+    ///
+    /// * `persist` - `true` to keep the device after exit, `false` to auto-destroy (default)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(any(target_os = "macos", target_os = "windows"))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, Layer};
+    ///
+    /// // Create a persistent TAP device that survives program exit
+    /// let dev = DeviceBuilder::new()
+    ///     .name("tap0")
+    ///     .layer(Layer::L2)
+    ///     .with(|builder| {
+    ///         builder.persist(true)  // Keep device after program exits
+    ///     })
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// macOS, Windows only. TAP mode (Layer 2) only.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub fn persist(&mut self, persist: bool) -> &mut Self {
         self.0.persist = Some(persist);
@@ -786,7 +1058,33 @@ impl DeviceBuilder {
         self.ring_capacity = Some(ring_capacity);
         self
     }
-    /// Sets the routing metric on Windows.
+    /// Sets the routing metric (routing cost) for the interface on Windows.
+    ///
+    /// The metric determines the priority of this interface when multiple routes exist
+    /// to the same destination. Lower metric values have higher priority.
+    ///
+    /// # Arguments
+    ///
+    /// * `metric` - The metric value (lower values = higher priority)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(target_os = "windows")]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .metric(10)  // Set lower metric for higher priority
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// Windows only.
     #[cfg(windows)]
     pub fn metric(mut self, metric: u16) -> Self {
         self.metric = Some(metric);
@@ -876,17 +1174,74 @@ impl DeviceBuilder {
         self.persist = Some(persist);
         self
     }
-    /// Enables or disables the device.
-    /// Defaults to be enabled.
+    /// Enables or disables the network interface upon creation.
+    ///
+    /// By default, newly created TUN/TAP devices are enabled (brought up).
+    /// Use this method to control whether the device should be automatically enabled
+    /// or left in a disabled state.
+    ///
+    /// # Arguments
+    ///
+    /// * `enable` - `true` to enable the device (default), `false` to leave it disabled
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// // Create a device but leave it disabled initially
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .enable(false)  // Don't enable the device yet
+    ///     .build_sync()?;
+    ///
+    /// // Later, enable it manually using platform-specific methods
+    /// // dev.enabled(true)?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # See Also
+    ///
+    /// - [`inherit_enable_state`](Self::inherit_enable_state) - Preserve existing device state
     pub fn enable(mut self, enable: bool) -> Self {
         self.enabled = Some(enable);
         self
     }
 
-    /// Keeps the device enable state unchanged.
+    /// Preserves the existing enable state of the network interface.
     ///
-    /// This method does not explicitly enable or disable the device.
-    /// The existing system state is preserved.
+    /// When reusing an existing device, this method prevents the builder from
+    /// explicitly setting the device's enable/disable state. The device will
+    /// retain whatever state it currently has in the system.
+    ///
+    /// This is particularly useful when:
+    /// - Reconnecting to an existing TUN/TAP device
+    /// - You want to preserve the current system configuration
+    /// - Avoiding unnecessary state changes that might disrupt existing connections
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+    /// # {
+    /// use tun_rs::DeviceBuilder;
+    ///
+    /// // Reuse an existing device and keep its current enabled state
+    /// let dev = DeviceBuilder::new()
+    ///     .name("tun0")
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.reuse_dev(true)
+    ///     })
+    ///     .inherit_enable_state()  // Don't change the existing enable state
+    ///     .build_sync()?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # See Also
+    ///
+    /// - [`enable`](Self::enable) - Explicitly enable or disable the device
     pub fn inherit_enable_state(mut self) -> Self {
         self.enabled = None;
         self

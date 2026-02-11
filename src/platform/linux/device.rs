@@ -327,9 +327,65 @@ impl DeviceImpl {
             }
         }
     }
-    /// send multiple fragmented data packets.
-    /// GROTable can be reused, as it is used to assist in data merging.
-    /// Offset is the starting position of the data. Need to meet offset>=10.
+    /// Sends multiple packets in a batch with GRO (Generic Receive Offload) coalescing.
+    ///
+    /// This method allows efficient transmission of multiple packets by batching them together
+    /// and applying GRO optimizations. When offload is enabled, packets may be coalesced
+    /// to reduce system call overhead and improve throughput.
+    ///
+    /// # Arguments
+    ///
+    /// * `gro_table` - A mutable reference to a [`GROTable`] that manages packet coalescing state.
+    ///   This table can be reused across multiple calls to amortize allocation overhead.
+    /// * `bufs` - A mutable slice of buffers containing the packets to send. Each buffer must
+    ///   implement the [`ExpandBuffer`] trait.
+    /// * `offset` - The byte offset within each buffer where the packet data begins.
+    ///   Must be >= `VIRTIO_NET_HDR_LEN` to accommodate the virtio network header when offload is enabled.
+    ///
+    /// # Returns
+    ///
+    /// Returns the total number of bytes successfully sent, or an I/O error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, GROTable, VIRTIO_NET_HDR_LEN};
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.offload(true)  // Enable offload for GRO
+    ///     })
+    ///     .build_sync()?;
+    ///
+    /// let mut gro_table = GROTable::default();
+    /// let offset = VIRTIO_NET_HDR_LEN;
+    ///
+    /// // Prepare packets to send
+    /// let mut packet1 = vec![0u8; offset + 100];  // VIRTIO_NET_HDR + packet data
+    /// let mut packet2 = vec![0u8; offset + 200];
+    /// // Fill in packet data at offset...
+    ///
+    /// let mut bufs = vec![packet1, packet2];
+    ///
+    /// // Send all packets in one batch
+    /// let bytes_sent = dev.send_multiple(&mut gro_table, &mut bufs, offset)?;
+    /// println!("Sent {} bytes across {} packets", bytes_sent, bufs.len());
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// This method is only available on Linux.
+    ///
+    /// # Performance Notes
+    ///
+    /// - Use `IDEAL_BATCH_SIZE` for optimal batch size (typically 128 packets)
+    /// - Reuse the same `GROTable` instance across calls to avoid allocations
+    /// - Enable offload via `.offload(true)` in `DeviceBuilder` for best performance
     pub fn send_multiple<B: ExpandBuffer>(
         &self,
         gro_table: &mut GROTable,
@@ -382,12 +438,79 @@ impl DeviceImpl {
         err?;
         Ok(total)
     }
-    /// Recv a packet from tun device.
-    /// If offload is enabled. This method can be used to obtain processed data.
+    /// Receives multiple packets in a batch with GSO (Generic Segmentation Offload) splitting.
     ///
-    /// original_buffer is used to store raw data, including the VirtioNetHdr and the unsplit IP packet. The recommended size is 10 + 65535.
-    /// bufs and sizes are used to store the segmented IP packets. bufs.len == sizes.len > 65535/MTU
-    /// offset: Starting position
+    /// When offload is enabled, this method can receive large GSO packets from the TUN device
+    /// and automatically split them into MTU-sized segments, significantly improving receive
+    /// performance for high-bandwidth traffic.
+    ///
+    /// # Arguments
+    ///
+    /// * `original_buffer` - A mutable buffer to store the raw received data, including the
+    ///   virtio network header and the potentially large GSO packet. Recommended size is
+    ///   `VIRTIO_NET_HDR_LEN + 65535` bytes.
+    /// * `bufs` - A mutable slice of buffers to store the segmented packets. Each buffer will
+    ///   receive one MTU-sized packet after GSO splitting.
+    /// * `sizes` - A mutable slice to store the actual size of each packet in `bufs`.
+    ///   Must have the same length as `bufs`.
+    /// * `offset` - The byte offset within each output buffer where packet data should be written.
+    ///   This allows for pre-allocated header space.
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of packets successfully received and split, or an I/O error.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    /// # {
+    /// use tun_rs::{DeviceBuilder, VIRTIO_NET_HDR_LEN, IDEAL_BATCH_SIZE};
+    ///
+    /// let dev = DeviceBuilder::new()
+    ///     .ipv4("10.0.0.1", 24, None)
+    ///     .with(|builder| {
+    ///         builder.offload(true)  // Enable offload for GSO
+    ///     })
+    ///     .build_sync()?;
+    ///
+    /// // Buffer for the raw received packet (with virtio header)
+    /// let mut original_buffer = vec![0u8; VIRTIO_NET_HDR_LEN + 65535];
+    ///
+    /// // Output buffers for segmented packets
+    /// let mut bufs = vec![vec![0u8; 1500]; IDEAL_BATCH_SIZE];
+    /// let mut sizes = vec![0usize; IDEAL_BATCH_SIZE];
+    /// let offset = 0;
+    ///
+    /// loop {
+    ///     // Receive and segment packets
+    ///     let num_packets = dev.recv_multiple(
+    ///         &mut original_buffer,
+    ///         &mut bufs,
+    ///         &mut sizes,
+    ///         offset
+    ///     )?;
+    ///
+    ///     // Process each segmented packet
+    ///     for i in 0..num_packets {
+    ///         let packet = &bufs[i][offset..offset + sizes[i]];
+    ///         println!("Received packet {}: {} bytes", i, sizes[i]);
+    ///         // Process packet...
+    ///     }
+    /// }
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    ///
+    /// # Platform
+    ///
+    /// This method is only available on Linux.
+    ///
+    /// # Performance Notes
+    ///
+    /// - Use `IDEAL_BATCH_SIZE` (128) for the number of output buffers
+    /// - A single `recv_multiple` call may return multiple MTU-sized packets from one large GSO packet
+    /// - The performance benefit is most noticeable with TCP traffic using large send/receive windows
     pub fn recv_multiple<B: AsRef<[u8]> + AsMut<[u8]>>(
         &self,
         original_buffer: &mut [u8],
