@@ -122,8 +122,13 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
     }
 }
 
-/// A unified `Stream` and `Sink` interface over an `AsyncDevice`,
+/// A unified `Stream` and `Sink` interface over an async device,
 /// using `Encoder` and `Decoder` traits to frame packets as higher-level messages.
+///
+/// This struct works with any device type that implements [`AsyncFramedDevice`], including:
+/// - [`AsyncDevice`] (type alias, default)
+/// - [`TokioAsyncDevice`](crate::TokioAsyncDevice) (when `async_tokio` feature is enabled)
+/// - [`AsyncIoDevice`](crate::AsyncIoDevice) (when `async_io` feature is enabled)
 ///
 /// Raw device interfaces (such as TUN/TAP) operate on individual packets,
 /// but higher-level protocols often work with logical frames. This struct
@@ -137,6 +142,61 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 /// This struct combines both reading and writing into a single object. If separate
 /// control over read/write is needed, consider calling `.split()` to obtain
 /// [`DeviceFramedRead`] and [`DeviceFramedWrite`] separately.
+///
+/// # Type Parameter
+///
+/// - `C`: The codec that implements [`Encoder`] and/or [`Decoder`]
+/// - `T`: The device type (defaults to [`AsyncDevice`]), must implement [`AsyncFramedDevice`]
+///
+/// # Examples
+///
+/// Using with the default [`AsyncDevice`]:
+///
+/// ```no_run
+/// use tun_rs::{AsyncDevice, DeviceBuilder};
+/// # #[cfg(feature = "async_framed")]
+/// use tun_rs::async_framed::DeviceFramed;
+/// use bytes::BytesMut;
+///
+/// # #[cfg(all(feature = "async_tokio", feature = "async_framed"))]
+/// # #[tokio::main]
+/// # async fn main() -> std::io::Result<()> {
+/// // Create a device
+/// let dev = DeviceBuilder::new()
+///     .ipv4("10.0.0.1", 24, None)
+///     .build_async()?;
+///
+/// // Define a simple codec (implement Encoder and Decoder traits)
+/// struct SimpleCodec;
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "async_tokio", feature = "async_framed")))]
+/// # fn main() {}
+/// ```
+///
+/// Using with explicit runtime types:
+///
+/// ```no_run
+/// # #[cfg(all(feature = "async_tokio", feature = "async_framed"))]
+/// use tun_rs::{TokioAsyncDevice, DeviceBuilder};
+/// # #[cfg(all(feature = "async_tokio", feature = "async_framed"))]
+/// use tun_rs::async_framed::DeviceFramed;
+///
+/// # #[cfg(all(feature = "async_tokio", feature = "async_framed"))]
+/// # #[tokio::main]
+/// # async fn main() -> std::io::Result<()> {
+/// // Explicitly use Tokio device
+/// let dev: TokioAsyncDevice = DeviceBuilder::new()
+///     .ipv4("10.0.0.1", 24, None)
+///     .build_tokio_async()?;
+///
+/// // Use with framed I/O
+/// // let framed = DeviceFramed::new(dev, codec);
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "async_tokio", feature = "async_framed")))]
+/// # fn main() {}
+/// ```
 ///
 /// You can also create multiple independent framing streams using:
 /// `DeviceFramed::new(dev.clone(), BytesCodec::new())`, with the device wrapped

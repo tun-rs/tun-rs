@@ -175,7 +175,7 @@ On Linux, enable offload for improved throughput:
 - **`async`** (alias for `async_tokio`): Enable async support with Tokio runtime
 - **`async_tokio`**: Use Tokio for async I/O operations
 - **`async_io`**: Use async-io for async operations (async-std, smol, etc.)
-- **`async_framed`**: Enable framed I/O with futures
+- **`async_framed`**: Enable framed I/O with futures (works with both async runtimes)
 - **`interruptible`**: Enable interruptible I/O operations
 - **`experimental`**: Enable experimental features (unstable)
 
@@ -191,6 +191,7 @@ When both features are enabled:
 - Use [`DeviceBuilder::build_tokio_async()`] to create a Tokio device
 - Use [`DeviceBuilder::build_async_io()`] to create an async-io device
 - Use [`DeviceBuilder::build_async()`] for the default (Tokio when both enabled)
+- **`async_framed`** works with all device types: [`TokioAsyncDevice`], [`AsyncIoDevice`], and [`AsyncDevice`]
 
 Example with dual runtimes:
 
