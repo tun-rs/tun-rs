@@ -133,6 +133,10 @@ name = "async_tap"
 required-features = ["async_tokio"]
 
 [[example]]
+name = "dual_runtime"
+required-features = ["async_tokio", "async_io"]
+
+[[example]]
 name = "read_interruptible"
 required-features = ["interruptible"]
 
