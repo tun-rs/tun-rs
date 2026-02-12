@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use std::io;
 use std::ops::Deref;
 use std::pin::Pin;
@@ -18,12 +17,12 @@ use crate::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
 /// Trait for async devices that can be used with framed I/O.
 ///
 /// This trait abstracts the common interface needed by [`DeviceFramed`], [`DeviceFramedRead`],
-/// and [`DeviceFramedWrite`]. Both [`TokioAsyncDevice`](crate::TokioAsyncDevice) and 
+/// and [`DeviceFramedWrite`]. Both [`TokioAsyncDevice`](crate::TokioAsyncDevice) and
 /// [`AsyncIoDevice`](crate::AsyncIoDevice) implement this trait.
 pub trait AsyncFramedDevice: Deref<Target = DeviceImpl> {
     /// Polls the device for readability and attempts to receive data.
     fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>>;
-    
+
     /// Polls the device for writability and attempts to send data.
     fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>>;
 }
@@ -34,7 +33,7 @@ impl AsyncFramedDevice for crate::TokioAsyncDevice {
     fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         self.poll_recv(cx, buf)
     }
-    
+
     fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         self.poll_send(cx, buf)
     }
@@ -46,7 +45,7 @@ impl AsyncFramedDevice for crate::AsyncIoDevice {
     fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         self.poll_recv(cx, buf)
     }
-    
+
     fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         self.poll_send(cx, buf)
     }
@@ -292,12 +291,15 @@ impl<C, T> DeviceFramed<C, T>
 where
     T: AsyncFramedDevice,
 {
-    /// Construct from a [`AsyncDevice`] with a specific codec
+    /// Construct from an async device with a specific codec.
+    ///
+    /// The device must implement [`AsyncFramedDevice`], which includes [`AsyncDevice`],
+    /// [`TokioAsyncDevice`](crate::TokioAsyncDevice), and [`AsyncIoDevice`](crate::AsyncIoDevice).
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramed {
-            r_state: ReadState::new(buffer_size, dev.borrow()),
-            w_state: WriteState::new(buffer_size, dev.borrow()),
+            r_state: ReadState::new(buffer_size, &dev),
+            w_state: WriteState::new(buffer_size, &dev),
             dev,
             codec,
         }
@@ -436,7 +438,10 @@ impl<C, T> DeviceFramedRead<C, T>
 where
     T: AsyncFramedDevice,
 {
-    /// Construct from a [`AsyncDevice`] with a specific codec.
+    /// Construct from an async device with a specific codec.
+    ///
+    /// The device must implement [`AsyncFramedDevice`], which includes [`AsyncDevice`],
+    /// [`TokioAsyncDevice`](crate::TokioAsyncDevice), and [`AsyncIoDevice`](crate::AsyncIoDevice).
     ///
     /// The read side of the framed device.
     /// # Example
@@ -460,7 +465,7 @@ where
     pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedRead {
-            state: ReadState::new(buffer_size, dev.borrow()),
+            state: ReadState::new(buffer_size, &dev),
             dev,
             codec,
         }
@@ -544,7 +549,10 @@ impl<C, T> DeviceFramedWrite<C, T>
 where
     T: AsyncFramedDevice,
 {
-    /// Construct from a [`AsyncDevice`] with a specific codec.
+    /// Construct from an async device with a specific codec.
+    ///
+    /// The device must implement [`AsyncFramedDevice`], which includes [`AsyncDevice`],
+    /// [`TokioAsyncDevice`](crate::TokioAsyncDevice), and [`AsyncIoDevice`](crate::AsyncIoDevice).
     ///
     /// The write side of the framed device.
     /// # Example
@@ -568,7 +576,7 @@ where
     pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedWrite {
-            state: WriteState::new(buffer_size, dev.borrow()),
+            state: WriteState::new(buffer_size, &dev),
             dev,
             codec,
         }
@@ -636,7 +644,7 @@ fn compute_buffer_size<T: AsyncFramedDevice>(_dev: &T) -> usize {
         target_os = "freebsd",
         target_os = "openbsd",
     ))]
-    let mtu = _dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+    let mtu = _dev.mtu().map(|m| m as usize).unwrap_or(4096);
 
     #[cfg(not(any(
         target_os = "windows",
@@ -649,7 +657,7 @@ fn compute_buffer_size<T: AsyncFramedDevice>(_dev: &T) -> usize {
 
     #[cfg(windows)]
     {
-        let mtu_v6 = _dev.borrow().mtu_v6().map(|m| m as usize).unwrap_or(4096);
+        let mtu_v6 = _dev.mtu_v6().map(|m| m as usize).unwrap_or(4096);
         mtu.max(mtu_v6)
     }
     #[cfg(not(windows))]
