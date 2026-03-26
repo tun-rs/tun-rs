@@ -111,7 +111,7 @@ jobs:
             ls -lah
             whoami
             env | sort
-            sudo pkg install -y git protobuf llvm15 ca_root_nss
+            sudo pkg install -y git protobuf llvm15
             curl --proto 'https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             source $HOME/.cargo/env
             export CC=clang
