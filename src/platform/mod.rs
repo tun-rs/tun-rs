@@ -48,6 +48,9 @@ pub(crate) mod windows;
 #[cfg(target_os = "windows")]
 pub use self::windows::DeviceImpl;
 
+#[cfg(target_vendor = "apple")]
+pub mod apple;
+
 use getifaddrs::Interface;
 #[cfg(unix)]
 use std::io::{IoSlice, IoSliceMut};
