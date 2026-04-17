@@ -93,6 +93,7 @@ async_framed = ["futures", "futures-core"]
 bindgen = ["dep:bindgen"]
 interruptible = []
 experimental = []
+utun_fd = []
 
 [package.metadata.docs.rs]
 all-features = true
