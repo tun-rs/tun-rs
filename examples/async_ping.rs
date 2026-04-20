@@ -17,7 +17,7 @@ use tun_rs::{AsyncDevice, SyncDevice};
 
 mod protocol_handle;
 
-#[cfg(feature = "async_tokio")]
+#[cfg(all(feature = "async_tokio", not(feature = "async_io")))]
 #[cfg(any(
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
@@ -59,7 +59,7 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "async_io")]
+#[cfg(all(feature = "async_io", not(feature = "async_tokio")))]
 #[cfg(any(
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos")),
@@ -89,6 +89,53 @@ async fn main() -> std::io::Result<()> {
             }
         })
         .await;
+    Ok(())
+}
+
+#[cfg(all(feature = "async_tokio", feature = "async_io"))]
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
+
+    println!("Note: Both async_tokio and async_io features are enabled.");
+    println!("This example uses Tokio runtime by default.");
+    println!("See the 'dual_runtime' example for using both runtimes simultaneously.");
+    println!();
+
+    let dev = Arc::new(
+        DeviceBuilder::new()
+            .ipv4(Ipv4Addr::new(10, 0, 0, 117), 24, None)
+            .ipv6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)
+            .build_async()?,
+    );
+
+    println!("name:{:?}", dev.name()?);
+    println!("addresses:{:?}", dev.addresses()?);
+    let size = dev.mtu()? as usize;
+    println!("mtu:{size:?}",);
+    let mut buf = vec![0; size];
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                println!("Quit...");
+                break;
+            }
+            len = dev.recv(&mut buf) => {
+                let len = len?;
+                println!("len = {len}");
+                //println!("pkt: {:?}", &buf[..len?]);
+                handle_pkt(&buf[..len], &dev).await?;
+            }
+        }
+    }
     Ok(())
 }
 

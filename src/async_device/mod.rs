@@ -11,8 +11,11 @@ handle network traffic in async/await contexts. Two async runtime backends are s
 - **Tokio**: Enable with the `async` or `async_tokio` feature
 - **async-io**: Enable with the `async_io` feature (for async-std, smol, etc.)
 
-**Important**: You must choose exactly one async runtime. Enabling both simultaneously will result
-in a compile error.
+**Both runtimes can now be enabled simultaneously**, allowing you to use both in the same application.
+When both features are enabled:
+- [`AsyncDevice`] is an alias for [`TokioAsyncDevice`] (for backward compatibility)
+- Use [`TokioAsyncDevice`] explicitly for Tokio runtime
+- Use [`AsyncIoDevice`] explicitly for async-io runtime
 
 ## Feature Flags
 
@@ -171,6 +174,10 @@ Always ensure proper lifetime management when using these methods.
 pub(crate) mod unix;
 #[cfg(all(unix, not(target_os = "macos")))]
 pub use unix::AsyncDevice;
+#[cfg(all(unix, not(target_os = "macos"), feature = "async_tokio"))]
+pub use unix::TokioAsyncDevice;
+#[cfg(all(unix, not(target_os = "macos"), feature = "async_io"))]
+pub use unix::AsyncIoDevice;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
@@ -192,9 +199,6 @@ pub use windows::AsyncDevice;
     )))
 )]
 pub mod async_framed;
-
-#[cfg(all(feature = "async_tokio", feature = "async_io", not(doc)))]
-compile_error! {"More than one asynchronous runtime is simultaneously specified in features"}
 
 /// A borrowed asynchronous TUN/TAP device.
 ///

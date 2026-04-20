@@ -1,5 +1,5 @@
-use std::borrow::Borrow;
 use std::io;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
@@ -9,9 +9,47 @@ use futures_core::Stream;
 
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::platform::offload::VirtioNetHdr;
+use crate::platform::DeviceImpl;
 use crate::AsyncDevice;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
+
+/// Trait for async devices that can be used with framed I/O.
+///
+/// This trait abstracts the common interface needed by [`DeviceFramed`], [`DeviceFramedRead`],
+/// and [`DeviceFramedWrite`]. Both [`TokioAsyncDevice`](crate::TokioAsyncDevice) and
+/// [`AsyncIoDevice`](crate::AsyncIoDevice) implement this trait.
+pub trait AsyncFramedDevice: Deref<Target = DeviceImpl> {
+    /// Polls the device for readability and attempts to receive data.
+    fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>>;
+
+    /// Polls the device for writability and attempts to send data.
+    fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>>;
+}
+
+// Implement for TokioAsyncDevice (which might be aliased as AsyncDevice)
+#[cfg(feature = "async_tokio")]
+impl AsyncFramedDevice for crate::TokioAsyncDevice {
+    fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        self.poll_recv(cx, buf)
+    }
+
+    fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        self.poll_send(cx, buf)
+    }
+}
+
+// Implement for AsyncIoDevice
+#[cfg(feature = "async_io")]
+impl AsyncFramedDevice for crate::AsyncIoDevice {
+    fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        self.poll_recv(cx, buf)
+    }
+
+    fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        self.poll_send(cx, buf)
+    }
+}
 
 pub trait Decoder {
     /// The type of decoded frames.
@@ -83,8 +121,13 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
     }
 }
 
-/// A unified `Stream` and `Sink` interface over an `AsyncDevice`,
+/// A unified `Stream` and `Sink` interface over an async device,
 /// using `Encoder` and `Decoder` traits to frame packets as higher-level messages.
+///
+/// This struct works with any device type that implements [`AsyncFramedDevice`], including:
+/// - [`AsyncDevice`] (type alias, default)
+/// - [`TokioAsyncDevice`](crate::TokioAsyncDevice) (when `async_tokio` feature is enabled)
+/// - [`AsyncIoDevice`](crate::AsyncIoDevice) (when `async_io` feature is enabled)
 ///
 /// Raw device interfaces (such as TUN/TAP) operate on individual packets,
 /// but higher-level protocols often work with logical frames. This struct
@@ -98,6 +141,61 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 /// This struct combines both reading and writing into a single object. If separate
 /// control over read/write is needed, consider calling `.split()` to obtain
 /// [`DeviceFramedRead`] and [`DeviceFramedWrite`] separately.
+///
+/// # Type Parameter
+///
+/// - `C`: The codec that implements [`Encoder`] and/or [`Decoder`]
+/// - `T`: The device type (defaults to [`AsyncDevice`]), must implement [`AsyncFramedDevice`]
+///
+/// # Examples
+///
+/// Using with the default [`AsyncDevice`]:
+///
+/// ```no_run
+/// use tun_rs::{AsyncDevice, DeviceBuilder};
+/// # #[cfg(feature = "async_framed")]
+/// use tun_rs::async_framed::DeviceFramed;
+/// use bytes::BytesMut;
+///
+/// # #[cfg(all(feature = "async_tokio", feature = "async_framed"))]
+/// # #[tokio::main]
+/// # async fn main() -> std::io::Result<()> {
+/// // Create a device
+/// let dev = DeviceBuilder::new()
+///     .ipv4("10.0.0.1", 24, None)
+///     .build_async()?;
+///
+/// // Define a simple codec (implement Encoder and Decoder traits)
+/// struct SimpleCodec;
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "async_tokio", feature = "async_framed")))]
+/// # fn main() {}
+/// ```
+///
+/// Using with explicit runtime types:
+///
+/// ```no_run
+/// # #[cfg(all(feature = "async_tokio", feature = "async_framed"))]
+/// use tun_rs::{TokioAsyncDevice, DeviceBuilder};
+/// # #[cfg(all(feature = "async_tokio", feature = "async_framed"))]
+/// use tun_rs::async_framed::DeviceFramed;
+///
+/// # #[cfg(all(feature = "async_tokio", feature = "async_framed"))]
+/// # #[tokio::main]
+/// # async fn main() -> std::io::Result<()> {
+/// // Explicitly use Tokio device
+/// let dev: TokioAsyncDevice = DeviceBuilder::new()
+///     .ipv4("10.0.0.1", 24, None)
+///     .build_tokio_async()?;
+///
+/// // Use with framed I/O
+/// // let framed = DeviceFramed::new(dev, codec);
+/// # Ok(())
+/// # }
+/// # #[cfg(not(all(feature = "async_tokio", feature = "async_framed")))]
+/// # fn main() {}
+/// ```
 ///
 /// You can also create multiple independent framing streams using:
 /// `DeviceFramed::new(dev.clone(), BytesCodec::new())`, with the device wrapped
@@ -153,7 +251,7 @@ pub struct DeviceFramed<C, T = AsyncDevice> {
 impl<C, T> Unpin for DeviceFramed<C, T> {}
 impl<C, T> Stream for DeviceFramed<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
     C: Decoder,
 {
     type Item = Result<C::Item, C::Error>;
@@ -164,7 +262,7 @@ where
 }
 impl<I, C, T> Sink<I> for DeviceFramed<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
     C: Encoder<I>,
 {
     type Error = C::Error;
@@ -191,14 +289,17 @@ where
 }
 impl<C, T> DeviceFramed<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
 {
-    /// Construct from a [`AsyncDevice`] with a specific codec
+    /// Construct from an async device with a specific codec.
+    ///
+    /// The device must implement [`AsyncFramedDevice`], which includes [`AsyncDevice`],
+    /// [`TokioAsyncDevice`](crate::TokioAsyncDevice), and [`AsyncIoDevice`](crate::AsyncIoDevice).
     pub fn new(dev: T, codec: C) -> DeviceFramed<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramed {
-            r_state: ReadState::new(buffer_size, dev.borrow()),
-            w_state: WriteState::new(buffer_size, dev.borrow()),
+            r_state: ReadState::new(buffer_size, &dev),
+            w_state: WriteState::new(buffer_size, &dev),
             dev,
             codec,
         }
@@ -257,7 +358,7 @@ where
 
 impl<C, T> DeviceFramed<C, T>
 where
-    T: Borrow<AsyncDevice> + Clone,
+    T: AsyncFramedDevice + Clone,
     C: Clone,
 {
     /// Split the framed device to read-half and write-half
@@ -335,9 +436,12 @@ pub struct DeviceFramedRead<C, T = AsyncDevice> {
 }
 impl<C, T> DeviceFramedRead<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
 {
-    /// Construct from a [`AsyncDevice`] with a specific codec.
+    /// Construct from an async device with a specific codec.
+    ///
+    /// The device must implement [`AsyncFramedDevice`], which includes [`AsyncDevice`],
+    /// [`TokioAsyncDevice`](crate::TokioAsyncDevice), and [`AsyncIoDevice`](crate::AsyncIoDevice).
     ///
     /// The read side of the framed device.
     /// # Example
@@ -361,7 +465,7 @@ where
     pub fn new(dev: T, codec: C) -> DeviceFramedRead<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedRead {
-            state: ReadState::new(buffer_size, dev.borrow()),
+            state: ReadState::new(buffer_size, &dev),
             dev,
             codec,
         }
@@ -387,7 +491,7 @@ where
 impl<C, T> Unpin for DeviceFramedRead<C, T> {}
 impl<C, T> Stream for DeviceFramedRead<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
     C: Decoder,
 {
     type Item = Result<C::Item, C::Error>;
@@ -443,9 +547,12 @@ pub struct DeviceFramedWrite<C, T = AsyncDevice> {
 }
 impl<C, T> DeviceFramedWrite<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
 {
-    /// Construct from a [`AsyncDevice`] with a specific codec.
+    /// Construct from an async device with a specific codec.
+    ///
+    /// The device must implement [`AsyncFramedDevice`], which includes [`AsyncDevice`],
+    /// [`TokioAsyncDevice`](crate::TokioAsyncDevice), and [`AsyncIoDevice`](crate::AsyncIoDevice).
     ///
     /// The write side of the framed device.
     /// # Example
@@ -469,7 +576,7 @@ where
     pub fn new(dev: T, codec: C) -> DeviceFramedWrite<C, T> {
         let buffer_size = compute_buffer_size(&dev);
         DeviceFramedWrite {
-            state: WriteState::new(buffer_size, dev.borrow()),
+            state: WriteState::new(buffer_size, &dev),
             dev,
             codec,
         }
@@ -504,7 +611,7 @@ where
 impl<C, T> Unpin for DeviceFramedWrite<C, T> {}
 impl<I, C, T> Sink<I> for DeviceFramedWrite<C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
     C: Encoder<I>,
 {
     type Error = C::Error;
@@ -529,7 +636,7 @@ where
         DeviceFramedWriteInner::new(&pin.dev, &mut pin.codec, &mut pin.state).poll_close(cx)
     }
 }
-fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
+fn compute_buffer_size<T: AsyncFramedDevice>(_dev: &T) -> usize {
     #[cfg(any(
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos")),
@@ -537,7 +644,7 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
         target_os = "freebsd",
         target_os = "openbsd",
     ))]
-    let mtu = _dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+    let mtu = _dev.mtu().map(|m| m as usize).unwrap_or(4096);
 
     #[cfg(not(any(
         target_os = "windows",
@@ -550,7 +657,7 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
 
     #[cfg(windows)]
     {
-        let mtu_v6 = _dev.borrow().mtu_v6().map(|m| m as usize).unwrap_or(4096);
+        let mtu_v6 = _dev.mtu_v6().map(|m| m as usize).unwrap_or(4096);
         mtu.max(mtu_v6)
     }
     #[cfg(not(windows))]
@@ -563,7 +670,7 @@ struct ReadState {
     packet_splitter: Option<PacketSplitter>,
 }
 impl ReadState {
-    pub(crate) fn new(recv_buffer_size: usize, _device: &AsyncDevice) -> ReadState {
+    pub(crate) fn new<D: AsyncFramedDevice>(recv_buffer_size: usize, _device: &D) -> ReadState {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         let packet_splitter = if _device.tcp_gso() {
             Some(PacketSplitter::new(recv_buffer_size))
@@ -598,7 +705,7 @@ struct WriteState {
     packet_arena: Option<PacketArena>,
 }
 impl WriteState {
-    pub(crate) fn new(send_buffer_size: usize, _device: &AsyncDevice) -> WriteState {
+    pub(crate) fn new<D: AsyncFramedDevice>(send_buffer_size: usize, _device: &D) -> WriteState {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         let packet_arena = if _device.tcp_gso() {
             Some(PacketArena::new())
@@ -693,7 +800,7 @@ impl PacketSplitter {
             recv_buffer_size,
         }
     }
-    fn handle(&mut self, dev: &AsyncDevice, input: &mut [u8]) -> io::Result<()> {
+    fn handle<D: AsyncFramedDevice>(&mut self, dev: &D, input: &mut [u8]) -> io::Result<()> {
         if input.len() <= VIRTIO_NET_HDR_LEN {
             Err(io::Error::other(format!(
                 "length of packet ({}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
@@ -764,7 +871,7 @@ impl PacketArena {
         self.offset += 1;
         &mut self.bufs[idx]
     }
-    fn handle(&mut self, dev: &AsyncDevice) -> io::Result<()> {
+    fn handle<D: AsyncFramedDevice>(&mut self, dev: &D) -> io::Result<()> {
         if self.offset == 0 {
             return Ok(());
         }
@@ -780,7 +887,7 @@ impl PacketArena {
             &mut self.gro_table.to_write,
         )
     }
-    fn poll_send_bufs(&mut self, cx: &mut Context<'_>, dev: &AsyncDevice) -> Poll<io::Result<()>> {
+    fn poll_send_bufs<D: AsyncFramedDevice>(&mut self, cx: &mut Context<'_>, dev: &D) -> Poll<io::Result<()>> {
         if self.offset == 0 {
             return Poll::Ready(Ok(()));
         }
@@ -826,7 +933,7 @@ struct DeviceFramedReadInner<'a, C, T = AsyncDevice> {
 }
 impl<'a, C, T> DeviceFramedReadInner<'a, C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
     C: Decoder,
 {
     fn new(
@@ -855,12 +962,12 @@ where
         self.state.rd.reserve(self.state.recv_buffer_size);
         let buf = unsafe { &mut *(self.state.rd.chunk_mut() as *mut _ as *mut [u8]) };
 
-        let len = ready!(self.dev.borrow().poll_recv(cx, buf))?;
+        let len = ready!(self.dev.poll_recv(cx, buf))?;
         unsafe { self.state.rd.advance_mut(len) };
 
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.state.packet_splitter {
-            packet_splitter.handle(self.dev.borrow(), &mut self.state.rd)?;
+            packet_splitter.handle(self.dev, &mut self.state.rd)?;
             if let Some(buf) = packet_splitter.next() {
                 if let Some(frame) = self.codec.decode_eof(buf)? {
                     return Poll::Ready(Some(Ok(frame)));
@@ -881,7 +988,7 @@ struct DeviceFramedWriteInner<'a, C, T = AsyncDevice> {
 }
 impl<'a, C, T> DeviceFramedWriteInner<'a, C, T>
 where
-    T: Borrow<AsyncDevice>,
+    T: AsyncFramedDevice,
 {
     fn new(
         dev: &'a T,
@@ -927,18 +1034,16 @@ where
     where
         C: Encoder<I>,
     {
-        let dev = self.dev.borrow();
-
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_arena) = &mut self.state.packet_arena {
-            packet_arena.handle(dev)?;
-            ready!(packet_arena.poll_send_bufs(cx, dev))?;
+            packet_arena.handle(self.dev)?;
+            ready!(packet_arena.poll_send_bufs(cx, self.dev))?;
             return Poll::Ready(Ok(()));
         }
 
         // On non-Linux systems or when GSO is disabled on Linux, `wr` will contain at most one element
         if !self.state.wr.is_empty() {
-            let rs = ready!(dev.poll_send(cx, &self.state.wr));
+            let rs = ready!(self.dev.poll_send(cx, &self.state.wr));
             self.state.wr.clear();
             rs?;
         }
