@@ -372,6 +372,29 @@ fn test_op() {
 
     assert!(device.if_index().is_ok());
 
+    // Windows-only configuration that was migrated from netsh/wmic commands to
+    // windows-sys APIs. None of these expose a public read-back getter, so we assert
+    // that the configure path succeeds: a malformed FFI call (wrong struct layout,
+    // flags, GUID conversion, or a failed dynamic load) returns an error and fails here.
+    #[cfg(target_os = "windows")]
+    {
+        // `if_luid()` is exposed for downstream crates; it must resolve to a LUID.
+        assert!(device.if_luid().is_ok());
+
+        // `set_metric` -> Get/SetIpInterfaceEntry.
+        device.set_metric(100).unwrap();
+
+        // `set_dns_servers` -> SetInterfaceDnsSettings (resolved at run time) with a
+        // netsh fallback. Exercise IPv4 (primary + secondary) and IPv6, then clear both.
+        let v4_dns: [std::net::IpAddr; 2] =
+            ["8.8.8.8".parse().unwrap(), "8.8.4.4".parse().unwrap()];
+        device.set_dns_servers(&v4_dns).unwrap();
+        let v6_dns: [std::net::IpAddr; 1] = ["2001:4860:4860::8888".parse().unwrap()];
+        device.set_dns_servers(&v6_dns).unwrap();
+        device.clear_dns_servers(true).unwrap();
+        device.clear_dns_servers(false).unwrap();
+    }
+
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     assert!(device.is_running().unwrap());
 }
