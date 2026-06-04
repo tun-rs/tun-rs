@@ -1,11 +1,17 @@
+use std::net::IpAddr;
 use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
 use std::{io, mem, ptr};
 
-use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, NO_ERROR};
+use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_OBJECT_ALREADY_EXISTS, NO_ERROR};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
-    GetIpInterfaceTable, MIB_IPINTERFACE_ROW, MIB_IPINTERFACE_TABLE,
+    CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteUnicastIpAddressEntry, FreeMibTable,
+    GetIpInterfaceEntry, GetIpInterfaceTable, GetUnicastIpAddressTable, InitializeIpForwardEntry,
+    InitializeUnicastIpAddressEntry, SetIpInterfaceEntry, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
+    MIB_IPINTERFACE_TABLE, MIB_UNICASTIPADDRESS_ROW, MIB_UNICASTIPADDRESS_TABLE,
 };
-use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
+use windows_sys::Win32::Networking::WinSock::{
+    NlroManual, AF_INET, AF_INET6, MIB_IPPROTO_NETMGMT, SOCKADDR_INET,
+};
 use windows_sys::Win32::System::Threading::{ResetEvent, SetEvent};
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::{
@@ -16,9 +22,11 @@ use windows_sys::{
             SetupDiCreateDeviceInfoList, SetupDiCreateDeviceInfoW, SetupDiDestroyDeviceInfoList,
             SetupDiDestroyDriverInfoList, SetupDiEnumDeviceInfo, SetupDiEnumDriverInfoW,
             SetupDiGetClassDevsW, SetupDiGetDeviceRegistryPropertyW, SetupDiGetDriverInfoDetailW,
-            SetupDiOpenDevRegKey, SetupDiSetDeviceRegistryPropertyW, SetupDiSetSelectedDevice,
-            SetupDiSetSelectedDriverW, HDEVINFO, MAX_CLASS_NAME_LEN, SP_DEVINFO_DATA,
-            SP_DRVINFO_DATA_V2_W, SP_DRVINFO_DETAIL_DATA_W,
+            SetupDiOpenDevRegKey, SetupDiSetClassInstallParamsW, SetupDiSetDeviceRegistryPropertyW,
+            SetupDiSetSelectedDevice, SetupDiSetSelectedDriverW, DICS_DISABLE, DICS_ENABLE,
+            DICS_FLAG_GLOBAL, DIF_PROPERTYCHANGE, HDEVINFO, MAX_CLASS_NAME_LEN,
+            SP_CLASSINSTALL_HEADER, SP_DEVINFO_DATA, SP_DRVINFO_DATA_V2_W,
+            SP_DRVINFO_DETAIL_DATA_W, SP_PROPCHANGE_PARAMS,
         },
         Foundation::{GetLastError, ERROR_NO_MORE_ITEMS, FALSE, FILETIME, HANDLE, TRUE},
         NetworkManagement::{
@@ -597,4 +605,176 @@ pub fn get_mtu_by_index(index: u32, is_v4: bool) -> io::Result<u32> {
     } else {
         Err(io::Error::from(io::ErrorKind::NotFound))
     }
+}
+
+/// Converts a Rust `IpAddr` into a Windows `SOCKADDR_INET` (port/scope left zero).
+fn sockaddr_inet_from_ip(ip: IpAddr) -> SOCKADDR_INET {
+    let mut sa = SOCKADDR_INET::default();
+    match ip {
+        IpAddr::V4(v4) => {
+            sa.Ipv4.sin_family = AF_INET;
+            sa.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(v4.octets());
+        }
+        IpAddr::V6(v6) => {
+            sa.Ipv6.sin6_family = AF_INET6;
+            sa.Ipv6.sin6_addr.u.Byte = v6.octets();
+        }
+    }
+    sa
+}
+
+/// Maps a Win32 status code (`NETIOAPI_API` / `WIN32_ERROR`) to an `io::Result`.
+pub(crate) fn win_result(code: u32) -> io::Result<()> {
+    if code == NO_ERROR {
+        Ok(())
+    } else {
+        Err(io::Error::from_raw_os_error(code as i32))
+    }
+}
+
+/// Sets the interface metric (routing cost) for both IPv4 and IPv6 by interface index.
+pub fn set_interface_metric(index: u32, metric: u32) -> io::Result<()> {
+    for family in [AF_INET, AF_INET6] {
+        let mut row = MIB_IPINTERFACE_ROW {
+            Family: family,
+            InterfaceIndex: index,
+            ..Default::default()
+        };
+        win_result(unsafe { GetIpInterfaceEntry(&mut row) })?;
+
+        row.Metric = metric;
+        row.UseAutomaticMetric = false;
+        win_result(unsafe { SetIpInterfaceEntry(&mut row) })?;
+    }
+    Ok(())
+}
+
+/// Sets the MTU (`NlMtu`) of the interface for the given family by interface index.
+pub fn set_interface_mtu(index: u32, mtu: u32, is_v4: bool) -> io::Result<()> {
+    let mut row = MIB_IPINTERFACE_ROW {
+        Family: if is_v4 { AF_INET } else { AF_INET6 },
+        InterfaceIndex: index,
+        ..Default::default()
+    };
+    win_result(unsafe { GetIpInterfaceEntry(&mut row) })?;
+
+    row.NlMtu = mtu;
+    // `GetIpInterfaceEntry` returns a non-zero SitePrefixLength that
+    // `SetIpInterfaceEntry` rejects for IPv4; reset it before writing back.
+    row.SitePrefixLength = 0;
+    win_result(unsafe { SetIpInterfaceEntry(&mut row) })
+}
+
+/// Adds a single unicast address to the interface, optionally installing a
+/// default route via `gateway`. An already-existing identical entry is ignored.
+pub fn add_address(
+    index: u32,
+    address: IpAddr,
+    prefix: u8,
+    gateway: Option<IpAddr>,
+) -> io::Result<()> {
+    let mut row = MIB_UNICASTIPADDRESS_ROW::default();
+    unsafe { InitializeUnicastIpAddressEntry(&mut row) };
+    row.InterfaceIndex = index;
+    row.Address = sockaddr_inet_from_ip(address);
+    row.OnLinkPrefixLength = prefix;
+
+    let code = unsafe { CreateUnicastIpAddressEntry(&row) };
+    if code != ERROR_OBJECT_ALREADY_EXISTS {
+        win_result(code)?;
+    }
+
+    if let Some(gateway) = gateway {
+        let mut route = MIB_IPFORWARD_ROW2::default();
+        unsafe { InitializeIpForwardEntry(&mut route) };
+        route.InterfaceIndex = index;
+        route.NextHop = sockaddr_inet_from_ip(gateway);
+        route.Metric = 0;
+        route.Protocol = MIB_IPPROTO_NETMGMT;
+        route.Origin = NlroManual;
+
+        let code = unsafe { CreateIpForwardEntry2(&route) };
+        if code != ERROR_OBJECT_ALREADY_EXISTS {
+            win_result(code)?;
+        }
+    }
+    Ok(())
+}
+
+/// Removes a single unicast address from the interface.
+pub fn remove_address(index: u32, address: IpAddr) -> io::Result<()> {
+    let mut row = MIB_UNICASTIPADDRESS_ROW::default();
+    unsafe { InitializeUnicastIpAddressEntry(&mut row) };
+    row.InterfaceIndex = index;
+    row.Address = sockaddr_inet_from_ip(address);
+    win_result(unsafe { DeleteUnicastIpAddressEntry(&row) })
+}
+
+/// Removes every unicast address of the given family from the interface.
+fn clear_addresses(index: u32, is_v4: bool) -> io::Result<()> {
+    let family = if is_v4 { AF_INET } else { AF_INET6 };
+    let mut table: *mut MIB_UNICASTIPADDRESS_TABLE = ptr::null_mut();
+    win_result(unsafe { GetUnicastIpAddressTable(family, &mut table) })?;
+
+    // Copy out the rows we want to delete before freeing the table.
+    let rows: Vec<MIB_UNICASTIPADDRESS_ROW> = unsafe {
+        std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
+    }
+    .iter()
+    .filter(|row| row.InterfaceIndex == index)
+    .copied()
+    .collect();
+    unsafe { FreeMibTable(table as _) };
+
+    for row in &rows {
+        win_result(unsafe { DeleteUnicastIpAddressEntry(row) })?;
+    }
+    Ok(())
+}
+
+/// Replaces all addresses of the same family on the interface with `address`,
+/// optionally installing a default route via `gateway`.
+pub fn set_address(
+    index: u32,
+    address: IpAddr,
+    prefix: u8,
+    gateway: Option<IpAddr>,
+) -> io::Result<()> {
+    clear_addresses(index, address.is_ipv4())?;
+    add_address(index, address, prefix, gateway)
+}
+
+/// Enables or disables a device via SetupAPI (`DIF_PROPERTYCHANGE`), equivalent
+/// to enabling/disabling it in Device Manager.
+pub fn set_device_state(
+    devinfo: HDEVINFO,
+    devinfo_data: &SP_DEVINFO_DATA,
+    enable: bool,
+) -> io::Result<()> {
+    let params = SP_PROPCHANGE_PARAMS {
+        ClassInstallHeader: SP_CLASSINSTALL_HEADER {
+            cbSize: mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32,
+            InstallFunction: DIF_PROPERTYCHANGE,
+        },
+        StateChange: if enable { DICS_ENABLE } else { DICS_DISABLE },
+        Scope: DICS_FLAG_GLOBAL,
+        HwProfile: 0,
+    };
+
+    // `ClassInstallHeader` is the first field, so the struct pointer doubles as
+    // the header pointer. Cast from the whole struct to avoid taking a reference
+    // to a field of a `packed` struct (illegal on x86).
+    let ok = unsafe {
+        SetupDiSetClassInstallParamsW(
+            devinfo,
+            devinfo_data as *const _,
+            &params as *const SP_PROPCHANGE_PARAMS as *const SP_CLASSINSTALL_HEADER,
+            mem::size_of::<SP_PROPCHANGE_PARAMS>() as u32,
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    call_class_installer(devinfo, devinfo_data, DIF_PROPERTYCHANGE)
 }
