@@ -115,11 +115,11 @@ pub fn set_dns_servers(index: u32, luid: &NET_LUID_LH, dns_servers: &[IpAddr]) -
         Some(api) => {
             let guid = ffi::luid_to_guid(luid)?;
             api.apply(&guid, dns_servers, is_ipv4)?;
-            flush_resolver_cache();
-            Ok(())
         }
-        None => netsh::set_dns_servers(index, dns_servers),
+        None => netsh::set_dns_servers(index, dns_servers)?,
     }
+    flush_resolver_cache();
+    Ok(())
 }
 
 /// Clears the interface DNS servers for one address family, restoring automatic resolution.
@@ -128,11 +128,11 @@ pub fn clear_dns_servers(index: u32, luid: &NET_LUID_LH, is_ipv4: bool) -> io::R
         Some(api) => {
             let guid = ffi::luid_to_guid(luid)?;
             api.apply(&guid, &[], is_ipv4)?;
-            flush_resolver_cache();
-            Ok(())
         }
-        None => netsh::clear_dns_servers(index, is_ipv4),
+        None => netsh::clear_dns_servers(index, is_ipv4)?,
     }
+    flush_resolver_cache();
+    Ok(())
 }
 
 // `DnsFlushResolverCache` has been exported by `dnsapi.dll` on every supported Windows

@@ -306,6 +306,9 @@ impl DeviceImpl {
         destination: Option<IPv4>,
     ) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
+        // NOTE: `destination` is the shared cross-platform parameter (the point-to-point
+        // peer on Unix). On Windows it is used as the gateway for a default route, matching
+        // the behavior of the previous `netsh ... set address gateway=` implementation.
         super::ffi::set_address(
             self.if_index_impl()?,
             address.ipv4()?.into(),

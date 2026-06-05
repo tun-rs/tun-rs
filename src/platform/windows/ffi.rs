@@ -4,10 +4,12 @@ use std::{io, mem, ptr};
 
 use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_OBJECT_ALREADY_EXISTS, NO_ERROR};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
-    CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteUnicastIpAddressEntry, FreeMibTable,
-    GetIpInterfaceEntry, GetIpInterfaceTable, GetUnicastIpAddressTable, InitializeIpForwardEntry,
-    InitializeUnicastIpAddressEntry, SetIpInterfaceEntry, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
-    MIB_IPINTERFACE_TABLE, MIB_UNICASTIPADDRESS_ROW, MIB_UNICASTIPADDRESS_TABLE,
+    CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteIpForwardEntry2,
+    DeleteUnicastIpAddressEntry, FreeMibTable, GetIpForwardTable2, GetIpInterfaceEntry,
+    GetIpInterfaceTable, GetUnicastIpAddressTable, InitializeIpForwardEntry,
+    InitializeUnicastIpAddressEntry, SetIpInterfaceEntry, MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2,
+    MIB_IPINTERFACE_ROW, MIB_IPINTERFACE_TABLE, MIB_UNICASTIPADDRESS_ROW,
+    MIB_UNICASTIPADDRESS_TABLE,
 };
 use windows_sys::Win32::Networking::WinSock::{
     NlroManual, AF_INET, AF_INET6, MIB_IPPROTO_NETMGMT, SOCKADDR_INET,
@@ -659,8 +661,9 @@ pub fn set_interface_mtu(index: u32, mtu: u32, is_v4: bool) -> io::Result<()> {
     win_result(unsafe { GetIpInterfaceEntry(&mut row) })?;
 
     row.NlMtu = mtu;
-    // `GetIpInterfaceEntry` returns a non-zero SitePrefixLength that
-    // `SetIpInterfaceEntry` rejects for IPv4; reset it before writing back.
+    // `GetIpInterfaceEntry` returns a `SitePrefixLength` that `SetIpInterfaceEntry`
+    // rejects (notably for IPv4); reset it to 0 before writing back. This is the
+    // conventional workaround and is harmless for IPv6, where site prefixes are unused.
     row.SitePrefixLength = 0;
     win_result(unsafe { SetIpInterfaceEntry(&mut row) })
 }
@@ -728,6 +731,37 @@ fn clear_addresses(index: u32, is_v4: bool) -> io::Result<()> {
 
     for row in &rows {
         win_result(unsafe { DeleteUnicastIpAddressEntry(row) })?;
+    }
+    // Also drop the gateway/default route(s) installed by `add_address` for this family,
+    // keeping the route lifecycle symmetric with `set_address` (replace).
+    clear_default_routes(index, is_v4)
+}
+
+/// Removes the interface's default routes (`0.0.0.0/0` / `::/0`) for the given family.
+///
+/// These are the gateway routes installed by [`add_address`]. On-link/subnet routes are
+/// removed automatically by Windows when the owning address is deleted, so only the
+/// explicit default route needs to be cleaned up here. This runs from [`clear_addresses`]
+/// so that [`set_address`] replaces the old gateway route instead of leaking it; routes are
+/// only ever created through `add_address` (i.e. via `set_address`), so this is the matching
+/// teardown.
+fn clear_default_routes(index: u32, is_v4: bool) -> io::Result<()> {
+    let family = if is_v4 { AF_INET } else { AF_INET6 };
+    let mut table: *mut MIB_IPFORWARD_TABLE2 = ptr::null_mut();
+    win_result(unsafe { GetIpForwardTable2(family, &mut table) })?;
+
+    // Copy out this interface's default routes before freeing the table.
+    let rows: Vec<MIB_IPFORWARD_ROW2> = unsafe {
+        std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
+    }
+    .iter()
+    .filter(|row| row.InterfaceIndex == index && row.DestinationPrefix.PrefixLength == 0)
+    .copied()
+    .collect();
+    unsafe { FreeMibTable(table as _) };
+
+    for row in &rows {
+        win_result(unsafe { DeleteIpForwardEntry2(row) })?;
     }
     Ok(())
 }
