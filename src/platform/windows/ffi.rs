@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
 use std::{io, mem, ptr};
 
@@ -691,6 +691,21 @@ pub fn add_address(
         let mut route = MIB_IPFORWARD_ROW2::default();
         unsafe { InitializeIpForwardEntry(&mut route) };
         route.InterfaceIndex = index;
+        // Install a default route (0.0.0.0/0 or ::/0) via `gateway`. `DestinationPrefix`
+        // must carry a valid address family matching `NextHop`; `InitializeIpForwardEntry`
+        // leaves it zeroed (AF_UNSPEC), which `CreateIpForwardEntry2` rejects as "not
+        // specified". Use the unspecified address of the gateway's family.
+        let unspecified = if gateway.is_ipv4() {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        } else {
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        };
+        route.DestinationPrefix.Prefix = sockaddr_inet_from_ip(unspecified);
+        route.DestinationPrefix.PrefixLength = 0;
+        // `InitializeIpForwardEntry` sets SitePrefixLength to an illegal value (255); for a
+        // default route it must not exceed the destination prefix length (0), or
+        // `CreateIpForwardEntry2` also fails with ERROR_INVALID_PARAMETER.
+        route.SitePrefixLength = 0;
         route.NextHop = sockaddr_inet_from_ip(gateway);
         route.Metric = 0;
         route.Protocol = MIB_IPPROTO_NETMGMT;
