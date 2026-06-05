@@ -59,6 +59,21 @@ impl DeviceImpl {
 
             None => None,
         };
+
+        // Create the device node if it is missing.
+        // Silently ignore errors, let opening the device report an error.
+        // This way, we don't fail if someone races us to create the device node.
+        if let Ok(false) = std::fs::exists("/dev/net/tun") {
+            std::fs::create_dir_all("/dev/net").ok();
+            unsafe {
+                libc::mknod(
+                    c"/dev/net/tun".as_ptr(),
+                    0o666 | libc::S_IFCHR,
+                    libc::makedev(10, 200),
+                );
+            }
+        }
+
         unsafe {
             let mut req: ifreq = mem::zeroed();
 
