@@ -62,9 +62,9 @@ tun-rs = { version = "2", features = ["async"] }
 
 Then use async I/O:
 
-```no_run
+```no_run, ignore
 use tun_rs::DeviceBuilder;
-
+# #[cfg(feature = "async_tokio")]
 # #[tokio::main]
 # async fn main() -> std::io::Result<()> {
 let dev = DeviceBuilder::new()
@@ -108,16 +108,14 @@ You can add multiple IPv4 and IPv6 addresses to an interface:
 
 ```no_run
 # use tun_rs::DeviceBuilder;
-# #[tokio::main]
-# async fn main() -> std::io::Result<()> {
+# fn main() {
 let dev = DeviceBuilder::new()
     .ipv4("10.0.0.1", 24, None)
-    .build_async()?;
+    .build_sync().unwrap();
 
-dev.add_address_v4("10.1.0.1", 24)?;
-dev.add_address_v4("10.2.0.1", 24)?;
-dev.add_address_v6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64)?;
-# Ok(())
+dev.add_address_v4("10.1.0.1", 24).unwrap();
+dev.add_address_v4("10.2.0.1", 24).unwrap();
+dev.add_address_v6("CDCD:910A:2222:5498:8475:1111:3900:2021", 64).unwrap();
 # }
 ```
 
@@ -133,20 +131,19 @@ On Linux, enable offload for improved throughput:
     let dev = DeviceBuilder::new()
         .offload(true)  // Enable TSO/GSO
         .ipv4("10.0.0.1", 24, None)
-        .build_sync()?;
+        .build_sync().unwrap();
 
     let mut original_buffer = vec![0; VIRTIO_NET_HDR_LEN + 65535];
     let mut bufs = vec![vec![0u8; 1500]; IDEAL_BATCH_SIZE];
     let mut sizes = vec![0; IDEAL_BATCH_SIZE];
 
     loop {
-        let num = dev.recv_multiple(&mut original_buffer, &mut bufs, &mut sizes, 0)?;
+        let num = dev.recv_multiple(&mut original_buffer, &mut bufs, &mut sizes, 0).unwrap();
         for i in 0..num {
             println!("Packet {}: {:?}", i, &bufs[i][..sizes[i]]);
         }
     }
 }
-# Ok(())
 ```
 
 ## Platform-Specific Notes

@@ -363,12 +363,14 @@ fn test_op() {
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos"))
     ))]
-    device.set_name("tun666").unwrap();
+    device.set_name("tun66").unwrap();
+    std::thread::sleep(Duration::from_secs(3));
+
     #[cfg(any(
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos"))
     ))]
-    assert_eq!(device.name().unwrap(), "tun666");
+    assert_eq!(device.name().unwrap(), "tun66");
 
     assert!(device.if_index().is_ok());
 
