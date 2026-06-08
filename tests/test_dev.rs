@@ -363,12 +363,13 @@ fn test_op() {
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos"))
     ))]
-    device.set_name("tun666").unwrap();
+    device.set_name("tun668").unwrap();
+    std::thread::sleep(Duration::from_secs(3));
     #[cfg(any(
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos"))
     ))]
-    assert_eq!(device.name().unwrap(), "tun666");
+    assert_eq!(device.name().unwrap(), "tun668");
 
     assert!(device.if_index().is_ok());
 
@@ -382,7 +383,7 @@ fn test_op() {
         assert!(device.if_luid().is_ok());
 
         // `set_metric` -> Get/SetIpInterfaceEntry.
-        device.set_metric(100).unwrap();
+        device.set_metric(100).expect("set_metric(100) should succeed");
 
         // `set_dns_servers` -> SetInterfaceDnsSettings (resolved at run time) with a
         // netsh fallback. Exercise IPv4 (primary + secondary) and IPv6, then clear both.
