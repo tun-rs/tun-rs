@@ -384,7 +384,9 @@ fn test_op() {
         assert!(device.if_luid().is_ok());
 
         // `set_metric` -> Get/SetIpInterfaceEntry.
-        device.set_metric(100).expect("set_metric(100) should succeed");
+        device
+            .set_metric(100)
+            .expect("set_metric(100) should succeed");
 
         // `set_dns_servers` -> SetInterfaceDnsSettings (resolved at run time) with a
         // netsh fallback. Exercise IPv4 (primary + secondary) and IPv6, then clear both.
