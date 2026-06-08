@@ -59,6 +59,21 @@ impl DeviceImpl {
 
             None => None,
         };
+
+        // Create the device node if it is missing.
+        // Silently ignore errors, let opening the device report an error.
+        // This way, we don't fail if someone races us to create the device node.
+        if let Ok(false) = std::fs::exists("/dev/net/tun") {
+            std::fs::create_dir_all("/dev/net").ok();
+            unsafe {
+                libc::mknod(
+                    c"/dev/net/tun".as_ptr(),
+                    0o666 | libc::S_IFCHR,
+                    libc::makedev(10, 200),
+                );
+            }
+        }
+
         unsafe {
             let mut req: ifreq = mem::zeroed();
 
@@ -356,7 +371,7 @@ impl DeviceImpl {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.offload(true)  // Enable offload for GRO
+    ///         builder.offload(true) // Enable offload for GRO
     ///     })
     ///     .build_sync()?;
     ///
@@ -364,7 +379,7 @@ impl DeviceImpl {
     /// let offset = VIRTIO_NET_HDR_LEN;
     ///
     /// // Prepare packets to send
-    /// let mut packet1 = vec![0u8; offset + 100];  // VIRTIO_NET_HDR + packet data
+    /// let mut packet1 = vec![0u8; offset + 100]; // VIRTIO_NET_HDR + packet data
     /// let mut packet2 = vec![0u8; offset + 200];
     /// // Fill in packet data at offset...
     ///
@@ -465,12 +480,12 @@ impl DeviceImpl {
     /// ```no_run
     /// # #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     /// # {
-    /// use tun_rs::{DeviceBuilder, VIRTIO_NET_HDR_LEN, IDEAL_BATCH_SIZE};
+    /// use tun_rs::{DeviceBuilder, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.offload(true)  // Enable offload for GSO
+    ///         builder.offload(true) // Enable offload for GSO
     ///     })
     ///     .build_sync()?;
     ///
@@ -484,12 +499,7 @@ impl DeviceImpl {
     ///
     /// loop {
     ///     // Receive and segment packets
-    ///     let num_packets = dev.recv_multiple(
-    ///         &mut original_buffer,
-    ///         &mut bufs,
-    ///         &mut sizes,
-    ///         offset
-    ///     )?;
+    ///     let num_packets = dev.recv_multiple(&mut original_buffer, &mut bufs, &mut sizes, offset)?;
     ///
     ///     // Process each segmented packet
     ///     for i in 0..num_packets {

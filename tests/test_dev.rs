@@ -363,13 +363,14 @@ fn test_op() {
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos"))
     ))]
-    device.set_name("tun668").unwrap();
+    device.set_name("tun66").unwrap();
     std::thread::sleep(Duration::from_secs(3));
+
     #[cfg(any(
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos"))
     ))]
-    assert_eq!(device.name().unwrap(), "tun668");
+    assert_eq!(device.name().unwrap(), "tun66");
 
     assert!(device.if_index().is_ok());
 
@@ -489,7 +490,12 @@ fn test_windows_new_apis() {
     // Now uses GetIpInterfaceEntry / SetIpInterfaceEntry for both AF_INET and
     // AF_INET6.  No public read-back getter exists, so we assert the call
     // succeeds for two different values (exercises the full round-trip twice).
-    device.set_metric(100).expect("set_metric(100) should succeed");
+    device
+        .set_metric(50)
+        .expect("set_metric(50) should succeed");
+    device
+        .set_metric(100)
+        .expect("set_metric(100) should succeed");
 
     // ── 3. set_mtu / mtu (IPv4) ──────────────────────────────────────────────
     // Now uses SetIpInterfaceEntry with NlMtu; read back via GetIpInterfaceTable.
@@ -503,7 +509,9 @@ fn test_windows_new_apis() {
     // ── 4. set_mtu_v6 / mtu_v6 (IPv6) ───────────────────────────────────────
     // Same path but with is_v4=false; mtu_v6() reads back via GetIpInterfaceTable
     // with AF_INET6.
-    device.set_mtu_v6(1380).expect("set_mtu_v6(1380) should succeed");
+    device
+        .set_mtu_v6(1380)
+        .expect("set_mtu_v6(1380) should succeed");
     assert_eq!(
         device.mtu_v6().expect("mtu_v6() should succeed"),
         1380,
@@ -580,10 +588,7 @@ fn test_windows_new_apis() {
 
     // ── 9. set_dns_servers (IPv4) ────────────────────────────────────────────
     // dns::set_dns_servers → SetInterfaceDnsSettings (or netsh fallback).
-    let ipv4_dns: &[IpAddr] = &[
-        "8.8.8.8".parse().unwrap(),
-        "8.8.4.4".parse().unwrap(),
-    ];
+    let ipv4_dns: &[IpAddr] = &["8.8.8.8".parse().unwrap(), "8.8.4.4".parse().unwrap()];
     device
         .set_dns_servers(ipv4_dns)
         .expect("set_dns_servers (IPv4 primary+secondary) should succeed");

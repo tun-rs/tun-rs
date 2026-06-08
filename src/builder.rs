@@ -65,10 +65,9 @@ let dev = DeviceBuilder::new()
         builder
             .ring_capacity(0x40_0000)  // 4MB ring buffer
             .wintun_log(true)          // Enable Wintun logging
-            .description("My VPN")     // Set device description
+            .description("My VPN");     // Set device description
     })
-    .build_sync()?;
-# Ok::<(), std::io::Error>(())
+    .build_sync().unwrap();
 # }
 ```
 
@@ -105,15 +104,14 @@ let tap = DeviceBuilder::new()
     .name("tap0")
     .layer(Layer::L2)
     .mac_addr([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
-    .build_sync()?;
+    .build_sync().unwrap();
 
 // TUN interface (Layer 3, default)
 let tun = DeviceBuilder::new()
     .name("tun0")
     .layer(Layer::L3)
     .ipv4("10.0.0.1", 24, None)
-    .build_sync()?;
-# Ok::<(), std::io::Error>(())
+    .build_sync().unwrap();
 # }
 ```
 
@@ -203,8 +201,8 @@ use crate::platform::{DeviceImpl, SyncDevice};
 ///     .name("tap0")
 ///     .layer(Layer::L2)
 ///     .mac_addr([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
-///     .build_sync()?;
-/// # Ok::<(), std::io::Error>(())
+///     .build_sync()
+///     .unwrap();
 /// # }
 /// ```
 ///
@@ -487,11 +485,11 @@ impl DeviceBuilderGuard<'_> {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.metric(10)  // Set lower metric for higher priority
+    ///         builder.metric(10); // Set lower metric for higher priority
     ///     })
-    ///     .build_sync()?;
+    ///     .build_sync()
+    ///     .unwrap();
     /// # }
-    /// # Ok::<(), std::io::Error>(())
     /// ```
     ///
     /// # Platform
@@ -531,7 +529,7 @@ impl DeviceBuilderGuard<'_> {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.tx_queue_len(1000)  // Set queue length to 1000 packets
+    ///         builder.tx_queue_len(1000) // Set queue length to 1000 packets
     ///     })
     ///     .build_sync()?;
     /// # }
@@ -564,12 +562,12 @@ impl DeviceBuilderGuard<'_> {
     /// ```no_run
     /// # #[cfg(target_os = "linux")]
     /// # {
-    /// use tun_rs::{DeviceBuilder, GROTable, VIRTIO_NET_HDR_LEN, IDEAL_BATCH_SIZE};
+    /// use tun_rs::{DeviceBuilder, GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.offload(true)  // Enable TSO/GSO/GRO
+    ///         builder.offload(true) // Enable TSO/GSO/GRO
     ///     })
     ///     .build_sync()?;
     ///
@@ -618,7 +616,7 @@ impl DeviceBuilderGuard<'_> {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.multi_queue(true)  // Enable multi-queue
+    ///         builder.multi_queue(true) // Enable multi-queue
     ///     })
     ///     .build_sync()?;
     ///
@@ -699,7 +697,7 @@ impl DeviceBuilderGuard<'_> {
     ///     .name("feth0")
     ///     .layer(Layer::L2)
     ///     .with(|builder| {
-    ///         builder.peer_feth("feth1")  // Specify the peer interface name
+    ///         builder.peer_feth("feth1") // Specify the peer interface name
     ///     })
     ///     .build_sync()?;
     /// # }
@@ -736,7 +734,7 @@ impl DeviceBuilderGuard<'_> {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.associate_route(false)  // Disable automatic route management
+    ///         builder.associate_route(false) // Disable automatic route management
     ///     })
     ///     .build_sync()?;
     /// # }
@@ -778,11 +776,11 @@ impl DeviceBuilderGuard<'_> {
     ///     .name("tap0")
     ///     .layer(Layer::L2)
     ///     .with(|builder| {
-    ///         builder.reuse_dev(false)  // Error if tap0 already exists
+    ///         builder.reuse_dev(false); // Error if tap0 already exists
     ///     })
-    ///     .build_sync()?;
+    ///     .build_sync()
+    ///     .unwrap();
     /// # }
-    /// # Ok::<(), std::io::Error>(())
     /// ```
     ///
     /// # Platform
@@ -815,11 +813,11 @@ impl DeviceBuilderGuard<'_> {
     ///     .name("tap0")
     ///     .layer(Layer::L2)
     ///     .with(|builder| {
-    ///         builder.persist(true)  // Keep device after program exits
+    ///         builder.persist(true); // Keep device after program exits
     ///     })
-    ///     .build_sync()?;
+    ///     .build_sync()
+    ///     .unwrap();
     /// # }
-    /// # Ok::<(), std::io::Error>(())
     /// ```
     ///
     /// # Platform
@@ -1076,7 +1074,7 @@ impl DeviceBuilder {
     ///
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
-    ///     .metric(10)  // Set lower metric for higher priority
+    ///     .metric(10) // Set lower metric for higher priority
     ///     .build_sync()?;
     /// # }
     /// # Ok::<(), std::io::Error>(())
@@ -1192,7 +1190,7 @@ impl DeviceBuilder {
     /// // Create a device but leave it disabled initially
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
-    ///     .enable(false)  // Don't enable the device yet
+    ///     .enable(false) // Don't enable the device yet
     ///     .build_sync()?;
     ///
     /// // Later, enable it manually using platform-specific methods
@@ -1230,10 +1228,8 @@ impl DeviceBuilder {
     /// let dev = DeviceBuilder::new()
     ///     .name("tun0")
     ///     .ipv4("10.0.0.1", 24, None)
-    ///     .with(|builder| {
-    ///         builder.reuse_dev(true)
-    ///     })
-    ///     .inherit_enable_state()  // Don't change the existing enable state
+    ///     .with(|builder| builder.reuse_dev(true))
+    ///     .inherit_enable_state() // Don't change the existing enable state
     ///     .build_sync()?;
     /// # }
     /// # Ok::<(), std::io::Error>(())
