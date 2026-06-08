@@ -441,3 +441,158 @@ fn create_tap() {
         }
     }
 }
+
+/// Dedicated Windows test covering every public API migrated from netsh/wmic to
+/// windows-sys in PR `#140`.  Each section is labelled with the underlying Windows
+/// API that was newly wired up.
+#[cfg(target_os = "windows")]
+#[test]
+fn test_windows_new_apis() {
+    use std::net::IpAddr;
+    use tun_rs::DeviceBuilder;
+
+    let device = DeviceBuilder::new()
+        .ipv4("10.26.9.100", 24, None)
+        .ipv6("fd12:3456:789a:9999:2222:3333:4444:5555", 64)
+        .build_sync()
+        .unwrap();
+
+    // ── 2. set_metric() ──────────────────────────────────────────────────────
+    // Now uses GetIpInterfaceEntry / SetIpInterfaceEntry for both AF_INET and
+    // AF_INET6.  No public read-back getter exists, so we assert the call
+    // succeeds for two different values (exercises the full round-trip twice).
+    device
+        .set_metric(50)
+        .expect("set_metric(50) should succeed");
+    device
+        .set_metric(100)
+        .expect("set_metric(100) should succeed");
+
+    // ── 3. set_mtu / mtu (IPv4) ──────────────────────────────────────────────
+    // Now uses SetIpInterfaceEntry with NlMtu; read back via GetIpInterfaceTable.
+    device.set_mtu(1400).expect("set_mtu(1400) should succeed");
+    assert_eq!(
+        device.mtu().expect("mtu() should succeed"),
+        1400,
+        "mtu() read-back should match the value written by set_mtu()"
+    );
+
+    // ── 4. set_mtu_v6 / mtu_v6 (IPv6) ───────────────────────────────────────
+    // Same path but with is_v4=false; mtu_v6() reads back via GetIpInterfaceTable
+    // with AF_INET6.
+    device
+        .set_mtu_v6(1380)
+        .expect("set_mtu_v6(1380) should succeed");
+    assert_eq!(
+        device.mtu_v6().expect("mtu_v6() should succeed"),
+        1380,
+        "mtu_v6() read-back should match the value written by set_mtu_v6()"
+    );
+
+    // ── 5. set_network_address without gateway ───────────────────────────────
+    // ffi::set_address clears all existing IPv4 unicast addresses and installs
+    // the new one.  The old address must disappear.
+    device
+        .set_network_address("10.26.9.200", 24, None)
+        .expect("set_network_address (no gateway) should succeed");
+    let addrs = device.addresses().unwrap();
+    assert!(
+        addrs.contains(&"10.26.9.200".parse::<IpAddr>().unwrap()),
+        "new address 10.26.9.200 should be present after set_network_address"
+    );
+    assert!(
+        !addrs.contains(&"10.26.9.100".parse::<IpAddr>().unwrap()),
+        "old address 10.26.9.100 should have been removed by set_network_address"
+    );
+
+    // ── 6. set_network_address WITH gateway ──────────────────────────────────
+    // Exercises the default-route creation path in ffi::add_address that was
+    // specifically fixed in this PR (DestinationPrefix address family +
+    // SitePrefixLength=0 for CreateIpForwardEntry2).
+    device
+        .set_network_address("10.26.9.150", 24, Some("10.26.9.1"))
+        .expect("set_network_address with gateway should succeed");
+    let addrs = device.addresses().unwrap();
+    assert!(
+        addrs.contains(&"10.26.9.150".parse::<IpAddr>().unwrap()),
+        "address 10.26.9.150 should be present after set_network_address with gateway"
+    );
+    assert!(
+        !addrs.contains(&"10.26.9.200".parse::<IpAddr>().unwrap()),
+        "previous address 10.26.9.200 should have been cleared"
+    );
+
+    // ── 7. add_address_v6 ────────────────────────────────────────────────────
+    // ffi::add_address with None gateway; verifies the address appears in the
+    // interface's address list.
+    device
+        .add_address_v6("fdab:cdef:1234:5678:9abc:def0:1234:0001", 64)
+        .expect("add_address_v6 should succeed");
+    let addrs = device.addresses().unwrap();
+    assert!(
+        addrs.contains(
+            &"fdab:cdef:1234:5678:9abc:def0:1234:0001"
+                .parse::<IpAddr>()
+                .unwrap()
+        ),
+        "IPv6 address should be present after add_address_v6"
+    );
+
+    // ── 8. remove_address (IPv6) ─────────────────────────────────────────────
+    // ffi::remove_address; confirms the address is gone after deletion.
+    device
+        .remove_address(
+            "fdab:cdef:1234:5678:9abc:def0:1234:0001"
+                .parse::<IpAddr>()
+                .unwrap(),
+        )
+        .expect("remove_address (IPv6) should succeed");
+    let addrs = device.addresses().unwrap();
+    assert!(
+        !addrs.contains(
+            &"fdab:cdef:1234:5678:9abc:def0:1234:0001"
+                .parse::<IpAddr>()
+                .unwrap()
+        ),
+        "IPv6 address should be absent after remove_address"
+    );
+
+    // ── 9. set_dns_servers (IPv4) ────────────────────────────────────────────
+    // dns::set_dns_servers → SetInterfaceDnsSettings (or netsh fallback).
+    let ipv4_dns: &[IpAddr] = &["8.8.8.8".parse().unwrap(), "8.8.4.4".parse().unwrap()];
+    device
+        .set_dns_servers(ipv4_dns)
+        .expect("set_dns_servers (IPv4 primary+secondary) should succeed");
+
+    // ── 10. set_dns_servers (IPv6) ───────────────────────────────────────────
+    let ipv6_dns: &[IpAddr] = &["2001:4860:4860::8888".parse().unwrap()];
+    device
+        .set_dns_servers(ipv6_dns)
+        .expect("set_dns_servers (IPv6) should succeed");
+
+    // ── 11. set_dns_servers — validation: empty list must be rejected ────────
+    assert!(
+        device.set_dns_servers(&[]).is_err(),
+        "set_dns_servers with an empty slice must return Err (InvalidInput)"
+    );
+
+    // ── 12. set_dns_servers — validation: mixed families must be rejected ────
+    let mixed: &[IpAddr] = &[
+        "8.8.8.8".parse().unwrap(),
+        "2001:4860:4860::8888".parse().unwrap(),
+    ];
+    assert!(
+        device.set_dns_servers(mixed).is_err(),
+        "set_dns_servers with mixed IPv4/IPv6 addresses must return Err (InvalidInput)"
+    );
+
+    // ── 13. clear_dns_servers ────────────────────────────────────────────────
+    // dns::clear_dns_servers → SetInterfaceDnsSettings with empty NameServer
+    // (or netsh fallback).
+    device
+        .clear_dns_servers(true)
+        .expect("clear_dns_servers (IPv4) should succeed");
+    device
+        .clear_dns_servers(false)
+        .expect("clear_dns_servers (IPv6) should succeed");
+}
