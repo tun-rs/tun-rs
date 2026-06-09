@@ -646,6 +646,9 @@ pub fn set_interface_metric(index: u32, metric: u32) -> io::Result<()> {
 
         row.Metric = metric;
         row.UseAutomaticMetric = false;
+        // `GetIpInterfaceEntry` may return a `SitePrefixLength` that
+        // `SetIpInterfaceEntry` rejects when writing the row back.
+        row.SitePrefixLength = 0;
         win_result(unsafe { SetIpInterfaceEntry(&mut row) })?;
     }
     Ok(())
