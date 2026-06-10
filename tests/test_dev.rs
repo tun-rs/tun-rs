@@ -627,3 +627,118 @@ fn test_windows_new_apis() {
         .clear_dns_servers(false)
         .expect("clear_dns_servers (IPv6) should succeed");
 }
+
+/// Regression test for the device-wide TUN_F_* offload mask not being
+/// cleared on attach with `offload=false`.
+///
+/// The kernel keeps `tun->set_features` (TSO/HW_CSUM/etc.) state per
+/// device, not per fd. When a persistent TUN is first attached with
+/// `offload=true`, the kernel raises these features. A later attach with
+/// `offload=false` correctly omits IFF_VNET_HDR on the new tfile, but if
+/// the device-wide mask is not reset, the kernel still treats the device
+/// as offload-capable and delivers GSO aggregates that the new (offload-
+/// unaware) caller misinterprets as oversized single packets. The fix is
+/// to issue `TUNSETOFFLOAD(0)` in the offload=false branch of
+/// `DeviceImpl::new`.
+///
+/// Marked `#[ignore]`: requires `CAP_NET_ADMIN` (root) and `ethtool` in
+/// PATH; creates and deletes a persistent TUN device named `tunoffldclr`.
+/// Run with:
+///   cargo test --test test_dev -- --ignored offload_mask_cleared
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+#[cfg(not(any(feature = "async_tokio", feature = "async_io")))]
+#[test]
+#[ignore]
+fn test_offload_mask_cleared_on_reattach_without_offload() {
+    use std::process::Command;
+
+    const NAME: &str = "tunoffldclr";
+
+    // Parse `ethtool -k <name>` output for a single feature flag's state.
+    // Lines look like:
+    //   tx-tcp-segmentation: on
+    //   tx-checksum-ip-generic: off
+    fn ethtool_feature(name: &str, feature: &str) -> bool {
+        let output = Command::new("ethtool")
+            .args(["-k", name])
+            .output()
+            .expect("run ethtool -k");
+        assert!(
+            output.status.success(),
+            "ethtool -k {name} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix(feature) {
+                if let Some(value) = rest.strip_prefix(':') {
+                    let value = value.trim();
+                    if value.starts_with("on") {
+                        return true;
+                    }
+                    if value.starts_with("off") {
+                        return false;
+                    }
+                }
+            }
+        }
+        panic!("feature `{feature}` not found in `ethtool -k {name}` output:\n{stdout}");
+    }
+
+    // Clean any leftover device from a previous failed run. Ignore errors.
+    let _ = Command::new("ip").args(["link", "delete", NAME]).status();
+
+    // ── Attach #1: offload=true, persisted ──────────────────────────────
+    // Raises the device-wide TUN_F_* mask via TUNSETOFFLOAD.
+    let dev1 = DeviceBuilder::new()
+        .name(NAME)
+        .offload(true)
+        .build_sync()
+        .expect("attach #1 with offload=true");
+    dev1.persist().expect("set TUNSETPERSIST");
+
+    // Sanity check: the features set by TUN_F_CSUM | TUN_F_TSO4 |
+    // TUN_F_TSO6 should be visible to ethtool.
+    let tso_after_offload = ethtool_feature(NAME, "tx-tcp-segmentation");
+    let csum_after_offload = ethtool_feature(NAME, "tx-checksum-ip-generic");
+
+    // Drop attach #1. The device persists; tun->set_features is unchanged.
+    drop(dev1);
+
+    // ── Attach #2: offload=false ────────────────────────────────────────
+    // With the fix in DeviceImpl::new, TUNSETOFFLOAD(0) clears the mask.
+    // Without the fix, ethtool still reports TSO/HW_CSUM on.
+    let dev2 = DeviceBuilder::new()
+        .name(NAME)
+        .offload(false)
+        .build_sync()
+        .expect("attach #2 with offload=false");
+
+    let tso_after_clear = ethtool_feature(NAME, "tx-tcp-segmentation");
+    let csum_after_clear = ethtool_feature(NAME, "tx-checksum-ip-generic");
+
+    drop(dev2);
+
+    // Cleanup before asserting so a failed assert doesn't leak the device.
+    let _ = Command::new("ip").args(["link", "delete", NAME]).status();
+
+    assert!(
+        tso_after_offload,
+        "ethtool sanity: tx-tcp-segmentation should be ON after offload=true attach"
+    );
+    assert!(
+        csum_after_offload,
+        "ethtool sanity: tx-checksum-ip-generic should be ON after offload=true attach"
+    );
+    assert!(
+        !tso_after_clear,
+        "regression: tx-tcp-segmentation still ON after offload=false attach \
+         (device-wide TUN_F_TSO* not cleared)"
+    );
+    assert!(
+        !csum_after_clear,
+        "regression: tx-checksum-ip-generic still ON after offload=false attach \
+         (device-wide TUN_F_CSUM not cleared)"
+    );
+}
