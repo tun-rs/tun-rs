@@ -43,6 +43,9 @@ fn get_version(handle: HANDLE) -> io::Result<[u64; 3]> {
 }
 
 impl TapDevice {
+    pub fn luid(&self) -> NET_LUID_LH {
+        self.tap_interface.luid
+    }
     pub fn index(&self) -> u32 {
         self.index
     }
@@ -75,12 +78,11 @@ impl TapDevice {
                 Ok(guid) => {
                     if let Some(mac) = mac.take() {
                         let guid = ffi::string_from_guid(&guid)?;
-                        let name = ffi::luid_to_alias(&luid)?;
                         iface::set_adapter_mac_by_guid(&guid, mac)?;
                         std::thread::sleep(time::Duration::from_millis(20));
-                        iface::enable_adapter(&name, false)?;
+                        iface::enable_adapter(component_id, &luid, false)?;
                         std::thread::sleep(time::Duration::from_millis(20));
-                        iface::enable_adapter(&name, true)?;
+                        iface::enable_adapter(component_id, &luid, true)?;
                     }
                     let handle = iface::open_interface(&luid)?;
                     if get_version(handle.as_raw_handle()).is_err() {
@@ -124,9 +126,9 @@ impl TapDevice {
             let guid = ffi::string_from_guid(&guid)?;
             iface::set_adapter_mac_by_guid(&guid, mac)?;
             std::thread::sleep(time::Duration::from_millis(1));
-            iface::enable_adapter(name, false)?;
+            iface::enable_adapter(component_id, &luid, false)?;
             std::thread::sleep(time::Duration::from_millis(1));
-            iface::enable_adapter(name, true)?;
+            iface::enable_adapter(component_id, &luid, true)?;
         }
         let handle = iface::open_interface(&luid)?;
         let index = ffi::luid_to_index(&luid)?;

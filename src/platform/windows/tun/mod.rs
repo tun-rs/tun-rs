@@ -490,6 +490,9 @@ impl TunDevice {
             Ok(tun)
         }
     }
+    pub fn luid(&self) -> NET_LUID_LH {
+        self.luid
+    }
     pub fn index(&self) -> u32 {
         self.index
     }

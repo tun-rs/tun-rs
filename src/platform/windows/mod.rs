@@ -1,4 +1,5 @@
 mod device;
+mod dns;
 pub(crate) mod ffi;
 #[cfg(any(
     feature = "interruptible",

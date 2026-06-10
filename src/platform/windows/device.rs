@@ -1,4 +1,5 @@
 use crate::builder::DeviceConfig;
+use crate::platform::windows::dns;
 use crate::platform::windows::netsh;
 use crate::platform::windows::tap::TapDevice;
 use crate::platform::windows::tun::{check_adapter_if_orphaned_devices, TunDevice};
@@ -11,6 +12,7 @@ use std::io;
 use std::net::IpAddr;
 use std::sync::Mutex;
 use windows_sys::core::GUID;
+use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 
 pub(crate) const GUID_NETWORK_ADAPTER: GUID = GUID {
     data1: 0x4d36e972,
@@ -219,6 +221,12 @@ impl DeviceImpl {
             Driver::Tap(tap) => Ok(tap.index()),
         }
     }
+    fn luid_impl(&self) -> NET_LUID_LH {
+        match &self.driver {
+            Driver::Tun(tun) => tun.luid(),
+            Driver::Tap(tap) => tap.luid(),
+        }
+    }
     fn get_all_adapter_address() -> io::Result<Vec<Interface>> {
         Ok(getifaddrs::getifaddrs()?.collect())
     }
@@ -258,6 +266,13 @@ impl DeviceImpl {
         let _guard = self.lock.lock().unwrap();
         self.if_index_impl()
     }
+    /// Retrieves the interface LUID (locally unique identifier) of the device.
+    ///
+    /// This is used for various network configuration APIs.
+    pub fn if_luid(&self) -> io::Result<NET_LUID_LH> {
+        let _guard = self.lock.lock().unwrap();
+        Ok(self.luid_impl())
+    }
     /// Enables or disables the device.
     ///
     /// For a TUN device, disabling is not supported and will return an error.
@@ -291,10 +306,13 @@ impl DeviceImpl {
         destination: Option<IPv4>,
     ) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        netsh::set_interface_ip(
+        // NOTE: `destination` is the shared cross-platform parameter (the point-to-point
+        // peer on Unix). On Windows it is used as the gateway for a default route, matching
+        // the behavior of the previous `netsh ... set address gateway=` implementation.
+        super::ffi::set_address(
             self.if_index_impl()?,
             address.ipv4()?.into(),
-            netmask.netmask()?.into(),
+            netmask.prefix()?,
             destination.map(|v| v.ipv4()).transpose()?.map(|v| v.into()),
         )
     }
@@ -344,7 +362,7 @@ impl DeviceImpl {
     /// Removes the specified IP address from the device.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        netsh::delete_interface_ip(self.if_index_impl()?, addr)
+        super::ffi::remove_address(self.if_index_impl()?, addr)
     }
     /// Adds an IPv6 address and netmask to the device.
     ///
@@ -383,11 +401,10 @@ impl DeviceImpl {
         netmask: Netmask,
     ) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        let mask = netmask.netmask()?;
-        netsh::set_interface_ip(
+        super::ffi::add_address(
             self.if_index_impl()?,
             addr.ipv6()?.into(),
-            mask.into(),
+            netmask.prefix()?,
             None,
         )
     }
@@ -409,15 +426,15 @@ impl DeviceImpl {
         let mtu = crate::platform::windows::ffi::get_mtu_by_index(index, false)?;
         Ok(mtu as _)
     }
-    /// Sets the MTU for the device (IPv4) using the `netsh` command.
+    /// Sets the MTU for the device (IPv4).
     pub fn set_mtu(&self, mtu: u16) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        netsh::set_interface_mtu(self.if_index_impl()?, mtu as _)
+        super::ffi::set_interface_mtu(self.if_index_impl()?, mtu as _, true)
     }
-    /// Sets the MTU for the device (IPv6) using the `netsh` command.
+    /// Sets the MTU for the device (IPv6).
     pub fn set_mtu_v6(&self, mtu: u16) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        netsh::set_interface_mtu_v6(self.if_index_impl()?, mtu as _)
+        super::ffi::set_interface_mtu(self.if_index_impl()?, mtu as _, false)
     }
     /// Sets the MAC address for the device.
     ///
@@ -471,10 +488,10 @@ impl DeviceImpl {
     ///
     /// # Platform
     ///
-    /// Windows only. Uses the `netsh` command internally. Requires administrator privileges.
+    /// Windows only. Requires administrator privileges.
     pub fn set_metric(&self, metric: u16) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        netsh::set_interface_metric(self.if_index_impl()?, metric)
+        super::ffi::set_interface_metric(self.if_index_impl()?, metric as u32)
     }
     /// Retrieves the version of the underlying driver.
     ///
@@ -496,14 +513,12 @@ impl DeviceImpl {
     /// dns_servers: A priority-ordered list of DNS servers (must be all IPv4 or all IPv6)
     pub fn set_dns_servers(&self, dns_servers: &[IpAddr]) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        let index = self.if_index_impl()?;
-        netsh::set_dns_servers(index, dns_servers)
+        dns::set_dns_servers(self.if_index_impl()?, &self.luid_impl(), dns_servers)
     }
     /// Clear DNS configuration for the current device (restore to automatic acquisition)
     /// is_ipv4: true to clear IPv4 DNS, false to clear IPv6 DNS
     pub fn clear_dns_servers(&self, is_ipv4: bool) -> io::Result<()> {
         let _guard = self.lock.lock().unwrap();
-        let index = self.if_index_impl()?;
-        netsh::clear_dns_servers(index, is_ipv4)
+        dns::clear_dns_servers(self.if_index_impl()?, &self.luid_impl(), is_ipv4)
     }
 }

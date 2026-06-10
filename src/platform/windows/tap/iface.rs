@@ -4,13 +4,10 @@ use crate::platform::windows::ffi::decode_utf16;
 use scopeguard::{guard, ScopeGuard};
 use std::io;
 use std::os::windows::io::{FromRawHandle, OwnedHandle};
-use std::os::windows::process::CommandExt;
-use std::process::Command;
 use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
 use windows_sys::Win32::System::Registry::{
     HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE, KEY_WRITE,
 };
-use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use windows_sys::Win32::{
     Devices::DeviceAndDriverInstallation::{
         DICD_GENERATE_ID, DICS_FLAG_GLOBAL, DIF_INSTALLDEVICE, DIF_INSTALLINTERFACES,
@@ -332,30 +329,71 @@ pub fn set_adapter_mac_by_guid(adapter_guid: &str, new_mac: &str) -> io::Result<
 
     Ok(())
 }
-pub fn enable_adapter(adapter_name: &str, val: bool) -> io::Result<()> {
-    let admin_status = if val {
-        "admin=enabled"
-    } else {
-        "admin=disabled"
-    };
+/// Enables or disables the adapter via SetupAPI (`DIF_PROPERTYCHANGE`).
+pub fn enable_adapter(component_id: &str, luid: &NET_LUID_LH, val: bool) -> io::Result<()> {
+    let devinfo = ffi::get_class_devs(&GUID_NETWORK_ADAPTER, DIGCF_PRESENT)?;
 
-    let out = Command::new("netsh")
-        .creation_flags(CREATE_NO_WINDOW)
-        .args(["interface", "set", "interface", adapter_name, admin_status])
-        .output()?;
+    let _guard = guard((), |_| {
+        let _ = ffi::destroy_device_info_list(devinfo);
+    });
 
-    if out.status.success() {
-        Ok(())
-    } else {
-        let error_msg = if !out.stderr.is_empty() {
-            String::from_utf8_lossy(&out.stderr).to_string()
-        } else {
-            String::from_utf8_lossy(&out.stdout).to_string()
+    let mut member_index = 0;
+
+    while let Some(devinfo_data) = ffi::enum_device_info(devinfo, member_index) {
+        member_index += 1;
+
+        if devinfo_data.is_err() {
+            continue;
+        }
+        let devinfo_data = devinfo_data?;
+
+        let hardware_id =
+            ffi::get_device_registry_property(devinfo, &devinfo_data, SPDRP_HARDWAREID);
+        if hardware_id.is_err() {
+            continue;
+        }
+        if !hardware_id?.eq_ignore_ascii_case(component_id) {
+            continue;
+        }
+
+        let key = ffi::open_dev_reg_key(
+            devinfo,
+            &devinfo_data,
+            DICS_FLAG_GLOBAL,
+            0,
+            DIREG_DRV,
+            KEY_QUERY_VALUE | KEY_NOTIFY,
+        );
+        if key.is_err() {
+            continue;
+        }
+        let key = winreg::RegKey::predef(key? as _);
+
+        let if_type: u32 = match key.get_value("*IfType") {
+            Ok(if_type) => if_type,
+            Err(_) => continue,
         };
-        Err(io::Error::other(format!(
-            "Failed to {} adapter: {}",
-            if val { "enable" } else { "disable" },
-            error_msg.trim()
-        )))
+
+        let luid_index: u32 = match key.get_value("NetLuidIndex") {
+            Ok(luid_index) => luid_index,
+            Err(_) => continue,
+        };
+
+        let mut luid2 = NET_LUID_LH { Value: 0 };
+
+        unsafe {
+            let luid2 = &mut luid2 as *mut NET_LUID_LH as *mut _NET_LUID_LH;
+            (*luid2).set_IfType(if_type as _);
+            (*luid2).set_NetLuidIndex(luid_index as _);
+        }
+
+        if unsafe { luid.Value != luid2.Value } {
+            continue;
+        }
+
+        // Found it!
+        return ffi::set_device_state(devinfo, &devinfo_data, val);
     }
+
+    Err(io::Error::new(io::ErrorKind::NotFound, "Device not found"))
 }
