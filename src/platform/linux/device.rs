@@ -120,6 +120,21 @@ impl DeviceImpl {
                     (true, rs.is_ok())
                 }
             } else {
+                // The TUN_F_* offload mask is device-wide state, not
+                // per-fd. When attaching to a persistent TUN that a
+                // previous process configured with offload=true, the
+                // mask remains set across detaches: the kernel will
+                // still deliver GSO aggregates to this new fd even
+                // though IFF_VNET_HDR is not set, and the offload-
+                // unaware caller will read them as oversized single
+                // packets (ping survives, TCP bulk transfer fails).
+                // Explicitly reset the mask. No-op on a freshly
+                // created device (mask is already zero). Failure is
+                // logged but not propagated, mirroring the
+                // best-effort treatment of UDP offload above.
+                if let Err(err) = tunsetoffload(tun_fd.inner, 0 as _) {
+                    log::warn!("failed to clear TUN offload mask: {err:?}");
+                }
                 (false, false)
             };
 
