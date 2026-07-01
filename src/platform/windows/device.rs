@@ -10,7 +10,7 @@ use ipnet::IpNet;
 use std::collections::HashSet;
 use std::io;
 use std::net::IpAddr;
-use std::sync::Mutex;
+use std::sync::RwLock;
 use windows_sys::core::GUID;
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 
@@ -28,7 +28,7 @@ pub(crate) enum Driver {
 
 /// A TUN device using the wintun driver.
 pub struct DeviceImpl {
-    lock: Mutex<()>,
+    lock: RwLock<()>,
     pub(crate) driver: Driver,
 }
 
@@ -91,7 +91,7 @@ impl DeviceImpl {
             };
 
             DeviceImpl {
-                lock: Mutex::new(()),
+                lock: RwLock::new(()),
                 driver: Driver::Tun(tun_device),
             }
         } else if layer == Layer::L2 {
@@ -123,7 +123,7 @@ impl DeviceImpl {
                 break tap;
             };
             DeviceImpl {
-                lock: Mutex::new(()),
+                lock: RwLock::new(()),
                 driver: Driver::Tap(tap),
             }
         } else {
@@ -244,7 +244,7 @@ impl DeviceImpl {
     ///
     /// Calls the appropriate method on the underlying driver (TUN or TAP) to obtain the device name.
     pub fn name(&self) -> io::Result<String> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.read().unwrap();
         self.name_impl()
     }
     /// Sets a new name for the device.
@@ -252,7 +252,7 @@ impl DeviceImpl {
     /// This method first checks if the current name is different from the desired one. If it is,
     /// it uses the `netsh` command to update the interface name.
     pub fn set_name(&self, value: &str) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         let name = self.name_impl()?;
         if value == name {
             return Ok(());
@@ -263,14 +263,14 @@ impl DeviceImpl {
     ///
     /// This is used for various network configuration commands.
     pub fn if_index(&self) -> io::Result<u32> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.read().unwrap();
         self.if_index_impl()
     }
     /// Retrieves the interface LUID (locally unique identifier) of the device.
     ///
     /// This is used for various network configuration APIs.
     pub fn if_luid(&self) -> io::Result<NET_LUID_LH> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.read().unwrap();
         Ok(self.luid_impl())
     }
     /// Enables or disables the device.
@@ -278,7 +278,7 @@ impl DeviceImpl {
     /// For a TUN device, disabling is not supported and will return an error.
     /// For a TAP device, this calls the appropriate method to set the device status.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         match &self.driver {
             Driver::Tun(tun) => tun.enabled(value),
             Driver::Tap(tap) => tap.set_status(value),
@@ -288,7 +288,7 @@ impl DeviceImpl {
     ///
     /// Filters the adapter addresses by matching the device's interface index.
     pub fn addresses(&self) -> io::Result<Vec<IpAddr>> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.read().unwrap();
         let index = self.if_index_impl()?;
         let r = Self::get_all_adapter_address()?
             .into_iter()
@@ -305,7 +305,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         // NOTE: `destination` is the shared cross-platform parameter (the point-to-point
         // peer on Unix). On Windows it is used as the gateway for a default route, matching
         // the behavior of the previous `netsh ... set address gateway=` implementation.
@@ -352,7 +352,7 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
             .map_err(io::Error::from)?;
         interface
@@ -361,7 +361,7 @@ impl DeviceImpl {
     }
     /// Removes the specified IP address from the device.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         super::ffi::remove_address(self.if_index_impl()?, addr)
     }
     /// Adds an IPv6 address and netmask to the device.
@@ -400,7 +400,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         super::ffi::add_address(
             self.if_index_impl()?,
             addr.ipv6()?.into(),
@@ -412,7 +412,7 @@ impl DeviceImpl {
     ///
     /// This method uses a Windows-specific FFI function to query the MTU by interface index.
     pub fn mtu(&self) -> io::Result<u16> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.read().unwrap();
         let index = self.if_index_impl()?;
         let mtu = crate::platform::windows::ffi::get_mtu_by_index(index, true)?;
         Ok(mtu as _)
@@ -421,19 +421,19 @@ impl DeviceImpl {
     ///
     /// This method uses a Windows-specific FFI function to query the IPv6 MTU by interface index.
     pub fn mtu_v6(&self) -> io::Result<u16> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.read().unwrap();
         let index = self.if_index_impl()?;
         let mtu = crate::platform::windows::ffi::get_mtu_by_index(index, false)?;
         Ok(mtu as _)
     }
     /// Sets the MTU for the device (IPv4).
     pub fn set_mtu(&self, mtu: u16) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         super::ffi::set_interface_mtu(self.if_index_impl()?, mtu as _, true)
     }
     /// Sets the MTU for the device (IPv6).
     pub fn set_mtu_v6(&self, mtu: u16) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         super::ffi::set_interface_mtu(self.if_index_impl()?, mtu as _, false)
     }
     /// Sets the MAC address for the device.
@@ -443,7 +443,7 @@ impl DeviceImpl {
     /// #Note:
     /// set a MAC address is only supported when creating a TUN/TAP device.
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         match &self.driver {
             Driver::Tun(_tun) => Err(io::Error::from(io::ErrorKind::Unsupported)),
             Driver::Tap(tap) => tap.set_mac(&eth_addr),
@@ -453,7 +453,7 @@ impl DeviceImpl {
     ///
     /// This operation is only supported for TAP devices.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.read().unwrap();
         match &self.driver {
             Driver::Tun(_tun) => Err(io::Error::from(io::ErrorKind::Unsupported)),
             Driver::Tap(tap) => tap.get_mac(),
@@ -490,7 +490,7 @@ impl DeviceImpl {
     ///
     /// Windows only. Requires administrator privileges.
     pub fn set_metric(&self, metric: u16) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         super::ffi::set_interface_metric(self.if_index_impl()?, metric as u32)
     }
     /// Retrieves the version of the underlying driver.
@@ -498,7 +498,7 @@ impl DeviceImpl {
     /// For TUN devices, this directly queries the driver version.
     /// For TAP devices, the version is composed of several components joined by dots.
     pub fn version(&self) -> io::Result<String> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.read().unwrap();
         match &self.driver {
             Driver::Tun(tun) => tun.version(),
             Driver::Tap(tap) => tap.get_version().map(|v| {
@@ -512,13 +512,13 @@ impl DeviceImpl {
     /// Set DNS servers for the current device (supports primary and secondary DNS)
     /// dns_servers: A priority-ordered list of DNS servers (must be all IPv4 or all IPv6)
     pub fn set_dns_servers(&self, dns_servers: &[IpAddr]) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         dns::set_dns_servers(self.if_index_impl()?, &self.luid_impl(), dns_servers)
     }
     /// Clear DNS configuration for the current device (restore to automatic acquisition)
     /// is_ipv4: true to clear IPv4 DNS, false to clear IPv6 DNS
     pub fn clear_dns_servers(&self, is_ipv4: bool) -> io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.write().unwrap();
         dns::clear_dns_servers(self.if_index_impl()?, &self.luid_impl(), is_ipv4)
     }
 }

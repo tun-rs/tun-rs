@@ -157,7 +157,7 @@ impl DeviceImpl {
     /// C-compatible string (CString) and then calls the libc function `if_nametoindex`
     /// to retrieve the corresponding interface index.
     pub fn if_index(&self) -> io::Result<u32> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         self.if_index_impl()
     }
     pub(crate) fn if_index_impl(&self) -> io::Result<u32> {
@@ -189,7 +189,7 @@ impl DeviceImpl {
     /// # Note
     /// Retrieve whether the packet is ignored for the TUN Device; The TAP device always returns `false`.
     pub fn ignore_packet_info(&self) -> bool {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         self.tun.ignore_packet_info()
     }
     /// Sets whether the TUN device should ignore packet information (PI).
@@ -204,7 +204,7 @@ impl DeviceImpl {
     /// # Note
     /// This only works for a TUN device; The invocation will be ignored if the device is a TAP.
     pub fn set_ignore_packet_info(&self, ign: bool) {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         self.tun.set_ignore_packet_info(ign)
     }
 }
