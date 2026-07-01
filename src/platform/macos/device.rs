@@ -8,7 +8,7 @@ use crate::{
 
 use crate::platform::macos::tuntap::TunTap;
 use crate::platform::unix::device::{ctl, ctl_v6};
-use crate::platform::unix::{Tun, Fd};
+use crate::platform::unix::{Fd, Tun};
 use crate::platform::ETHER_ADDR_LEN;
 use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
