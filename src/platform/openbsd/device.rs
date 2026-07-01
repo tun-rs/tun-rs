@@ -492,7 +492,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         let associate_route = self.associate_route.load(Ordering::Relaxed);
         self.set_network_address_impl(address, netmask, destination, associate_route)
     }
@@ -534,7 +534,7 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         let associate_route = self.associate_route.load(Ordering::Relaxed);
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
@@ -543,7 +543,7 @@ impl DeviceImpl {
     }
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             match addr {
                 IpAddr::V4(addr) => {
@@ -600,7 +600,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         let associate_route = self.associate_route.load(Ordering::Relaxed);
         self.add_address(
             addr.ipv6()?.into(),
