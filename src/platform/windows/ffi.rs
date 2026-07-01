@@ -508,17 +508,18 @@ pub fn notify_change_key_value(
         event => Ok(event),
     }?;
 
-    let result = match unsafe { RegNotifyChangeKeyValue(key, watch_subtree, notify_filter, event, TRUE) } {
-        0 => match unsafe { WaitForSingleObject(event, milliseconds) } {
-            0 => Ok(()),
-            0x102 => Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "Registry timed out",
-            )),
-            _ => Err(io::Error::last_os_error()),
-        },
-        _err => Err(io::Error::last_os_error()),
-    };
+    let result =
+        match unsafe { RegNotifyChangeKeyValue(key, watch_subtree, notify_filter, event, TRUE) } {
+            0 => match unsafe { WaitForSingleObject(event, milliseconds) } {
+                0 => Ok(()),
+                0x102 => Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Registry timed out",
+                )),
+                _ => Err(io::Error::last_os_error()),
+            },
+            _err => Err(io::Error::last_os_error()),
+        };
 
     unsafe { CloseHandle(event) };
 
