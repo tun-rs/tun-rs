@@ -13,12 +13,14 @@ use crate::platform::ETHER_ADDR_LEN;
 use libc::{self, c_char, c_short, IFF_RUNNING, IFF_UP};
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
 
 /// A TUN device using the TUN macOS driver.
 pub struct DeviceImpl {
     pub(crate) tun: TunTap,
-    pub(crate) op_lock: Mutex<bool>,
+    pub(crate) op_lock: RwLock<()>,
+    pub(crate) associate_route: AtomicBool,
 }
 
 impl DeviceImpl {
@@ -33,14 +35,16 @@ impl DeviceImpl {
         };
         let device_impl = DeviceImpl {
             tun: tun_tap,
-            op_lock: Mutex::new(associate_route),
+            op_lock: RwLock::new(()),
+            associate_route: AtomicBool::new(associate_route),
         };
         Ok(device_impl)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
         Ok(Self {
             tun: TunTap::Tun(tun),
-            op_lock: Mutex::new(true),
+            op_lock: RwLock::new(()),
+            associate_route: AtomicBool::new(true),
         })
     }
     /// Prepare a new request.
@@ -180,7 +184,7 @@ impl DeviceImpl {
 impl DeviceImpl {
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         self.name_impl()
     }
     /// System behavior:
@@ -191,20 +195,23 @@ impl DeviceImpl {
     /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
     /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
+        let _guard = self.op_lock.write().unwrap();
         if self.tun.is_tun() {
-            *self.op_lock.lock().unwrap() = associate_route;
+            self.associate_route
+                .store(associate_route, Ordering::Relaxed);
         }
     }
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
-        *self.op_lock.lock().unwrap()
+        let _guard = self.op_lock.read().unwrap();
+        self.associate_route.load(Ordering::Relaxed)
     }
     /// Enables or disables the network interface.
     ///
     /// If `value` is true, the interface is enabled by setting the IFF_UP and IFF_RUNNING flags.
     /// If false, the IFF_UP flag is cleared. The change is applied using a system call.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -228,7 +235,7 @@ impl DeviceImpl {
     }
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> io::Result<u16> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -243,7 +250,7 @@ impl DeviceImpl {
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         self.tun.set_mtu(value)
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
@@ -254,8 +261,9 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let guard = self.op_lock.lock().unwrap();
-        self.set_network_address_impl(address, netmask, destination, *guard)
+        let _guard = self.op_lock.write().unwrap();
+        let associate_route = self.associate_route.load(Ordering::Relaxed);
+        self.set_network_address_impl(address, netmask, destination, associate_route)
     }
     /// Add IPv4 network address and netmask to the interface.
     ///
@@ -295,7 +303,8 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let associate_route = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
+        let associate_route = self.associate_route.load(Ordering::Relaxed);
         let netmask = netmask.netmask()?;
         let address = address.ipv4()?;
         let default_dest = self.calc_dest_addr(address.into(), netmask.into())?;
@@ -305,13 +314,13 @@ impl DeviceImpl {
                 "invalid destination for address/netmask",
             ));
         };
-        self.add_address(address, default_dest, netmask, *associate_route)?;
+        self.add_address(address, default_dest, netmask, associate_route)?;
         Ok(())
     }
     /// Remove an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
-        let guard = self.op_lock.lock().unwrap();
-        let is_associate_route = *guard;
+        let _guard = self.op_lock.write().unwrap();
+        let is_associate_route = self.associate_route.load(Ordering::Relaxed);
         unsafe {
             match addr {
                 IpAddr::V4(addr_v4) => {
@@ -379,7 +388,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         let addr = addr.ipv6()?;
         unsafe {
             let tun_name = self.name_impl()?;
@@ -405,12 +414,12 @@ impl DeviceImpl {
     }
     /// Set MAC address on L2 layer
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         self.tun.set_mac_address(eth_addr)
     }
     /// Retrieve MAC address for the device
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         self.tun.mac_address()
     }
 }

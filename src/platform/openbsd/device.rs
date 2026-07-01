@@ -12,14 +12,16 @@ use crate::platform::unix::device::{copy_device_name, ctl, ctl_v6};
 use libc::{self, c_char, c_short, ifreq, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
 use std::io::ErrorKind;
 use std::os::fd::{IntoRawFd, RawFd};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::RwLock;
 use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     name: String,
     pub(crate) tun: Tun,
-    pub(crate) op_lock: Mutex<bool>,
+    pub(crate) op_lock: RwLock<()>,
+    pub(crate) associate_route: AtomicBool,
 }
 impl IntoRawFd for DeviceImpl {
     fn into_raw_fd(mut self) -> RawFd {
@@ -65,7 +67,8 @@ impl DeviceImpl {
         Ok(DeviceImpl {
             name,
             tun,
-            op_lock: Mutex::new(associate_route),
+            op_lock: RwLock::new(()),
+            associate_route: AtomicBool::new(associate_route),
         })
     }
     fn create_tuntap(layer: Layer, dev_name: Option<String>) -> io::Result<(Fd, String)> {
@@ -196,7 +199,8 @@ impl DeviceImpl {
         Ok(Self {
             name,
             tun,
-            op_lock: Mutex::new(true),
+            op_lock: RwLock::new(()),
+            associate_route: AtomicBool::new(true),
         })
     }
 
@@ -289,11 +293,14 @@ impl DeviceImpl {
     /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
     /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
-        *self.op_lock.lock().unwrap() = associate_route;
+        let _guard = self.op_lock.write().unwrap();
+        self.associate_route
+            .store(associate_route, Ordering::Relaxed);
     }
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
-        *self.op_lock.lock().unwrap()
+        let _guard = self.op_lock.read().unwrap();
+        self.associate_route.load(Ordering::Relaxed)
     }
     fn add_route(&self, addr: IpAddr, netmask: IpAddr, associate_route: bool) -> io::Result<()> {
         if !associate_route {
@@ -392,7 +399,7 @@ impl DeviceImpl {
     /// # Note
     /// Retrieve whether the packet is ignored for the TUN Device; The TAP device always returns `false`.
     pub fn ignore_packet_info(&self) -> bool {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         self.tun.ignore_packet_info()
     }
     /// Sets whether the TUN device should ignore packet information (PI).
@@ -408,7 +415,7 @@ impl DeviceImpl {
     /// # Note
     /// This only works for a TUN device; The invocation will be ignored if the device is a TAP.
     pub fn set_ignore_packet_info(&self, ign: bool) {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         if let Ok(name) = self.name_impl() {
             if name.starts_with("tun") {
                 self.tun.set_ignore_packet_info(ign)
@@ -417,7 +424,7 @@ impl DeviceImpl {
     }
     /// Enables or disables the network interface.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req = self.request()?;
             let ctl = ctl()?;
@@ -441,7 +448,7 @@ impl DeviceImpl {
     }
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> io::Result<u16> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name_impl()?;
@@ -460,7 +467,7 @@ impl DeviceImpl {
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name_impl()?;
@@ -485,8 +492,9 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let guard = self.op_lock.lock().unwrap();
-        self.set_network_address_impl(address, netmask, destination, *guard)
+        let _guard = self.op_lock.write().unwrap();
+        let associate_route = self.associate_route.load(Ordering::Relaxed);
+        self.set_network_address_impl(address, netmask, destination, associate_route)
     }
     /// Add IPv4 network address and netmask to the interface.
     ///
@@ -526,15 +534,16 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
+        let associate_route = self.associate_route.load(Ordering::Relaxed);
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
         let default_dest = self.calc_dest_addr(addr, netmask)?;
-        self.add_address(addr, netmask, Some(default_dest), *guard)
+        self.add_address(addr, netmask, Some(default_dest), associate_route)
     }
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             match addr {
                 IpAddr::V4(addr) => {
@@ -591,8 +600,14 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let guard = self.op_lock.lock().unwrap();
-        self.add_address(addr.ipv6()?.into(), netmask.netmask()?.into(), None, *guard)
+        let _guard = self.op_lock.write().unwrap();
+        let associate_route = self.associate_route.load(Ordering::Relaxed);
+        self.add_address(
+            addr.ipv6()?.into(),
+            netmask.netmask()?.into(),
+            None,
+            associate_route,
+        )
     }
     /// Sets the MAC (hardware) address for the interface.
     ///
@@ -600,7 +615,7 @@ impl DeviceImpl {
     /// into the hardware address field. It then applies the change via a system call.
     /// This operation is typically supported only for TAP devices.
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_addr.sa_len = ETHER_ADDR_LEN;
@@ -615,7 +630,7 @@ impl DeviceImpl {
     }
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         self.name_impl()
     }
     /// Retrieves the MAC (hardware) address of the interface.
@@ -623,7 +638,7 @@ impl DeviceImpl {
     /// This function queries the MAC address by the interface name using getifaddrs.
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         let name = self.name_impl()?;
         let interfaces = getifaddrs::getifaddrs()?;
         for interface in interfaces {

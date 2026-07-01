@@ -44,7 +44,7 @@ pub(crate) mod device;
 pub struct DeviceImpl {
     pub(crate) tun: Tun,
     #[allow(dead_code)]
-    pub(crate) op_lock: std::sync::Mutex<()>,
+    pub(crate) op_lock: std::sync::RwLock<()>,
 }
 #[cfg(all(
     unix,
@@ -61,7 +61,7 @@ impl DeviceImpl {
     pub(crate) fn from_tun(tun: Tun) -> std::io::Result<Self> {
         Ok(Self {
             tun,
-            op_lock: std::sync::Mutex::new(()),
+            op_lock: std::sync::RwLock::new(()),
         })
     }
 }
