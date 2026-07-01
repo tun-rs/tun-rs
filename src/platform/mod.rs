@@ -802,7 +802,10 @@ impl Deref for SyncDevice {
 #[cfg(unix)]
 impl FromRawFd for SyncDevice {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        SyncDevice::from_fd(fd).unwrap()
+        SyncDevice::from_fd(fd).expect(
+            "Failed to create device from file descriptor. \
+             The provided fd must be a valid, open file descriptor for a TUN/TAP device.",
+        )
     }
 }
 #[cfg(unix)]

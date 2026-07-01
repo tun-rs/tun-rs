@@ -30,7 +30,9 @@ use windows_sys::{
             SP_CLASSINSTALL_HEADER, SP_DEVINFO_DATA, SP_DRVINFO_DATA_V2_W,
             SP_DRVINFO_DETAIL_DATA_W, SP_PROPCHANGE_PARAMS,
         },
-        Foundation::{GetLastError, ERROR_NO_MORE_ITEMS, FALSE, FILETIME, HANDLE, TRUE},
+        Foundation::{
+            CloseHandle, GetLastError, ERROR_NO_MORE_ITEMS, FALSE, FILETIME, HANDLE, TRUE,
+        },
         NetworkManagement::{
             IpHelper::{
                 ConvertInterfaceAliasToLuid, ConvertInterfaceLuidToAlias,
@@ -506,19 +508,21 @@ pub fn notify_change_key_value(
         event => Ok(event),
     }?;
 
-    match unsafe { RegNotifyChangeKeyValue(key, watch_subtree, notify_filter, event, TRUE) } {
-        0 => Ok(()),
+    let result = match unsafe { RegNotifyChangeKeyValue(key, watch_subtree, notify_filter, event, TRUE) } {
+        0 => match unsafe { WaitForSingleObject(event, milliseconds) } {
+            0 => Ok(()),
+            0x102 => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Registry timed out",
+            )),
+            _ => Err(io::Error::last_os_error()),
+        },
         _err => Err(io::Error::last_os_error()),
-    }?;
+    };
 
-    match unsafe { WaitForSingleObject(event, milliseconds) } {
-        0 => Ok(()),
-        0x102 => Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "Registry timed out",
-        )),
-        _ => Err(io::Error::last_os_error()),
-    }
+    unsafe { CloseHandle(event) };
+
+    result
 }
 
 pub fn enum_driver_info(

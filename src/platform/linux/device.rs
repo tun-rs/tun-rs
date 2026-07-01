@@ -218,14 +218,12 @@ impl DeviceImpl {
     ///
     /// This is determined by the `udp_gso` flag in the device.
     pub fn udp_gso(&self) -> bool {
-        let _guard = self.op_lock.lock().unwrap();
         self.udp_gso
     }
     /// Returns whether TCP Generic Segmentation Offload (GSO) is enabled.
     ///
     /// In this implementation, this is represented by the `vnet_hdr` flag.
     pub fn tcp_gso(&self) -> bool {
-        let _guard = self.op_lock.lock().unwrap();
         self.vnet_hdr
     }
     /// Sets the transmit queue length for the network interface.
