@@ -20,6 +20,8 @@ pub struct DeviceImpl {
     name: String,
     pub(crate) tun: Tun,
     pub(crate) op_lock: Mutex<bool>,
+    ctl_fd: Fd,
+    ctl_v6_fd: Fd,
 }
 impl IntoRawFd for DeviceImpl {
     fn into_raw_fd(mut self) -> RawFd {
@@ -62,10 +64,13 @@ impl DeviceImpl {
         } else {
             tun.set_ignore_packet_info(!config.packet_information.unwrap_or(false));
         }
+        let (ctl_fd, ctl_v6_fd) = unsafe { (ctl()?, ctl_v6()?) };
         Ok(DeviceImpl {
             name,
             tun,
             op_lock: Mutex::new(associate_route),
+            ctl_fd,
+            ctl_v6_fd,
         })
     }
     fn create_tuntap(layer: Layer, dev_name: Option<String>) -> io::Result<(Fd, String)> {
@@ -193,10 +198,13 @@ impl DeviceImpl {
         } else {
             tun.set_ignore_packet_info(true);
         }
+        let (ctl_fd, ctl_v6_fd) = unsafe { (ctl()?, ctl_v6()?) };
         Ok(Self {
             name,
             tun,
             op_lock: Mutex::new(true),
+            ctl_fd,
+            ctl_v6_fd,
         })
     }
 
@@ -219,7 +227,6 @@ impl DeviceImpl {
         unsafe {
             match addr {
                 IpAddr::V4(_) => {
-                    let ctl = ctl()?;
                     let mut req: ifaliasreq = mem::zeroed();
                     let tun_name = self.name_impl()?;
                     ptr::copy_nonoverlapping(
@@ -236,7 +243,7 @@ impl DeviceImpl {
                     }
                     req.ifra_mask = crate::platform::unix::sockaddr_union::from((mask, 0)).addr;
 
-                    if let Err(err) = siocaifaddr(ctl.as_raw_fd(), &req) {
+                    if let Err(err) = siocaifaddr(self.ctl_fd.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
                     }
                     if let Err(e) = self.add_route(addr, mask, associate_route) {
@@ -259,7 +266,7 @@ impl DeviceImpl {
                     req.ifra_lifetime.ia6t_vltime = 0xffffffff_u32;
                     req.ifra_lifetime.ia6t_pltime = 0xffffffff_u32;
                     req.ifra_flags = IN6_IFF_NODAD;
-                    if let Err(err) = siocaifaddr_in6(ctl_v6()?.as_raw_fd(), &req) {
+                    if let Err(err) = siocaifaddr_in6(self.ctl_v6_fd.as_raw_fd(), &req) {
                         return Err(io::Error::from(err));
                     }
                 }
@@ -347,7 +354,7 @@ impl DeviceImpl {
         unsafe {
             let req_v4 = self.request()?;
             loop {
-                if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
+                if let Err(err) = siocdifaddr(self.ctl_fd.as_raw_fd(), &req_v4) {
                     if err == nix::errno::Errno::EADDRNOTAVAIL {
                         break;
                     }
@@ -420,9 +427,8 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut req = self.request()?;
-            let ctl = ctl()?;
 
-            if let Err(err) = siocgifflags(ctl.as_raw_fd(), &mut req) {
+            if let Err(err) = siocgifflags(self.ctl_fd.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
 
@@ -432,7 +438,7 @@ impl DeviceImpl {
                 req.ifr_ifru.ifru_flags &= !(IFF_UP as c_short);
             }
 
-            if let Err(err) = siocsifflags(ctl.as_raw_fd(), &req) {
+            if let Err(err) = siocsifflags(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
 
@@ -450,7 +456,7 @@ impl DeviceImpl {
                 req.ifr_name.as_mut_ptr(),
                 tun_name.len(),
             );
-            if let Err(err) = siocgifmtu(ctl()?.as_raw_fd(), &mut req) {
+            if let Err(err) = siocgifmtu(self.ctl_fd.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
 
@@ -471,7 +477,7 @@ impl DeviceImpl {
             );
             req.mtu = value as _;
 
-            if let Err(err) = siocsifmtu(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifmtu(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())
@@ -540,14 +546,14 @@ impl DeviceImpl {
                 IpAddr::V4(addr) => {
                     let mut req_v4 = self.request()?;
                     req_v4.ifr_ifru.ifru_addr = sockaddr_union::from((addr, 0)).addr;
-                    if let Err(err) = siocdifaddr(ctl()?.as_raw_fd(), &req_v4) {
+                    if let Err(err) = siocdifaddr(self.ctl_fd.as_raw_fd(), &req_v4) {
                         return Err(io::Error::from(err));
                     }
                 }
                 IpAddr::V6(addr) => {
                     let mut req_v6 = self.request_v6()?;
                     req_v6.ifr_ifru.ifru_addr = sockaddr_union::from((addr, 0)).addr6;
-                    if let Err(err) = siocdifaddr_in6(ctl_v6()?.as_raw_fd(), &req_v6) {
+                    if let Err(err) = siocdifaddr_in6(self.ctl_v6_fd.as_raw_fd(), &req_v6) {
                         return Err(io::Error::from(err));
                     }
                 }
@@ -607,7 +613,7 @@ impl DeviceImpl {
             req.ifr_ifru.ifru_addr.sa_family = AF_LINK as u8;
             req.ifr_ifru.ifru_addr.sa_data[0..ETHER_ADDR_LEN as usize]
                 .copy_from_slice(eth_addr.map(|c| c as i8).as_slice());
-            if let Err(err) = siocsiflladdr(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsiflladdr(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())

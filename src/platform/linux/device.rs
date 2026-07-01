@@ -38,6 +38,8 @@ pub struct DeviceImpl {
     pub(crate) udp_gso: bool,
     flags: c_short,
     pub(crate) op_lock: Arc<Mutex<()>>,
+    ctl_fd: Fd,
+    ctl_v6_fd: Fd,
 }
 
 impl DeviceImpl {
@@ -144,6 +146,8 @@ impl DeviceImpl {
                 udp_gso,
                 flags: req.ifr_ifru.ifru_flags,
                 op_lock: Arc::new(Mutex::new(())),
+                ctl_fd: ctl()?,
+                ctl_v6_fd: ctl_v6()?,
             };
             Ok(device)
         }
@@ -162,12 +166,15 @@ impl DeviceImpl {
             .map_err(|e| e.into())
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        let (ctl_fd, ctl_v6_fd) = unsafe { (ctl()?, ctl_v6()?) };
         Ok(Self {
             tun,
             vnet_hdr: false,
             udp_gso: false,
             flags: 0,
             op_lock: Arc::new(Mutex::new(())),
+            ctl_fd,
+            ctl_v6_fd,
         })
     }
 
@@ -202,6 +209,8 @@ impl DeviceImpl {
                 udp_gso: self.udp_gso,
                 flags,
                 op_lock: self.op_lock.clone(),
+                ctl_fd: ctl()?,
+                ctl_v6_fd: ctl_v6()?,
             };
             if dev.vnet_hdr {
                 if dev.udp_gso {
@@ -239,7 +248,7 @@ impl DeviceImpl {
         unsafe {
             let mut ifreq = self.request()?;
             ifreq.ifr_ifru.ifru_metric = tx_queue_len as _;
-            if let Err(err) = change_tx_queue_len(ctl()?.as_raw_fd(), &ifreq) {
+            if let Err(err) = change_tx_queue_len(self.ctl_fd.as_raw_fd(), &ifreq) {
                 return Err(io::Error::from(err));
             }
         }
@@ -253,7 +262,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut ifreq = self.request()?;
-            if let Err(err) = tx_queue_len(ctl()?.as_raw_fd(), &mut ifreq) {
+            if let Err(err) = tx_queue_len(self.ctl_fd.as_raw_fd(), &mut ifreq) {
                 return Err(io::Error::from(err));
             }
             Ok(ifreq.ifr_ifru.ifru_metric as _)
@@ -691,14 +700,13 @@ impl DeviceImpl {
     pub fn remove_address_v6_impl(&self, addr: Ipv6Addr, prefix: u8) -> io::Result<()> {
         unsafe {
             let if_index = self.if_index_impl()?;
-            let ctl = ctl_v6()?;
             let mut ifrv6: in6_ifreq = mem::zeroed();
             ifrv6.ifr6_ifindex = if_index as i32;
             ifrv6.ifr6_prefixlen = prefix as _;
             ifrv6.ifr6_addr = sockaddr_union::from(std::net::SocketAddr::new(addr.into(), 0))
                 .addr6
                 .sin6_addr;
-            if let Err(err) = siocdifaddr_in6(ctl.as_raw_fd(), &ifrv6) {
+            if let Err(err) = siocdifaddr_in6(self.ctl_v6_fd.as_raw_fd(), &ifrv6) {
                 return Err(io::Error::from(err));
             }
         }
@@ -715,7 +723,7 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
             ipaddr_to_sockaddr(addr, 0, &mut req.ifr_ifru.ifru_addr, OVERWRITE_SIZE);
-            if let Err(err) = siocsifaddr(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifaddr(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
         }
@@ -725,7 +733,7 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
             ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_netmask, OVERWRITE_SIZE);
-            if let Err(err) = siocsifnetmask(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifnetmask(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())
@@ -736,7 +744,7 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
             ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_dstaddr, OVERWRITE_SIZE);
-            if let Err(err) = siocsifdstaddr(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifdstaddr(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())
@@ -750,10 +758,9 @@ impl DeviceImpl {
 
     fn ifru_flags(&self) -> io::Result<i16> {
         unsafe {
-            let ctl = ctl()?;
             let mut req = self.request()?;
 
-            if let Err(err) = siocgifflags(ctl.as_raw_fd(), &mut req) {
+            if let Err(err) = siocgifflags(self.ctl_fd.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
             Ok(req.ifr_ifru.ifru_flags)
@@ -825,7 +832,7 @@ impl DeviceImpl {
                 value.len(),
             );
 
-            if let Err(err) = siocsifname(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifname(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
 
@@ -847,10 +854,9 @@ impl DeviceImpl {
     pub fn enabled(&self, value: bool) -> io::Result<()> {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
-            let ctl = ctl()?;
             let mut req = self.request()?;
 
-            if let Err(err) = siocgifflags(ctl.as_raw_fd(), &mut req) {
+            if let Err(err) = siocgifflags(self.ctl_fd.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
 
@@ -860,7 +866,7 @@ impl DeviceImpl {
                 req.ifr_ifru.ifru_flags &= !(IFF_UP as c_short);
             }
 
-            if let Err(err) = siocsifflags(ctl.as_raw_fd(), &req) {
+            if let Err(err) = siocsifflags(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
 
@@ -893,7 +899,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let mut req = self.request()?;
-            if let Err(err) = siocgifbrdaddr(ctl()?.as_raw_fd(), &mut req) {
+            if let Err(err) = siocgifbrdaddr(self.ctl_fd.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
             let sa = sockaddr_union::from(req.ifr_ifru.ifru_broadaddr);
@@ -909,7 +915,7 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
             ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_broadaddr, OVERWRITE_SIZE);
-            if let Err(err) = siocsifbrdaddr(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifbrdaddr(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())
@@ -1073,7 +1079,6 @@ impl DeviceImpl {
         let _guard = self.op_lock.lock().unwrap();
         unsafe {
             let if_index = self.if_index_impl()?;
-            let ctl = ctl_v6()?;
             let mut ifrv6: in6_ifreq = mem::zeroed();
             ifrv6.ifr6_ifindex = if_index as i32;
             ifrv6.ifr6_prefixlen = netmask.prefix()? as u32;
@@ -1081,7 +1086,7 @@ impl DeviceImpl {
                 sockaddr_union::from(std::net::SocketAddr::new(addr.ipv6()?.into(), 0))
                     .addr6
                     .sin6_addr;
-            if let Err(err) = siocsifaddr_in6(ctl.as_raw_fd(), &ifrv6) {
+            if let Err(err) = siocsifaddr_in6(self.ctl_v6_fd.as_raw_fd(), &ifrv6) {
                 return Err(io::Error::from(err));
             }
         }
@@ -1096,7 +1101,7 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
 
-            if let Err(err) = siocgifmtu(ctl()?.as_raw_fd(), &mut req) {
+            if let Err(err) = siocgifmtu(self.ctl_fd.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
 
@@ -1135,7 +1140,7 @@ impl DeviceImpl {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_mtu = value as i32;
 
-            if let Err(err) = siocsifmtu(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifmtu(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())
@@ -1153,7 +1158,7 @@ impl DeviceImpl {
             req.ifr_ifru.ifru_hwaddr.sa_family = ARPHRD_ETHER;
             req.ifr_ifru.ifru_hwaddr.sa_data[0..ETHER_ADDR_LEN as usize]
                 .copy_from_slice(eth_addr.map(|c| c as _).as_slice());
-            if let Err(err) = siocsifhwaddr(ctl()?.as_raw_fd(), &req) {
+            if let Err(err) = siocsifhwaddr(self.ctl_fd.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())
@@ -1168,7 +1173,7 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
 
-            siocgifhwaddr(ctl()?.as_raw_fd(), &mut req).map_err(io::Error::from)?;
+            siocgifhwaddr(self.ctl_fd.as_raw_fd(), &mut req).map_err(io::Error::from)?;
 
             let hw = &req.ifr_ifru.ifru_hwaddr.sa_data;
 
