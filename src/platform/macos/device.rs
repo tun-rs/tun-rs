@@ -196,7 +196,8 @@ impl DeviceImpl {
     /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
         if self.tun.is_tun() {
-            self.associate_route.store(associate_route, Ordering::Relaxed);
+            self.associate_route
+                .store(associate_route, Ordering::Relaxed);
         }
     }
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
