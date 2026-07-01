@@ -374,8 +374,28 @@ pub fn get_device_registry_property(
     devinfo_data: &SP_DEVINFO_DATA,
     property: u32,
 ) -> io::Result<String> {
-    let mut value = vec![0; 32];
+    let mut required_size: u32 = 0;
+    // First call to get the required buffer size
+    unsafe {
+        SetupDiGetDeviceRegistryPropertyW(
+            devinfo,
+            devinfo_data as *const _ as _,
+            property,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            0,
+            &mut required_size,
+        );
+    }
 
+    if required_size == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "property not found or empty",
+        ));
+    }
+
+    let mut value = vec![0u16; (required_size / 2) as usize];
     match unsafe {
         SetupDiGetDeviceRegistryPropertyW(
             devinfo,
@@ -383,7 +403,7 @@ pub fn get_device_registry_property(
             property,
             ptr::null_mut(),
             value.as_mut_ptr() as _,
-            (value.len() * 2) as _,
+            required_size,
             ptr::null_mut(),
         )
     } {

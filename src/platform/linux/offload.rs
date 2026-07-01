@@ -850,7 +850,7 @@ fn checksum_valid(pkt: &[u8], iph_len: u8, proto: u8, is_v6: bool) -> bool {
         len_for_pseudo,
     );
 
-    !checksum(&pkt[iph_len as usize..], c_sum) == 0
+    checksum(&pkt[iph_len as usize..], c_sum) == 0
 }
 
 /// coalesceResult represents the result of attempting to coalesce two TCP
@@ -1138,7 +1138,11 @@ fn tcp_gro<B: ExpandBuffer>(
                     }
                     CoalesceResult::ItemInvalidCSum => {
                         // delete the item with an invalid csum
-                        // table.delete_at(item.key, i);
+                        // The deleted item will not be re-visited in apply_tcp_coalesce_accounting,
+                        // so we must zero the virtioNetHdr.
+                        bufs[item.bufs_index as usize].as_mut()
+                            [offset - VIRTIO_NET_HDR_LEN..offset]
+                            .fill(0);
                         items.remove(i);
                     }
                     CoalesceResult::PktInvalidCSum => {
@@ -1577,7 +1581,7 @@ pub fn handle_gro<B: ExpandBuffer>(
 ) -> io::Result<()> {
     let bufs_len = bufs.len();
     for i in 0..bufs_len {
-        if offset < VIRTIO_NET_HDR_LEN || offset > bufs[i].as_ref().len() - 1 {
+        if offset < VIRTIO_NET_HDR_LEN || offset >= bufs[i].as_ref().len() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "invalid offset",
