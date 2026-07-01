@@ -850,7 +850,7 @@ fn checksum_valid(pkt: &[u8], iph_len: u8, proto: u8, is_v6: bool) -> bool {
         len_for_pseudo,
     );
 
-    checksum(&pkt[iph_len as usize..], c_sum) == 0
+    !checksum(&pkt[iph_len as usize..], c_sum) == 0
 }
 
 /// coalesceResult represents the result of attempting to coalesce two TCP
