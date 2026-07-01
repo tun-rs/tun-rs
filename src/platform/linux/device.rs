@@ -20,7 +20,7 @@ use libc::{
     IFF_TAP, IFF_TUN, IFF_UP, IFNAMSIZ, O_RDWR,
 };
 use std::net::Ipv6Addr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::{
     ffi::CString,
     io, mem,
@@ -37,7 +37,7 @@ pub struct DeviceImpl {
     pub(crate) vnet_hdr: bool,
     pub(crate) udp_gso: bool,
     flags: c_short,
-    pub(crate) op_lock: Arc<Mutex<()>>,
+    pub(crate) op_lock: Arc<RwLock<()>>,
 }
 
 impl DeviceImpl {
@@ -143,7 +143,7 @@ impl DeviceImpl {
                 vnet_hdr,
                 udp_gso,
                 flags: req.ifr_ifru.ifru_flags,
-                op_lock: Arc::new(Mutex::new(())),
+                op_lock: Arc::new(RwLock::new(())),
             };
             Ok(device)
         }
@@ -167,7 +167,7 @@ impl DeviceImpl {
             vnet_hdr: false,
             udp_gso: false,
             flags: 0,
-            op_lock: Arc::new(Mutex::new(())),
+            op_lock: Arc::new(RwLock::new(())),
         })
     }
 
@@ -218,14 +218,12 @@ impl DeviceImpl {
     ///
     /// This is determined by the `udp_gso` flag in the device.
     pub fn udp_gso(&self) -> bool {
-        let _guard = self.op_lock.lock().unwrap();
         self.udp_gso
     }
     /// Returns whether TCP Generic Segmentation Offload (GSO) is enabled.
     ///
     /// In this implementation, this is represented by the `vnet_hdr` flag.
     pub fn tcp_gso(&self) -> bool {
-        let _guard = self.op_lock.lock().unwrap();
         self.vnet_hdr
     }
     /// Sets the transmit queue length for the network interface.
@@ -235,7 +233,7 @@ impl DeviceImpl {
     /// and calls the `change_tx_queue_len` function using the control file descriptor.
     /// If the underlying operation fails, an I/O error is returned.
     pub fn set_tx_queue_len(&self, tx_queue_len: u32) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut ifreq = self.request()?;
             ifreq.ifr_ifru.ifru_metric = tx_queue_len as _;
@@ -250,7 +248,7 @@ impl DeviceImpl {
     /// This function constructs an interface request structure and calls `tx_queue_len`
     /// to populate it with the current transmit queue length. The value is then returned.
     pub fn tx_queue_len(&self) -> io::Result<u32> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         unsafe {
             let mut ifreq = self.request()?;
             if let Err(err) = tx_queue_len(ctl()?.as_raw_fd(), &mut ifreq) {
@@ -284,7 +282,7 @@ impl DeviceImpl {
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn persist(&self) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             if let Err(err) = tunsetpersist(self.as_raw_fd(), &1) {
                 Err(io::Error::from(err))
@@ -316,7 +314,7 @@ impl DeviceImpl {
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn user(&self, value: i32) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             if let Err(err) = tunsetowner(self.as_raw_fd(), &value) {
                 Err(io::Error::from(err))
@@ -348,7 +346,7 @@ impl DeviceImpl {
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn group(&self, value: i32) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             if let Err(err) = tunsetgroup(self.as_raw_fd(), &value) {
                 Err(io::Error::from(err))
@@ -777,11 +775,11 @@ impl DeviceImpl {
 impl DeviceImpl {
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         self.name_impl()
     }
     pub fn remove_address_v6(&self, addr: Ipv6Addr, prefix: u8) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         self.remove_address_v6_impl(addr, prefix)
     }
     /// Sets a new name for the network interface.
@@ -810,7 +808,7 @@ impl DeviceImpl {
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn set_name(&self, value: &str) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let tun_name = CString::new(value)?;
 
@@ -836,7 +834,7 @@ impl DeviceImpl {
     ///
     /// The interface is considered running if both the IFF_UP and IFF_RUNNING flags are set.
     pub fn is_running(&self) -> io::Result<bool> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         let flags = self.ifru_flags()?;
         Ok(flags & (IFF_UP | IFF_RUNNING) as c_short == (IFF_UP | IFF_RUNNING) as c_short)
     }
@@ -845,7 +843,7 @@ impl DeviceImpl {
     /// If `value` is true, the interface is enabled by setting the IFF_UP and IFF_RUNNING flags.
     /// If false, the IFF_UP flag is cleared. The change is applied using a system call.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -890,7 +888,7 @@ impl DeviceImpl {
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn broadcast(&self) -> io::Result<IpAddr> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         unsafe {
             let mut req = self.request()?;
             if let Err(err) = siocgifbrdaddr(ctl()?.as_raw_fd(), &mut req) {
@@ -905,7 +903,7 @@ impl DeviceImpl {
     /// This function converts the given IP address into a sockaddr structure (with a specified overwrite size)
     /// and then applies it to the interface via a system call.
     pub fn set_broadcast(&self, value: IpAddr) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req = self.request()?;
             ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_broadaddr, OVERWRITE_SIZE);
@@ -941,7 +939,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         self.remove_all_address_v4()?;
         self.set_address_v4(address.ipv4()?)?;
         self.set_netmask(netmask.netmask()?)?;
@@ -977,7 +975,7 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
             .map_err(io::Error::from)?;
         interface
@@ -1013,7 +1011,7 @@ impl DeviceImpl {
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         match addr {
             IpAddr::V4(_) => {
                 let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
@@ -1070,7 +1068,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let if_index = self.if_index_impl()?;
             let ctl = ctl_v6()?;
@@ -1092,7 +1090,7 @@ impl DeviceImpl {
     /// This function constructs an interface request and uses a system call (via `siocgifmtu`)
     /// to obtain the MTU. The result is then converted to a u16.
     pub fn mtu(&self) -> io::Result<u16> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         unsafe {
             let mut req = self.request()?;
 
@@ -1130,7 +1128,7 @@ impl DeviceImpl {
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_mtu = value as i32;
@@ -1147,7 +1145,7 @@ impl DeviceImpl {
     /// into the hardware address field. It then applies the change via a system call.
     /// This operation is typically supported only for TAP devices.
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_hwaddr.sa_family = ARPHRD_ETHER;
@@ -1164,7 +1162,7 @@ impl DeviceImpl {
     /// This function queries the MAC address by the interface name using a helper function.
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
-        let _guard = self.op_lock.lock().unwrap();
+        let _guard = self.op_lock.read().unwrap();
         unsafe {
             let mut req = self.request()?;
 
