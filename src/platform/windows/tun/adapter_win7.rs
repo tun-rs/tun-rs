@@ -66,8 +66,11 @@ pub fn check_adapter_if_orphaned_devices_win7(adapter_name: &str) -> bool {
                     );
 
                     if ok != 0 && ptype == DEVPROP_TYPE_BINARY && {
-                        let owning_process = buf.as_ptr() as *const OwningProcess;
-                        !process_is_stale(&*owning_process)
+                        // SAFETY: buf is [u8] (alignment 1) but OwningProcess requires alignment 4.
+                        // Use read_unaligned to avoid UB from misaligned access.
+                        let owning_process =
+                            std::ptr::read_unaligned(buf.as_ptr() as *const OwningProcess);
+                        !process_is_stale(&owning_process)
                     } {
                         continue;
                     }
