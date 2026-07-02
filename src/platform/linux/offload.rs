@@ -1703,6 +1703,9 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
     out_offset: usize,
     is_v6: bool,
 ) -> io::Result<usize> {
+    if out_bufs.len() != sizes.len() {
+        return Err(io::Error::other("out_bufs and sizes must have the same length"));
+    }
     let iph_len = hdr.csum_start as usize;
     let (src_addr_offset, addr_len) = if is_v6 {
         (IPV6_SRC_ADDR_OFFSET, 16)
