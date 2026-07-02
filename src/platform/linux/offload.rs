@@ -478,11 +478,14 @@ impl TcpGROTable {
         let key = TcpFlowKey::new(pkt, src_addr_offset, dst_addr_offset, tcph_offset);
         let item = TcpGROItem {
             key,
-            bufs_index: bufs_index as u16,
+            bufs_index: bufs_index.try_into().expect("bufs_index exceeds u16::MAX"),
             num_merged: 0,
-            gso_size: pkt[tcph_offset + tcph_len..].len() as u16,
-            iph_len: tcph_offset as u8,
-            tcph_len: tcph_len as u8,
+            gso_size: pkt[tcph_offset + tcph_len..]
+                .len()
+                .try_into()
+                .expect("gso_size exceeds u16::MAX"),
+            iph_len: tcph_offset.try_into().expect("iph_len exceeds u8::MAX"),
+            tcph_len: tcph_len.try_into().expect("tcph_len exceeds u8::MAX"),
             sent_seq: BigEndian::read_u32(&pkt[tcph_offset + 4..tcph_offset + 8]),
             psh_set: pkt[tcph_offset + TCP_FLAGS_OFFSET] & TCP_FLAG_PSH != 0,
         };
@@ -634,10 +637,12 @@ impl UdpGROTable {
         let key = UdpFlowKey::new(pkt, src_addr_offset, dst_addr_offset, udph_offset);
         let item = UdpGROItem {
             key,
-            bufs_index: bufs_index as u16,
+            bufs_index: bufs_index.try_into().expect("bufs_index exceeds u16::MAX"),
             num_merged: 0,
-            gso_size: (pkt.len() - (udph_offset + UDP_H_LEN)) as u16,
-            iph_len: udph_offset as u8,
+            gso_size: (pkt.len() - (udph_offset + UDP_H_LEN))
+                .try_into()
+                .expect("gso_size exceeds u16::MAX"),
+            iph_len: udph_offset.try_into().expect("iph_len exceeds u8::MAX"),
             c_sum_known_invalid,
         };
         let items = self

@@ -35,12 +35,15 @@ impl Drop for DeviceImpl {
         if self.tun.fd.inner < 0 {
             return;
         }
+        let fd = self.tun.fd.inner;
+        self.tun.fd.inner = -1;
         unsafe {
+            // Try to destroy the interface before closing the fd.
+            // Even if destroy fails, we must still close the fd to avoid leaking it.
             if let (Ok(ctl), Ok(req)) = (ctl(), self.request()) {
-                libc::close(self.tun.fd.inner);
-                self.tun.fd.inner = -1;
                 _ = siocifdestroy(ctl.as_raw_fd(), &req);
             }
+            libc::close(fd);
         }
     }
 }

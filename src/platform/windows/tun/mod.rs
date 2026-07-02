@@ -194,14 +194,15 @@ impl Drop for WinTunSession {
 
 impl WinTunSession {
     fn send(&self, buf: &[u8], state: &State, event: Option<&OwnedHandle>) -> io::Result<usize> {
-        let mut count = 0;
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(5);
+        let mut backoff = std::time::Duration::from_millis(0);
         loop {
             return match self.try_send(buf) {
                 Ok(len) => Ok(len),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     state.check()?;
-                    count += 1;
-                    if count > 50 {
+                    if start.elapsed() > timeout {
                         return Err(io::Error::from(io::ErrorKind::TimedOut));
                     }
                     if let Some(event) = event {
@@ -212,7 +213,14 @@ impl WinTunSession {
                             ));
                         }
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    // Exponential backoff: 0, 1, 2, 4, 8, capped at 10ms
+                    if backoff.is_zero() {
+                        std::hint::spin_loop();
+                        backoff = std::time::Duration::from_millis(1);
+                    } else {
+                        std::thread::sleep(backoff);
+                        backoff = (backoff * 2).min(std::time::Duration::from_millis(10));
+                    }
                     continue;
                 }
                 Err(e) => Err(e),
@@ -221,12 +229,13 @@ impl WinTunSession {
     }
     fn recv(&self, inner_event: &OwnedHandle, buf: &mut [u8]) -> io::Result<usize> {
         loop {
-            for i in 0..64 {
+            // Limit spin iterations to reduce CPU waste; use yield_now after a few spins
+            for i in 0..16 {
                 return match self.try_recv(buf) {
                     Ok(n) => Ok(n),
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        if i > 32 {
-                            std::thread::yield_now()
+                        if i >= 4 {
+                            std::thread::yield_now();
                         } else {
                             std::hint::spin_loop();
                         }
@@ -235,6 +244,7 @@ impl WinTunSession {
                     Err(e) => Err(e),
                 };
             }
+            // After spin attempts, block on the read event (also signaled on disable)
             self.wait_readable(inner_event)?;
         }
     }

@@ -247,11 +247,12 @@ impl Tun {
             }
             let offset = bufs.len() + 1;
             let mut head = [0u8; PIL];
-            let mut iov_block =
-                [const { std::mem::MaybeUninit::uninit() }; crate::platform::unix::fd::max_iov()];
-            iov_block[0] = std::mem::MaybeUninit::new(IoSliceMut::new(&mut head));
-            for (index, buf) in bufs.iter_mut().enumerate() {
-                iov_block[index + 1] = std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut()));
+            // Use Vec to avoid large stack allocation (max_iov can be 1024 on macOS)
+            let mut iov_block: Vec<std::mem::MaybeUninit<IoSliceMut<'_>>> =
+                Vec::with_capacity(offset);
+            iov_block.push(std::mem::MaybeUninit::new(IoSliceMut::new(&mut head)));
+            for buf in bufs.iter_mut() {
+                iov_block.push(std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut())));
             }
             let part: &mut [IoSliceMut] = unsafe {
                 std::slice::from_raw_parts_mut(iov_block.as_mut_ptr() as *mut IoSliceMut, offset)
@@ -374,11 +375,12 @@ impl Tun {
             }
             let offset = bufs.len() + 1;
             let mut head = [0u8; PIL];
-            let mut iov_block =
-                [const { std::mem::MaybeUninit::uninit() }; crate::platform::unix::fd::max_iov()];
-            iov_block[0] = std::mem::MaybeUninit::new(IoSliceMut::new(&mut head));
-            for (index, buf) in bufs.iter_mut().enumerate() {
-                iov_block[index + 1] = std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut()));
+            // Use Vec to avoid large stack allocation (max_iov can be 1024 on macOS)
+            let mut iov_block: Vec<std::mem::MaybeUninit<IoSliceMut<'_>>> =
+                Vec::with_capacity(offset);
+            iov_block.push(std::mem::MaybeUninit::new(IoSliceMut::new(&mut head)));
+            for buf in bufs.iter_mut() {
+                iov_block.push(std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut())));
             }
             let part: &mut [IoSliceMut] = unsafe {
                 std::slice::from_raw_parts_mut(iov_block.as_mut_ptr() as *mut IoSliceMut, offset)
