@@ -29,6 +29,15 @@ pub const MIN_RING_CAPACITY: u32 = 0x2_0000;
 /// Maximum pool name length including zero terminator
 pub const MAX_POOL: usize = 256;
 
+// SAFETY: wintun_raw::NET_LUID and windows_sys::NET_LUID_LH are both
+// 8-byte unions representing the same Windows NET_LUID_LH structure.
+// This assertion guards the `transmute` calls between the two types
+// used in `TunDevice::open` and `TunDevice::create`.
+const _: () = assert!(
+    std::mem::size_of::<wintun_raw::NET_LUID>() == std::mem::size_of::<NET_LUID_LH>(),
+    "NET_LUID size mismatch between wintun and windows-sys"
+);
+
 pub struct TunDevice {
     index: u32,
     luid: NET_LUID_LH,
@@ -402,12 +411,7 @@ impl TunDevice {
                 session: Default::default(),
                 delete_driver,
             };
-            // SAFETY: wintun_raw::NET_LUID and windows_sys::NET_LUID_LH are both
-            // 8-byte unions representing the same Windows NET_LUID_LH structure.
-            const _: () = assert!(
-                std::mem::size_of::<wintun_raw::NET_LUID>() == std::mem::size_of::<NET_LUID_LH>(),
-                "NET_LUID size mismatch between wintun and windows-sys"
-            );
+            // SAFETY: see the module-level size assertion above.
             let luid = std::mem::transmute::<wintun_raw::NET_LUID, NET_LUID_LH>(luid);
             let index = ffi::luid_to_index(&luid)?;
 
@@ -485,8 +489,7 @@ impl TunDevice {
                 session: Default::default(),
                 delete_driver,
             };
-            // SAFETY: wintun_raw::NET_LUID and windows_sys::NET_LUID_LH are both
-            // 8-byte unions representing the same Windows NET_LUID_LH structure.
+            // SAFETY: see the module-level size assertion above.
             let luid = std::mem::transmute::<wintun_raw::NET_LUID, NET_LUID_LH>(luid);
             let index = ffi::luid_to_index(&luid)?;
 
