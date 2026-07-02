@@ -47,6 +47,14 @@ use std::sync::Mutex;
 
 const FETH: &str = "feth";
 const BUFFER_LEN: usize = 131072;
+const BPF_HDR_SIZE: usize = std::mem::size_of::<libc::bpf_hdr>();
+
+#[inline]
+fn next_bpf_step(bh_hdrlen: usize, bh_caplen: usize) -> Option<usize> {
+    let step = (bh_hdrlen + bh_caplen + 3) & !3;
+    (step >= BPF_HDR_SIZE).then_some(step)
+}
+
 pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<()> {
     let out = std::process::Command::new(command).args(args).output()?;
     if !out.status.success() {
@@ -248,7 +256,8 @@ impl Tap {
         if len > 0 {
             let mut p = 0;
             while p < len {
-                if len - p < std::mem::size_of::<libc::bpf_hdr>() {
+                let remaining_bytes = len - p;
+                if remaining_bytes < BPF_HDR_SIZE {
                     break;
                 }
                 // SAFETY: We use read_unaligned to avoid UB from misaligned access.
@@ -262,10 +271,9 @@ impl Tap {
                     let buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
                     bufs.push_back(buf.into());
                 }
-                let step = (bh_hdrlen + bh_caplen + 3) & !3;
-                if step < std::mem::size_of::<libc::bpf_hdr>() {
+                let Some(step) = next_bpf_step(bh_hdrlen, bh_caplen) else {
                     break;
-                }
+                };
                 p += step;
             }
         }
@@ -283,7 +291,8 @@ impl Tap {
         if len > 0 {
             let mut p = 0;
             while p < len {
-                if len - p < std::mem::size_of::<libc::bpf_hdr>() {
+                let remaining_bytes = len - p;
+                if remaining_bytes < BPF_HDR_SIZE {
                     break;
                 }
                 // SAFETY: We use read_unaligned to avoid UB from misaligned access.
@@ -309,10 +318,9 @@ impl Tap {
                         break;
                     }
                 }
-                let step = (bh_hdrlen + bh_caplen + 3) & !3;
-                if step < std::mem::size_of::<libc::bpf_hdr>() {
+                let Some(step) = next_bpf_step(bh_hdrlen, bh_caplen) else {
                     break;
-                }
+                };
                 p += step;
             }
         }
