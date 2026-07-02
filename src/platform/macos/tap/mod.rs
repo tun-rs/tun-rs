@@ -248,6 +248,9 @@ impl Tap {
         if len > 0 {
             let mut p = 0;
             while p < len {
+                if len - p < std::mem::size_of::<libc::bpf_hdr>() {
+                    break;
+                }
                 // SAFETY: We use read_unaligned to avoid UB from misaligned access.
                 // buffer is [u8] (alignment 1) but bpf_hdr requires alignment.
                 let hdr: libc::bpf_hdr = unsafe {
@@ -259,7 +262,11 @@ impl Tap {
                     let buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
                     bufs.push_back(buf.into());
                 }
-                p += (bh_hdrlen + bh_caplen + 3) & !3;
+                let step = (bh_hdrlen + bh_caplen + 3) & !3;
+                if step == 0 {
+                    break;
+                }
+                p += step;
             }
         }
         Ok(())
@@ -276,6 +283,9 @@ impl Tap {
         if len > 0 {
             let mut p = 0;
             while p < len {
+                if len - p < std::mem::size_of::<libc::bpf_hdr>() {
+                    break;
+                }
                 // SAFETY: We use read_unaligned to avoid UB from misaligned access.
                 let hdr: libc::bpf_hdr = unsafe {
                     std::ptr::read_unaligned(buffer.as_ptr().add(p) as *const libc::bpf_hdr)
@@ -299,7 +309,11 @@ impl Tap {
                         break;
                     }
                 }
-                p += (bh_hdrlen + bh_caplen + 3) & !3;
+                let step = (bh_hdrlen + bh_caplen + 3) & !3;
+                if step == 0 {
+                    break;
+                }
+                p += step;
             }
         }
         Ok(num)
