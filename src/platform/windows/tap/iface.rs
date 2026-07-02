@@ -23,15 +23,15 @@ use windows_sys::Win32::{
 };
 use winreg::RegKey;
 
-#[repr(C, align(1))]
-#[derive(c2rust_bitfields::BitfieldStruct)]
-#[allow(non_snake_case)]
-#[allow(non_camel_case_types)]
-struct _NET_LUID_LH {
-    #[bitfield(name = "Reserved", ty = "u64", bits = "0..=23")]
-    #[bitfield(name = "NetLuidIndex", ty = "u64", bits = "24..=47")]
-    #[bitfield(name = "IfType", ty = "u64", bits = "48..=63")]
-    _Value: [u8; 8],
+/// Builds a `NET_LUID_LH` from its `NetLuidIndex` and `IfType` bitfields.
+///
+/// `Value` layout, matching the C bitfields `Reserved:24; NetLuidIndex:24;
+/// IfType:16` (LSB-first on Windows' little-endian targets): `Reserved`
+/// occupies bits 0..=23, `NetLuidIndex` bits 24..=47, `IfType` bits 48..=63.
+fn net_luid(if_type: u64, net_luid_index: u64) -> NET_LUID_LH {
+    NET_LUID_LH {
+        Value: ((if_type & 0xFFFF) << 48) | ((net_luid_index & 0xFF_FFFF) << 24),
+    }
 }
 
 /// Create a new interface and returns its NET_LUID
@@ -135,15 +135,7 @@ pub fn create_interface(component_id: &str) -> io::Result<NET_LUID_LH> {
     // Defuse the uninstaller
     ScopeGuard::into_inner(uninstaller);
 
-    let mut luid = NET_LUID_LH { Value: 0 };
-
-    unsafe {
-        let luid = &mut luid as *mut NET_LUID_LH as *mut _NET_LUID_LH;
-        (*luid).set_IfType(if_type as _);
-        (*luid).set_NetLuidIndex(luid_index as _);
-    }
-
-    Ok(luid)
+    Ok(net_luid(if_type as _, luid_index as _))
 }
 
 /// Check if the given interface exists and is a valid network device
@@ -195,13 +187,7 @@ pub fn check_interface(component_id: &str, luid: &NET_LUID_LH) -> io::Result<()>
             Err(_) => continue,
         };
 
-        let mut luid2 = NET_LUID_LH { Value: 0 };
-
-        unsafe {
-            let luid2 = &mut luid2 as *mut NET_LUID_LH as *mut _NET_LUID_LH;
-            (*luid2).set_IfType(if_type as _);
-            (*luid2).set_NetLuidIndex(luid_index as _);
-        }
+        let luid2 = net_luid(if_type as _, luid_index as _);
 
         if unsafe { luid.Value != luid2.Value } {
             continue;
@@ -264,13 +250,7 @@ pub fn delete_interface(component_id: &str, luid: &NET_LUID_LH) -> io::Result<()
             Err(_) => continue,
         };
 
-        let mut luid2 = NET_LUID_LH { Value: 0 };
-
-        unsafe {
-            let luid2 = &mut luid2 as *mut NET_LUID_LH as *mut _NET_LUID_LH;
-            (*luid2).set_IfType(if_type as _);
-            (*luid2).set_NetLuidIndex(luid_index as _);
-        }
+        let luid2 = net_luid(if_type as _, luid_index as _);
 
         if unsafe { luid.Value != luid2.Value } {
             continue;
@@ -379,13 +359,7 @@ pub fn enable_adapter(component_id: &str, luid: &NET_LUID_LH, val: bool) -> io::
             Err(_) => continue,
         };
 
-        let mut luid2 = NET_LUID_LH { Value: 0 };
-
-        unsafe {
-            let luid2 = &mut luid2 as *mut NET_LUID_LH as *mut _NET_LUID_LH;
-            (*luid2).set_IfType(if_type as _);
-            (*luid2).set_NetLuidIndex(luid_index as _);
-        }
+        let luid2 = net_luid(if_type as _, luid_index as _);
 
         if unsafe { luid.Value != luid2.Value } {
             continue;
@@ -396,4 +370,31 @@ pub fn enable_adapter(component_id: &str, luid: &NET_LUID_LH, val: bool) -> io::
     }
 
     Err(io::Error::new(io::ErrorKind::NotFound, "Device not found"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::net_luid;
+
+    #[test]
+    fn net_luid_packs_if_type_and_index() {
+        // e.g. IF_TYPE_PROP_VIRTUAL (53), NetLuidIndex 5
+        let luid = net_luid(53, 5);
+        assert_eq!(unsafe { luid.Value }, (53u64 << 48) | (5u64 << 24));
+    }
+
+    #[test]
+    fn net_luid_truncates_to_field_widths() {
+        // Bits above IfType:16 / NetLuidIndex:24 must not leak into
+        // neighbouring fields.
+        let a = net_luid(0x1_2345, 0x1AB_CDEF);
+        let b = net_luid(0x2345, 0xAB_CDEF);
+        assert_eq!(unsafe { a.Value }, unsafe { b.Value });
+    }
+
+    #[test]
+    fn net_luid_zero_keeps_reserved_clear() {
+        let luid = net_luid(0, 0);
+        assert_eq!(unsafe { luid.Value }, 0);
+    }
 }
