@@ -263,7 +263,7 @@ impl Tap {
                     bufs.push_back(buf.into());
                 }
                 let step = (bh_hdrlen + bh_caplen + 3) & !3;
-                if step == 0 {
+                if step < std::mem::size_of::<libc::bpf_hdr>() {
                     break;
                 }
                 p += step;
@@ -310,7 +310,7 @@ impl Tap {
                     }
                 }
                 let step = (bh_hdrlen + bh_caplen + 3) & !3;
-                if step == 0 {
+                if step < std::mem::size_of::<libc::bpf_hdr>() {
                     break;
                 }
                 p += step;
