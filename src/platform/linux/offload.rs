@@ -1703,9 +1703,9 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
     out_offset: usize,
     is_v6: bool,
 ) -> io::Result<usize> {
-    if out_bufs.len() != sizes.len() {
+    if sizes.len() < out_bufs.len() {
         return Err(io::Error::other(
-            "out_bufs and sizes must have the same length",
+            "sizes must be at least as long as out_bufs",
         ));
     }
     let iph_len = hdr.csum_start as usize;

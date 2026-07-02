@@ -592,8 +592,8 @@ impl DeviceImpl {
         sizes: &mut [usize],
         offset: usize,
     ) -> io::Result<usize> {
-        if bufs.len() != sizes.len() {
-            return Err(io::Error::other("bufs and sizes must have the same length"));
+        if sizes.len() < bufs.len() {
+            return Err(io::Error::other("sizes must be at least as long as bufs"));
         }
         let len = input.len();
         if hdr.gso_type == VIRTIO_NET_HDR_GSO_NONE {
