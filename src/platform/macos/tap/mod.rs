@@ -47,6 +47,14 @@ use std::sync::Mutex;
 
 const FETH: &str = "feth";
 const BUFFER_LEN: usize = 131072;
+const BPF_HDR_SIZE: usize = std::mem::size_of::<libc::bpf_hdr>();
+
+#[inline]
+fn next_bpf_step(bh_hdrlen: usize, bh_caplen: usize) -> Option<usize> {
+    let step = (bh_hdrlen + bh_caplen + 3) & !3;
+    (step >= BPF_HDR_SIZE).then_some(step)
+}
+
 pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<()> {
     let out = std::process::Command::new(command).args(args).output()?;
     if !out.status.success() {
@@ -247,17 +255,26 @@ impl Tap {
         let len = self.s_bpf_fd.read(&mut buffer)?;
         if len > 0 {
             let mut p = 0;
-            unsafe {
-                while p < len {
-                    let hdr = buffer.as_ptr().add(p) as *const libc::bpf_hdr;
-                    let bh_caplen = (*hdr).bh_caplen as usize;
-                    let bh_hdrlen = (*hdr).bh_hdrlen as usize;
-                    if bh_caplen > 0 && p + bh_hdrlen + bh_caplen <= len {
-                        let buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
-                        bufs.push_back(buf.into());
-                    }
-                    p += ((*hdr).bh_hdrlen as usize + bh_caplen + 3) & !3;
+            while p < len {
+                let remaining_bytes = len - p;
+                if remaining_bytes < BPF_HDR_SIZE {
+                    break;
                 }
+                // SAFETY: We use read_unaligned to avoid UB from misaligned access.
+                // buffer is [u8] (alignment 1) but bpf_hdr requires alignment.
+                let hdr: libc::bpf_hdr = unsafe {
+                    std::ptr::read_unaligned(buffer.as_ptr().add(p) as *const libc::bpf_hdr)
+                };
+                let bh_caplen = hdr.bh_caplen as usize;
+                let bh_hdrlen = hdr.bh_hdrlen as usize;
+                if bh_caplen > 0 && p + bh_hdrlen + bh_caplen <= len {
+                    let buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
+                    bufs.push_back(buf.into());
+                }
+                let Some(step) = next_bpf_step(bh_hdrlen, bh_caplen) else {
+                    break;
+                };
+                p += step;
             }
         }
         Ok(())
@@ -273,30 +290,38 @@ impl Tap {
         let mut num = 0;
         if len > 0 {
             let mut p = 0;
-            unsafe {
-                while p < len {
-                    let hdr = buffer.as_ptr().add(p) as *const libc::bpf_hdr;
-                    let bh_caplen = (*hdr).bh_caplen as usize;
-                    let bh_hdrlen = (*hdr).bh_hdrlen as usize;
-                    if bh_caplen > 0 && p + bh_hdrlen + bh_caplen <= len {
-                        let buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
-                        if let Some(dst) = bufs.get_mut(num) {
-                            let dst = dst.as_mut();
-                            if dst.len() < buf.len() {
-                                return Err(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "buffer too small",
-                                ));
-                            }
-                            dst[..buf.len()].copy_from_slice(buf);
-                            sizes[num] = buf.len();
-                            num += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    p += ((*hdr).bh_hdrlen as usize + bh_caplen + 3) & !3;
+            while p < len {
+                let remaining_bytes = len - p;
+                if remaining_bytes < BPF_HDR_SIZE {
+                    break;
                 }
+                // SAFETY: We use read_unaligned to avoid UB from misaligned access.
+                let hdr: libc::bpf_hdr = unsafe {
+                    std::ptr::read_unaligned(buffer.as_ptr().add(p) as *const libc::bpf_hdr)
+                };
+                let bh_caplen = hdr.bh_caplen as usize;
+                let bh_hdrlen = hdr.bh_hdrlen as usize;
+                if bh_caplen > 0 && p + bh_hdrlen + bh_caplen <= len {
+                    let buf = &buffer[p + bh_hdrlen..p + bh_hdrlen + bh_caplen];
+                    if let Some(dst) = bufs.get_mut(num) {
+                        let dst = dst.as_mut();
+                        if dst.len() < buf.len() {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "buffer too small",
+                            ));
+                        }
+                        dst[..buf.len()].copy_from_slice(buf);
+                        sizes[num] = buf.len();
+                        num += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let Some(step) = next_bpf_step(bh_hdrlen, bh_caplen) else {
+                    break;
+                };
+                p += step;
             }
         }
         Ok(num)
