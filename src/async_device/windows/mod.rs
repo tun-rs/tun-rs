@@ -98,7 +98,7 @@ impl AsyncDevice {
     /// # Errors
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
-    pub fn poll_recv(&self, cx: &mut Context<'_>, mut buf: &mut [u8]) -> Poll<io::Result<usize>> {
+    pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         match self.try_recv(buf) {
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             rs => return Poll::Ready(rs),
@@ -120,11 +120,14 @@ impl AsyncDevice {
                 drop(guard);
                 match rs {
                     Ok((packet, n)) => {
-                        let mut packet: &[u8] = &packet[..n];
-                        match io::copy(&mut packet, &mut buf) {
-                            Ok(n) => Poll::Ready(Ok(n as usize)),
-                            Err(e) => Poll::Ready(Err(e)),
+                        if n > buf.len() {
+                            return Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "receive buffer too small",
+                            )));
                         }
+                        buf[..n].copy_from_slice(&packet[..n]);
+                        Poll::Ready(Ok(n))
                     }
                     Err(e) => Poll::Ready(Err(e)),
                 }
