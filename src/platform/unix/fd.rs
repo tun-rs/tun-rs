@@ -159,6 +159,7 @@ impl Drop for Fd {
     fn drop(&mut self) {
         if !self.borrow && self.inner >= 0 {
             unsafe { libc::close(self.inner) };
+            self.inner = -1;
         }
     }
 }
