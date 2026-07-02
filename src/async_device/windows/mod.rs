@@ -179,10 +179,25 @@ impl AsyncDevice {
             } else {
                 let device = self.inner.clone();
                 let buf = src.to_vec();
-                let task = blocking::unblock(move || device.send(&buf));
-                guard.replace(task);
-                drop(guard);
-                return Poll::Ready(Ok(src.len()));
+                let mut task = blocking::unblock(move || device.send(&buf));
+                // Poll the newly created task immediately to check if it completed
+                match Pin::new(&mut task).poll(cx) {
+                    Poll::Ready(rs) => {
+                        drop(guard);
+                        return Poll::Ready(rs.map(|n| {
+                            // Sanity check: bytes written should not exceed buffer length
+                            if n > src.len() {
+                                src.len()
+                            } else {
+                                n
+                            }
+                        }));
+                    }
+                    Poll::Pending => {
+                        guard.replace(task);
+                        return Poll::Pending;
+                    }
+                }
             };
         }
     }

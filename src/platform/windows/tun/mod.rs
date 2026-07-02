@@ -402,6 +402,12 @@ impl TunDevice {
                 session: Default::default(),
                 delete_driver,
             };
+            // SAFETY: wintun_raw::NET_LUID and windows_sys::NET_LUID_LH are both
+            // 8-byte unions representing the same Windows NET_LUID_LH structure.
+            const _: () = assert!(
+                std::mem::size_of::<wintun_raw::NET_LUID>() == std::mem::size_of::<NET_LUID_LH>(),
+                "NET_LUID size mismatch between wintun and windows-sys"
+            );
             let luid = std::mem::transmute::<wintun_raw::NET_LUID, NET_LUID_LH>(luid);
             let index = ffi::luid_to_index(&luid)?;
 
@@ -479,6 +485,8 @@ impl TunDevice {
                 session: Default::default(),
                 delete_driver,
             };
+            // SAFETY: wintun_raw::NET_LUID and windows_sys::NET_LUID_LH are both
+            // 8-byte unions representing the same Windows NET_LUID_LH structure.
             let luid = std::mem::transmute::<wintun_raw::NET_LUID, NET_LUID_LH>(luid);
             let index = ffi::luid_to_index(&luid)?;
 
