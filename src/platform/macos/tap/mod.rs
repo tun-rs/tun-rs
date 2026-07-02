@@ -285,9 +285,6 @@ impl Tap {
         bufs: &mut [B],
         sizes: &mut [usize],
     ) -> io::Result<usize> {
-        if bufs.is_empty() || bufs.len() != sizes.len() {
-            return Err(io::Error::other("bufs error"));
-        }
         let mut buffer = [0; BUFFER_LEN];
         let len = self.s_bpf_fd.read(&mut buffer)?;
         let mut num = 0;
