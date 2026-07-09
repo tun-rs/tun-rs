@@ -204,10 +204,6 @@ impl AsyncDevice {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_send(&self, cx: &mut Context<'_>, src: &[u8]) -> Poll<io::Result<usize>> {
-        match self.try_send(src) {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return Poll::Ready(rs),
-        }
         let mut guard = self.send_task_lock.lock().unwrap();
         if let Some(mut task) = guard.take() {
             match Pin::new(&mut task).poll(cx) {
