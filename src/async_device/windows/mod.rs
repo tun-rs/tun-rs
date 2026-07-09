@@ -1,6 +1,7 @@
 use crate::platform::windows::{ffi, InterruptEvent};
 use crate::platform::DeviceImpl;
 use crate::SyncDevice;
+use bytes::buf::UninitSlice;
 use std::future::Future;
 use std::io;
 use std::ops::Deref;
@@ -138,6 +139,52 @@ impl AsyncDevice {
             }
         }
     }
+    pub(crate) fn poll_recv_uninit(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut UninitSlice,
+    ) -> Poll<io::Result<usize>> {
+        match self.inner.try_recv_uninit(buf) {
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+            rs => return Poll::Ready(rs),
+        }
+        let mut guard = self.recv_task_lock.lock().unwrap();
+        let mut task = if let Some(task) = guard.take() {
+            task
+        } else {
+            let device = self.inner.clone();
+            let size = buf.len();
+            blocking::unblock(move || {
+                let mut in_buf = vec![0; size];
+                let n = device.recv(&mut in_buf)?;
+                Ok((in_buf, n))
+            })
+        };
+        match Pin::new(&mut task).poll(cx) {
+            Poll::Ready(rs) => {
+                drop(guard);
+                match rs {
+                    Ok((packet, n)) => {
+                        if n > buf.len() {
+                            return Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "receive buffer too small",
+                            )));
+                        }
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(packet.as_ptr(), buf.as_mut_ptr(), n);
+                        }
+                        Poll::Ready(Ok(n))
+                    }
+                    Err(e) => Poll::Ready(Err(e)),
+                }
+            }
+            Poll::Pending => {
+                guard.replace(task);
+                Poll::Pending
+            }
+        }
+    }
     /// Attempts to send packet to the device
     ///
     /// # Caveats
@@ -162,43 +209,31 @@ impl AsyncDevice {
             rs => return Poll::Ready(rs),
         }
         let mut guard = self.send_task_lock.lock().unwrap();
-        loop {
-            if let Some(mut task) = guard.take() {
-                match Pin::new(&mut task).poll(cx) {
-                    Poll::Ready(rs) => {
-                        // If the previous write was successful, continue.
-                        // Otherwise, error.
-                        rs?;
-                        continue;
-                    }
-                    Poll::Pending => {
-                        guard.replace(task);
-                        return Poll::Pending;
-                    }
+        if let Some(mut task) = guard.take() {
+            match Pin::new(&mut task).poll(cx) {
+                Poll::Ready(rs) => {
+                    drop(guard);
+                    return Poll::Ready(rs);
                 }
-            } else {
-                let device = self.inner.clone();
-                let buf = src.to_vec();
-                let mut task = blocking::unblock(move || device.send(&buf));
-                // Poll the newly created task immediately to check if it completed
-                match Pin::new(&mut task).poll(cx) {
-                    Poll::Ready(rs) => {
-                        drop(guard);
-                        return Poll::Ready(rs.map(|n| {
-                            // Sanity check: bytes written should not exceed buffer length
-                            if n > src.len() {
-                                src.len()
-                            } else {
-                                n
-                            }
-                        }));
-                    }
-                    Poll::Pending => {
-                        guard.replace(task);
-                        return Poll::Pending;
-                    }
+                Poll::Pending => {
+                    guard.replace(task);
+                    return Poll::Pending;
                 }
-            };
+            }
+        } else {
+            let device = self.inner.clone();
+            let buf = src.to_vec();
+            let mut task = blocking::unblock(move || device.send(&buf));
+            match Pin::new(&mut task).poll(cx) {
+                Poll::Ready(rs) => {
+                    drop(guard);
+                    return Poll::Ready(rs);
+                }
+                Poll::Pending => {
+                    guard.replace(task);
+                    return Poll::Pending;
+                }
+            }
         }
     }
     /// Waits for the device to become readable.

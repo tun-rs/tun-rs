@@ -8,6 +8,7 @@ use crate::platform::unix::Fd;
     target_os = "netbsd",
 ))]
 use crate::PACKET_INFORMATION_LENGTH as PIL;
+use bytes::buf::UninitSlice;
 use std::io::{self, IoSlice, IoSliceMut};
 use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
 #[cfg(any(
@@ -178,11 +179,10 @@ impl Tun {
                 .map_or(&[][..], |b| &**b);
             let ipv6 = is_ipv6(buf)?;
             let head = generate_packet_information(ipv6);
-            let mut iov_block = [IoSlice::new(&head); crate::platform::unix::fd::max_iov()];
-            for (index, buf) in bufs.iter().enumerate() {
-                iov_block[index + 1] = *buf
-            }
-            let len = self.fd.writev(&iov_block[..bufs.len() + 1])?;
+            let mut iov_block = Vec::with_capacity(bufs.len() + 1);
+            iov_block.push(IoSlice::new(&head));
+            iov_block.extend(bufs.iter().copied());
+            let len = self.fd.writev(&iov_block)?;
             Ok(len.saturating_sub(PIL))
         } else {
             self.fd.writev(bufs)
@@ -199,6 +199,18 @@ impl Tun {
     #[inline]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.fd.read(buf)
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "openbsd",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    )))]
+    #[inline]
+    pub(crate) fn recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        self.fd.read_uninit(buf)
     }
     #[cfg(any(
         target_os = "macos",
@@ -217,6 +229,34 @@ impl Tun {
             Ok(len.saturating_sub(PIL))
         } else {
             self.fd.read(buf)
+        }
+    }
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "openbsd",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ))]
+    #[inline]
+    pub(crate) fn recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        if self.ignore_packet_info() {
+            let mut head = [0u8; PIL];
+            let mut bufs = [
+                libc::iovec {
+                    iov_base: head.as_mut_ptr() as *mut _,
+                    iov_len: head.len(),
+                },
+                libc::iovec {
+                    iov_base: buf.as_mut_ptr() as *mut _,
+                    iov_len: buf.len(),
+                },
+            ];
+            let len = self.fd.readv_raw(&mut bufs)?;
+            Ok(len.saturating_sub(PIL))
+        } else {
+            self.fd.read_uninit(buf)
         }
     }
     #[cfg(not(any(
@@ -245,19 +285,13 @@ impl Tun {
             if crate::platform::unix::fd::max_iov() - 1 < bufs.len() {
                 return Err(io::Error::from(io::ErrorKind::InvalidInput));
             }
-            let offset = bufs.len() + 1;
             let mut head = [0u8; PIL];
-            // Use Vec to avoid large stack allocation (max_iov can be 1024 on macOS)
-            let mut iov_block: Vec<std::mem::MaybeUninit<IoSliceMut<'_>>> =
-                Vec::with_capacity(offset);
-            iov_block.push(std::mem::MaybeUninit::new(IoSliceMut::new(&mut head)));
+            let mut iov_block = Vec::with_capacity(bufs.len() + 1);
+            iov_block.push(IoSliceMut::new(&mut head));
             for buf in bufs.iter_mut() {
-                iov_block.push(std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut())));
+                iov_block.push(IoSliceMut::new(buf.as_mut()));
             }
-            let part: &mut [IoSliceMut] = unsafe {
-                std::slice::from_raw_parts_mut(iov_block.as_mut_ptr() as *mut IoSliceMut, offset)
-            };
-            let len = self.fd.readv(part)?;
+            let len = self.fd.readv(&mut iov_block)?;
             Ok(len.saturating_sub(PIL))
         } else {
             self.fd.readv(bufs)
@@ -373,19 +407,15 @@ impl Tun {
             if crate::platform::unix::fd::max_iov() - 1 < bufs.len() {
                 return Err(io::Error::from(io::ErrorKind::InvalidInput));
             }
-            let offset = bufs.len() + 1;
             let mut head = [0u8; PIL];
-            // Use Vec to avoid large stack allocation (max_iov can be 1024 on macOS)
-            let mut iov_block: Vec<std::mem::MaybeUninit<IoSliceMut<'_>>> =
-                Vec::with_capacity(offset);
-            iov_block.push(std::mem::MaybeUninit::new(IoSliceMut::new(&mut head)));
+            let mut iov_block = Vec::with_capacity(bufs.len() + 1);
+            iov_block.push(IoSliceMut::new(&mut head));
             for buf in bufs.iter_mut() {
-                iov_block.push(std::mem::MaybeUninit::new(IoSliceMut::new(buf.as_mut())));
+                iov_block.push(IoSliceMut::new(buf.as_mut()));
             }
-            let part: &mut [IoSliceMut] = unsafe {
-                std::slice::from_raw_parts_mut(iov_block.as_mut_ptr() as *mut IoSliceMut, offset)
-            };
-            let len = self.fd.readv_interruptible(part, event, timeout)?;
+            let len = self
+                .fd
+                .readv_interruptible(&mut iov_block, event, timeout)?;
             Ok(len.saturating_sub(PIL))
         } else {
             self.fd.readv_interruptible(bufs, event, timeout)
@@ -491,13 +521,10 @@ impl Tun {
                 .map_or(&[][..], |b| &**b);
             let ipv6 = is_ipv6(buf)?;
             let head = generate_packet_information(ipv6);
-            let mut iov_block = [IoSlice::new(&head); crate::platform::unix::fd::max_iov()];
-            for (index, buf) in bufs.iter().enumerate() {
-                iov_block[index + 1] = *buf;
-            }
-            let len = self
-                .fd
-                .writev_interruptible(&iov_block[..bufs.len() + 1], event)?;
+            let mut iov_block = Vec::with_capacity(bufs.len() + 1);
+            iov_block.push(IoSlice::new(&head));
+            iov_block.extend(bufs.iter().copied());
+            let len = self.fd.writev_interruptible(&iov_block, event)?;
             Ok(len.saturating_sub(PIL))
         } else {
             self.fd.writev_interruptible(bufs, event)

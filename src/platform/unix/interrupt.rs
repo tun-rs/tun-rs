@@ -23,7 +23,7 @@ tun-rs = { version = "2", features = ["interruptible"] }
 The implementation uses a pipe-based signaling mechanism:
 - An `InterruptEvent` creates a pipe internally
 - When triggered, it writes to the pipe
-- I/O operations use `poll()` (or `select()` on macOS) to wait on both the device fd and the pipe
+- I/O operations use `poll()` to wait on both the device fd and the pipe
 - If the pipe becomes readable, the I/O operation returns with `ErrorKind::Interrupted`
 
 ## Usage
@@ -72,7 +72,7 @@ handle.join().unwrap();
 ## Platform Support
 
 - **Linux**: Uses `poll()` with two file descriptors
-- **macOS**: Uses `select()` with fd_set
+- **macOS**: Uses `poll()` like other Unix targets
 - **FreeBSD/OpenBSD/NetBSD**: Uses `poll()` like Linux
 - **Windows**: Not supported (would need IOCP or overlapped I/O)
 
@@ -248,86 +248,56 @@ impl Fd {
         interrupt_event: Option<&InterruptEvent>,
         timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
-        let readfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let mut writefds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let fd = self.as_raw_fd();
-        unsafe {
-            libc::FD_SET(fd, &mut writefds);
-        }
-        self.wait(readfds, Some(writefds), interrupt_event, timeout)
+        self.wait(libc::POLLOUT, interrupt_event, timeout)
     }
     pub fn wait_readable(
         &self,
         interrupt_event: Option<&InterruptEvent>,
         timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
-        let mut readfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let fd = self.as_raw_fd();
-        unsafe {
-            libc::FD_SET(fd, &mut readfds);
-        }
-        self.wait(readfds, None, interrupt_event, timeout)
+        self.wait(libc::POLLIN, interrupt_event, timeout)
     }
     fn wait(
         &self,
-        mut readfds: libc::fd_set,
-        mut writefds: Option<libc::fd_set>,
+        device_events: libc::c_short,
         interrupt_event: Option<&InterruptEvent>,
         timeout: Option<std::time::Duration>,
     ) -> io::Result<()> {
         let fd = self.as_raw_fd();
-        let mut errorfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let mut nfds = fd;
-
+        let mut fds = Vec::with_capacity(if interrupt_event.is_some() { 2 } else { 1 });
+        fds.push(libc::pollfd {
+            fd,
+            events: device_events,
+            revents: 0,
+        });
         if let Some(interrupt_event) = interrupt_event {
-            unsafe {
-                libc::FD_SET(interrupt_event.as_event_fd(), &mut readfds);
-            }
-            nfds = nfds.max(interrupt_event.as_event_fd());
+            fds.push(libc::pollfd {
+                fd: interrupt_event.as_event_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
         }
-        let mut tv = libc::timeval {
-            tv_sec: 0,
-            tv_usec: 0,
-        };
-        let tv_ptr = if let Some(timeout) = timeout {
-            let secs = timeout.as_secs().min(libc::time_t::MAX as u64) as libc::time_t;
-            let usecs = (timeout.subsec_micros()) as libc::suseconds_t;
-            tv.tv_sec = secs;
-            tv.tv_usec = usecs;
-            &mut tv as *mut libc::timeval
-        } else {
-            std::ptr::null_mut()
-        };
+        let timeout_ms = timeout
+            .map(|t| t.as_millis().min(i32::MAX as u128) as libc::c_int)
+            .unwrap_or(-1);
 
-        let result = unsafe {
-            libc::select(
-                nfds + 1,
-                &mut readfds,
-                writefds
-                    .as_mut()
-                    .map(|p| p as *mut _)
-                    .unwrap_or_else(std::ptr::null_mut),
-                &mut errorfds,
-                tv_ptr,
-            )
-        };
+        let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
         if result < 0 {
             return Err(io::Error::last_os_error());
         }
         if result == 0 {
             return Err(io::Error::from(io::ErrorKind::TimedOut));
         }
-        unsafe {
-            if let Some(cancel_event) = interrupt_event {
-                if libc::FD_ISSET(cancel_event.as_event_fd(), &readfds) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        "trigger interrupt",
-                    ));
-                }
-            }
+        if interrupt_event.is_some() && fds[1].revents & libc::POLLIN != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "trigger interrupt",
+            ));
         }
-        Ok(())
+        if fds[0].revents & device_events != 0 {
+            return Ok(());
+        }
+        Err(io::Error::other("fd error"))
     }
 }
 /// Event object for interrupting blocking I/O operations.

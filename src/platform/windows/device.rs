@@ -5,6 +5,7 @@ use crate::platform::windows::tap::TapDevice;
 use crate::platform::windows::tun::{check_adapter_if_orphaned_devices, TunDevice};
 use crate::platform::ETHER_ADDR_LEN;
 use crate::{Layer, ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask};
+use bytes::buf::UninitSlice;
 use getifaddrs::Interface;
 use ipnet::IpNet;
 use std::collections::HashSet;
@@ -177,6 +178,13 @@ impl DeviceImpl {
         match &self.driver {
             Driver::Tap(tap) => tap.try_read(buf),
             Driver::Tun(tun) => tun.try_recv(buf),
+        }
+    }
+    #[allow(dead_code)]
+    pub(crate) fn try_recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        match &self.driver {
+            Driver::Tap(tap) => tap.try_read_uninit(buf),
+            Driver::Tun(tun) => tun.try_recv_uninit(buf),
         }
     }
 

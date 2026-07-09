@@ -430,6 +430,15 @@ impl DeviceImpl {
         mut write_f: W,
     ) -> io::Result<usize> {
         gro_table.reset();
+        if bufs.is_empty() {
+            return Ok(0);
+        }
+        if bufs.len() > u16::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "too many packet buffers",
+            ));
+        }
         if self.vnet_hdr {
             handle_gro(
                 bufs,
@@ -449,7 +458,13 @@ impl DeviceImpl {
         let mut total = 0;
         let mut err = Ok(());
         for buf_idx in &gro_table.to_write {
-            match write_f(&self.tun, &bufs[*buf_idx].as_ref()[offset..]) {
+            let Some(buf) = bufs[*buf_idx].as_ref().get(offset..) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid offset",
+                ));
+            };
+            match write_f(&self.tun, buf) {
                 Ok(n) => {
                     total += n;
                 }
@@ -575,7 +590,13 @@ impl DeviceImpl {
                 offset,
             )
         } else {
-            let len = read_f(&self.tun, &mut bufs[0].as_mut()[offset..])?;
+            let Some(buf) = bufs[0].as_mut().get_mut(offset..) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid offset",
+                ));
+            };
+            let len = read_f(&self.tun, buf)?;
             sizes[0] = len;
             Ok(1)
         }
@@ -595,6 +616,20 @@ impl DeviceImpl {
         if sizes.len() < bufs.len() {
             return Err(io::Error::other("sizes must be at least as long as bufs"));
         }
+        if bufs.len() > u16::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "too many packet buffers",
+            ));
+        }
+        for buf in bufs.iter() {
+            if offset > buf.as_ref().len() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid offset",
+                ));
+            }
+        }
         let len = input.len();
         if hdr.gso_type == VIRTIO_NET_HDR_GSO_NONE {
             if hdr.flags & VIRTIO_NET_HDR_F_NEEDS_CSUM != 0 {
@@ -612,6 +647,12 @@ impl DeviceImpl {
             sizes[0] = len;
             bufs[0].as_mut()[offset..offset + len].copy_from_slice(input);
             return Ok(1);
+        }
+        if hdr.gso_size == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "virtioNetHdr.gsoSize must be non-zero",
+            ));
         }
         if hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV4
             && hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV6

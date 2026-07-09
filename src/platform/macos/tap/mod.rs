@@ -35,6 +35,7 @@ link https://www.zerotier.com/blog/how-zerotier-eliminated-kernel-extensions-on-
 use crate::builder::DeviceConfig;
 use crate::platform::macos::sys::siocifcreate;
 use crate::platform::unix::Fd;
+use bytes::buf::UninitSlice;
 use bytes::BytesMut;
 use libc::{ifreq, IFNAMSIZ};
 use nix::errno::Errno;
@@ -248,6 +249,29 @@ impl Tap {
             ));
         }
         buf[..buffer.len()].copy_from_slice(&buffer);
+        Ok(buffer.len())
+    }
+    pub fn recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        let mut guard = self.buffer.lock().unwrap();
+        if guard.is_empty() {
+            self.recv_to_buffer(&mut guard)?;
+        }
+
+        let Some(buffer) = guard.pop_front() else {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "recv buffer is empty",
+            ));
+        };
+        if buf.len() < buffer.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "buffer too small",
+            ));
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(buffer.as_ptr(), buf.as_mut_ptr(), buffer.len());
+        }
         Ok(buffer.len())
     }
     fn recv_to_buffer(&self, bufs: &mut VecDeque<BytesMut>) -> io::Result<()> {

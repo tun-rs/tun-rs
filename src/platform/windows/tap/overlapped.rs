@@ -1,5 +1,6 @@
 use crate::platform::windows::ffi;
 use crate::platform::windows::tap::READ_BUFFER_SIZE;
+use bytes::buf::UninitSlice;
 use bytes::BytesMut;
 use std::io;
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
@@ -46,6 +47,39 @@ impl ReadOverlapped {
                     Ok(n) => Ok(n as usize),
                     Err(e) => Err(e),
                 }
+            }
+            Err(e) => Err(e),
+        }
+    }
+    #[allow(dead_code)]
+    pub fn try_read_uninit(&mut self, buf: &mut UninitSlice) -> io::Result<usize> {
+        let inner = &mut self.inner;
+        let result: io::Result<usize> = if inner.no_pending_io {
+            inner.reset()?;
+            let result = ffi::try_read_file(
+                inner.file_handle.as_raw_handle(),
+                &mut inner.overlapped,
+                &mut self.read_buffer,
+            )
+            .map(|size| size as _);
+            if let Err(e) = &result {
+                if e.kind() == io::ErrorKind::WouldBlock {
+                    inner.no_pending_io = false;
+                }
+            }
+            result
+        } else {
+            ffi::try_io_overlapped(inner.file_handle.as_raw_handle(), &inner.overlapped)
+                .map(|size| size as _)
+        };
+        match result {
+            Ok(len) => {
+                inner.no_pending_io = true;
+                let n = len.min(buf.len());
+                unsafe {
+                    std::ptr::copy_nonoverlapping(self.read_buffer.as_ptr(), buf.as_mut_ptr(), n);
+                }
+                Ok(n)
             }
             Err(e) => Err(e),
         }

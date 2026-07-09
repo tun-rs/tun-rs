@@ -1,5 +1,6 @@
 use crate::platform::windows::tap::overlapped::{ReadOverlapped, WriteOverlapped};
 use crate::platform::windows::{ffi, netsh};
+use bytes::buf::UninitSlice;
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::sync::{Arc, Mutex};
 use std::{io, time};
@@ -246,6 +247,13 @@ impl TapDevice {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         };
         guard.try_read(buf)
+    }
+    #[allow(dead_code)]
+    pub fn try_read_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        let Ok(mut guard) = self.read_io_overlapped.try_lock() else {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        };
+        guard.try_read_uninit(buf)
     }
     pub fn try_write(&self, buf: &[u8]) -> io::Result<usize> {
         let Ok(mut guard) = self.write_io_overlapped.try_lock() else {
