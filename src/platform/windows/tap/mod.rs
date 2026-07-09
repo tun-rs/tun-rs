@@ -272,18 +272,8 @@ impl TapDevice {
         }
     }
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
-        loop {
-            match self.try_write(buf) {
-                Ok(len) => return Ok(len),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    let guard = self.write_io_overlapped.lock().unwrap();
-                    let event = guard.overlapped_event();
-                    drop(guard);
-                    event.wait()?
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        let mut guard = self.write_io_overlapped.lock().unwrap();
+        guard.write(buf)
     }
 
     #[allow(dead_code)]
@@ -292,18 +282,8 @@ impl TapDevice {
         buf: &[u8],
         interrupt_event: &OwnedHandle,
     ) -> io::Result<usize> {
-        loop {
-            match self.try_write(buf) {
-                Ok(len) => return Ok(len),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    let guard = self.write_io_overlapped.lock().unwrap();
-                    let event = guard.overlapped_event();
-                    drop(guard);
-                    event.wait_interruptible(interrupt_event, None)?
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        let mut guard = self.write_io_overlapped.lock().unwrap();
+        guard.write_interruptible(buf, interrupt_event)
     }
 }
 

@@ -2,7 +2,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
 use std::{io, mem, ptr};
 
-use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_OBJECT_ALREADY_EXISTS, NO_ERROR};
+use windows_sys::Win32::Foundation::{
+    ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, ERROR_OBJECT_ALREADY_EXISTS, NO_ERROR,
+};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteIpForwardEntry2,
     DeleteUnicastIpAddressEntry, FreeMibTable, GetIpForwardTable2, GetIpInterfaceEntry,
@@ -253,7 +255,12 @@ pub fn try_io_overlapped(handle: HANDLE, io_overlapped: &OVERLAPPED) -> io::Resu
     let mut ret = 0;
     unsafe {
         if 0 == GetOverlappedResult(handle, io_overlapped, &mut ret, 0) {
-            Err(io::Error::from(io::ErrorKind::WouldBlock))
+            let err = io::Error::last_os_error();
+            if err.raw_os_error().unwrap_or(0) == ERROR_IO_INCOMPLETE as i32 {
+                Err(io::Error::from(io::ErrorKind::WouldBlock))
+            } else {
+                Err(err)
+            }
         } else {
             Ok(ret)
         }
