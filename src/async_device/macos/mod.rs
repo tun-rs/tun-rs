@@ -212,6 +212,7 @@ impl AsyncDevice {
             AsyncModel::Select(dev) => dev.poll_recv(cx, buf),
         }
     }
+    #[allow(dead_code)]
     pub(crate) fn poll_recv_uninit(
         &self,
         cx: &mut Context<'_>,

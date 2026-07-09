@@ -267,13 +267,14 @@ impl AsyncDevice {
             }
         }
     }
+    #[allow(dead_code)]
     pub(crate) fn poll_recv_uninit(
         &self,
         cx: &mut Context<'_>,
         buf: &mut UninitSlice,
     ) -> Poll<io::Result<usize>> {
         loop {
-            match self.try_recv_uninit(buf) {
+            match self.inner.try_recv_uninit(buf) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 rs => return Poll::Ready(rs),
             }
