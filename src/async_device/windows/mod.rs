@@ -100,14 +100,14 @@ impl AsyncDevice {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        match self.try_recv(buf) {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return Poll::Ready(rs),
-        }
         let mut guard = self.recv_task_lock.lock().unwrap();
         let mut task = if let Some(task) = guard.take() {
             task
         } else {
+            match self.try_recv(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
             let device = self.inner.clone();
             let size = buf.len();
             blocking::unblock(move || {
@@ -145,14 +145,14 @@ impl AsyncDevice {
         cx: &mut Context<'_>,
         buf: &mut UninitSlice,
     ) -> Poll<io::Result<usize>> {
-        match self.inner.try_recv_uninit(buf) {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return Poll::Ready(rs),
-        }
         let mut guard = self.recv_task_lock.lock().unwrap();
         let mut task = if let Some(task) = guard.take() {
             task
         } else {
+            match self.inner.try_recv_uninit(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
             let device = self.inner.clone();
             let size = buf.len();
             blocking::unblock(move || {
@@ -210,11 +210,11 @@ impl AsyncDevice {
             match Pin::new(&mut task).poll(cx) {
                 Poll::Ready(rs) => {
                     drop(guard);
-                    return Poll::Ready(rs);
+                    Poll::Ready(rs)
                 }
                 Poll::Pending => {
                     guard.replace(task);
-                    return Poll::Pending;
+                    Poll::Pending
                 }
             }
         } else {
@@ -224,11 +224,11 @@ impl AsyncDevice {
             match Pin::new(&mut task).poll(cx) {
                 Poll::Ready(rs) => {
                     drop(guard);
-                    return Poll::Ready(rs);
+                    Poll::Ready(rs)
                 }
                 Poll::Pending => {
                     guard.replace(task);
-                    return Poll::Pending;
+                    Poll::Pending
                 }
             }
         }

@@ -113,12 +113,10 @@ impl WriteOverlapped {
         })
     }
     pub fn try_write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        loop {
-            if !self.finish_pending_nonblocking()? {
-                return Err(io::Error::from(io::ErrorKind::WouldBlock));
-            }
-            return self.submit(buf);
+        if !self.finish_pending_nonblocking()? {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
+        self.submit(buf)
     }
     pub fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.finish_pending_blocking();
