@@ -78,6 +78,7 @@ impl DeviceImpl {
         self.tun.recv(buf)
     }
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
         self.tun.recv_uninit(buf)
     }

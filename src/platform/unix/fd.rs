@@ -76,6 +76,7 @@ impl Fd {
         Ok(amount as usize)
     }
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn read_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
         let fd = self.as_raw_fd();
         let amount = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };

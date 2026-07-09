@@ -209,6 +209,7 @@ impl Tun {
         target_os = "netbsd",
     )))]
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
         self.fd.read_uninit(buf)
     }
@@ -240,6 +241,7 @@ impl Tun {
         target_os = "netbsd",
     ))]
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
         if self.ignore_packet_info() {
             let mut head = [0u8; PIL];
