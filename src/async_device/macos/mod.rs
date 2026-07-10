@@ -1,5 +1,6 @@
 use crate::async_device::unix;
 use crate::{DeviceImpl, SyncDevice};
+use bytes::buf::UninitSlice;
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
@@ -209,6 +210,17 @@ impl AsyncDevice {
         match &self.async_model {
             AsyncModel::Async(dev) => dev.poll_recv(cx, buf),
             AsyncModel::Select(dev) => dev.poll_recv(cx, buf),
+        }
+    }
+    #[allow(dead_code)]
+    pub(crate) fn poll_recv_uninit(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut UninitSlice,
+    ) -> Poll<io::Result<usize>> {
+        match &self.async_model {
+            AsyncModel::Async(dev) => dev.poll_recv_uninit(cx, buf),
+            AsyncModel::Select(dev) => dev.poll_recv_uninit(cx, buf),
         }
     }
     /// Polls the I/O handle for writability.

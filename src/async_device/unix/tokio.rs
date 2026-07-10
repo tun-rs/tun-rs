@@ -4,6 +4,7 @@ use std::task::{Context, Poll};
 use crate::platform::DeviceImpl;
 use ::tokio::io::unix::AsyncFd as TokioAsyncFd;
 use ::tokio::io::Interest;
+use bytes::buf::UninitSlice;
 
 /// An async Tun/Tap device wrapper around a Tun/Tap device.
 ///
@@ -91,6 +92,27 @@ impl AsyncDevice {
             return match self.0.poll_read_ready(cx) {
                 Poll::Ready(Ok(mut rs)) => {
                     let n = match rs.try_io(|dev| dev.get_ref().recv(buf)) {
+                        Ok(rs) => rs?,
+                        Err(_) => continue,
+                    };
+                    Poll::Ready(Ok(n))
+                }
+                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                Poll::Pending => Poll::Pending,
+            };
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn poll_recv_uninit(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut UninitSlice,
+    ) -> Poll<io::Result<usize>> {
+        loop {
+            return match self.0.poll_read_ready(cx) {
+                Poll::Ready(Ok(mut rs)) => {
+                    let n = match rs.try_io(|dev| dev.get_ref().recv_uninit(buf)) {
                         Ok(rs) => rs?,
                         Err(_) => continue,
                     };

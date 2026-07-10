@@ -1,5 +1,6 @@
 use crate::platform::DeviceImpl;
 use ::async_io::Async;
+use bytes::buf::UninitSlice;
 use std::io;
 use std::task::{Context, Poll};
 
@@ -88,14 +89,35 @@ impl AsyncDevice {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        match self.0.get_ref().recv(buf) {
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return Poll::Ready(rs),
+        loop {
+            match self.0.get_ref().recv(buf) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
+            match self.0.poll_readable(cx) {
+                Poll::Ready(Ok(())) => continue,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
         }
-        match self.0.poll_readable(cx) {
-            Poll::Ready(Ok(())) => Poll::Ready(self.0.get_ref().recv(buf)),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn poll_recv_uninit(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut UninitSlice,
+    ) -> Poll<io::Result<usize>> {
+        loop {
+            match self.0.get_ref().recv_uninit(buf) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
+            match self.0.poll_readable(cx) {
+                Poll::Ready(Ok(())) => continue,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
         }
     }
     /// Polls the I/O handle for writability.
@@ -141,14 +163,16 @@ impl AsyncDevice {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        match self.0.get_ref().send(buf) {
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return Poll::Ready(rs),
-        }
-        match self.0.poll_writable(cx) {
-            Poll::Ready(Ok(())) => Poll::Ready(self.0.get_ref().send(buf)),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
+        loop {
+            match self.0.get_ref().send(buf) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
+            match self.0.poll_writable(cx) {
+                Poll::Ready(Ok(())) => continue,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
         }
     }
 }

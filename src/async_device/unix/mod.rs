@@ -248,6 +248,12 @@ impl AsyncDevice {
         if bufs.is_empty() || bufs.len() != sizes.len() {
             return Err(io::Error::other("bufs error"));
         }
+        if bufs.len() > u16::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "too many packet buffers",
+            ));
+        }
         let tun = self.get_ref();
         if tun.vnet_hdr {
             let len = self.recv(original_buffer).await?;
@@ -265,7 +271,13 @@ impl AsyncDevice {
                 offset,
             )
         } else {
-            let len = self.recv(&mut bufs[0].as_mut()[offset..]).await?;
+            let Some(buf) = bufs[0].as_mut().get_mut(offset..) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid offset",
+                ));
+            };
+            let len = self.recv(buf).await?;
             sizes[0] = len;
             Ok(1)
         }
@@ -281,6 +293,15 @@ impl AsyncDevice {
         mut offset: usize,
     ) -> io::Result<usize> {
         gro_table.reset();
+        if bufs.is_empty() {
+            return Ok(0);
+        }
+        if bufs.len() > u16::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "too many packet buffers",
+            ));
+        }
         let tun = self.get_ref();
         if tun.vnet_hdr {
             handle_gro(
@@ -301,7 +322,13 @@ impl AsyncDevice {
         let mut total = 0;
         let mut err = Ok(());
         for buf_idx in &gro_table.to_write {
-            match self.send(&bufs[*buf_idx].as_ref()[offset..]).await {
+            let Some(buf) = bufs[*buf_idx].as_ref().get(offset..) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid offset",
+                ));
+            };
+            match self.send(buf).await {
                 Ok(n) => {
                     total += n;
                 }

@@ -1,5 +1,6 @@
 use crate::platform::windows::tap::overlapped::{ReadOverlapped, WriteOverlapped};
 use crate::platform::windows::{ffi, netsh};
+use bytes::buf::UninitSlice;
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::sync::{Arc, Mutex};
 use std::{io, time};
@@ -247,6 +248,13 @@ impl TapDevice {
         };
         guard.try_read(buf)
     }
+    #[allow(dead_code)]
+    pub fn try_read_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        let Ok(mut guard) = self.read_io_overlapped.try_lock() else {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        };
+        guard.try_read_uninit(buf)
+    }
     pub fn try_write(&self, buf: &[u8]) -> io::Result<usize> {
         let Ok(mut guard) = self.write_io_overlapped.try_lock() else {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
@@ -264,18 +272,8 @@ impl TapDevice {
         }
     }
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
-        loop {
-            match self.try_write(buf) {
-                Ok(len) => return Ok(len),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    let guard = self.write_io_overlapped.lock().unwrap();
-                    let event = guard.overlapped_event();
-                    drop(guard);
-                    event.wait()?
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        let mut guard = self.write_io_overlapped.lock().unwrap();
+        guard.write(buf)
     }
 
     #[allow(dead_code)]
@@ -284,18 +282,8 @@ impl TapDevice {
         buf: &[u8],
         interrupt_event: &OwnedHandle,
     ) -> io::Result<usize> {
-        loop {
-            match self.try_write(buf) {
-                Ok(len) => return Ok(len),
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    let guard = self.write_io_overlapped.lock().unwrap();
-                    let event = guard.overlapped_event();
-                    drop(guard);
-                    event.wait_interruptible(interrupt_event, None)?
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        let mut guard = self.write_io_overlapped.lock().unwrap();
+        guard.write_interruptible(buf, interrupt_event)
     }
 }
 

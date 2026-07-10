@@ -1,6 +1,7 @@
 use crate::platform::windows::{ffi, InterruptEvent};
 use crate::platform::DeviceImpl;
 use crate::SyncDevice;
+use bytes::buf::UninitSlice;
 use std::future::Future;
 use std::io;
 use std::ops::Deref;
@@ -99,14 +100,14 @@ impl AsyncDevice {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        match self.try_recv(buf) {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return Poll::Ready(rs),
-        }
         let mut guard = self.recv_task_lock.lock().unwrap();
         let mut task = if let Some(task) = guard.take() {
             task
         } else {
+            match self.try_recv(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
             let device = self.inner.clone();
             let size = buf.len();
             blocking::unblock(move || {
@@ -122,11 +123,58 @@ impl AsyncDevice {
                     Ok((packet, n)) => {
                         if n > buf.len() {
                             return Poll::Ready(Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
+                                io::ErrorKind::InvalidInput,
                                 "receive buffer too small",
                             )));
                         }
                         buf[..n].copy_from_slice(&packet[..n]);
+                        Poll::Ready(Ok(n))
+                    }
+                    Err(e) => Poll::Ready(Err(e)),
+                }
+            }
+            Poll::Pending => {
+                guard.replace(task);
+                Poll::Pending
+            }
+        }
+    }
+    #[allow(dead_code)]
+    pub(crate) fn poll_recv_uninit(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut UninitSlice,
+    ) -> Poll<io::Result<usize>> {
+        let mut guard = self.recv_task_lock.lock().unwrap();
+        let mut task = if let Some(task) = guard.take() {
+            task
+        } else {
+            match self.inner.try_recv_uninit(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
+            let device = self.inner.clone();
+            let size = buf.len();
+            blocking::unblock(move || {
+                let mut in_buf = vec![0; size];
+                let n = device.recv(&mut in_buf)?;
+                Ok((in_buf, n))
+            })
+        };
+        match Pin::new(&mut task).poll(cx) {
+            Poll::Ready(rs) => {
+                drop(guard);
+                match rs {
+                    Ok((packet, n)) => {
+                        if n > buf.len() {
+                            return Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "receive buffer too small",
+                            )));
+                        }
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(packet.as_ptr(), buf.as_mut_ptr(), n);
+                        }
                         Poll::Ready(Ok(n))
                     }
                     Err(e) => Poll::Ready(Err(e)),
@@ -157,48 +205,27 @@ impl AsyncDevice {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_send(&self, cx: &mut Context<'_>, src: &[u8]) -> Poll<io::Result<usize>> {
-        match self.try_send(src) {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            rs => return Poll::Ready(rs),
-        }
         let mut guard = self.send_task_lock.lock().unwrap();
-        loop {
-            if let Some(mut task) = guard.take() {
-                match Pin::new(&mut task).poll(cx) {
-                    Poll::Ready(rs) => {
-                        // If the previous write was successful, continue.
-                        // Otherwise, error.
-                        rs?;
-                        continue;
-                    }
-                    Poll::Pending => {
-                        guard.replace(task);
-                        return Poll::Pending;
-                    }
-                }
-            } else {
-                let device = self.inner.clone();
-                let buf = src.to_vec();
-                let mut task = blocking::unblock(move || device.send(&buf));
-                // Poll the newly created task immediately to check if it completed
-                match Pin::new(&mut task).poll(cx) {
-                    Poll::Ready(rs) => {
-                        drop(guard);
-                        return Poll::Ready(rs.map(|n| {
-                            // Sanity check: bytes written should not exceed buffer length
-                            if n > src.len() {
-                                src.len()
-                            } else {
-                                n
-                            }
-                        }));
-                    }
-                    Poll::Pending => {
-                        guard.replace(task);
-                        return Poll::Pending;
-                    }
-                }
-            };
+        let mut task = if let Some(task) = guard.take() {
+            task
+        } else {
+            match self.try_send(src) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
+            let device = self.inner.clone();
+            let buf = src.to_vec();
+            blocking::unblock(move || device.send(&buf))
+        };
+        match Pin::new(&mut task).poll(cx) {
+            Poll::Ready(rs) => {
+                drop(guard);
+                Poll::Ready(rs)
+            }
+            Poll::Pending => {
+                guard.replace(task);
+                Poll::Pending
+            }
         }
     }
     /// Waits for the device to become readable.

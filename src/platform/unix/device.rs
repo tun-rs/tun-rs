@@ -1,5 +1,6 @@
 use crate::platform::unix::{Fd, Tun};
 use crate::platform::DeviceImpl;
+use bytes::buf::UninitSlice;
 #[cfg(any(
     all(target_os = "linux", not(target_env = "ohos")),
     target_os = "macos",
@@ -75,6 +76,11 @@ impl DeviceImpl {
     #[inline]
     pub(crate) fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.tun.recv(buf)
+    }
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        self.tun.recv_uninit(buf)
     }
     #[inline]
     pub(crate) fn recv_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {

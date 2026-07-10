@@ -8,6 +8,7 @@ use crate::platform::unix::device::ctl;
 use crate::platform::unix::Tun;
 use crate::platform::ETHER_ADDR_LEN;
 use crate::Layer;
+use bytes::buf::UninitSlice;
 use libc::{
     c_char, c_uint, sockaddr, socklen_t, AF_SYSTEM, AF_SYS_CONTROL, IFNAMSIZ, PF_SYSTEM,
     SOCK_DGRAM, SYSPROTO_CONTROL, UTUN_OPT_IFNAME,
@@ -173,6 +174,13 @@ impl TunTap {
         match &self {
             TunTap::Tun(tun) => tun.recv(buf),
             TunTap::Tap(tap) => tap.recv(buf),
+        }
+    }
+    #[inline]
+    pub fn recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        match &self {
+            TunTap::Tun(tun) => tun.recv_uninit(buf),
+            TunTap::Tap(tap) => tap.recv_uninit(buf),
         }
     }
     #[inline]

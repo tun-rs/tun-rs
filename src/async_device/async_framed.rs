@@ -853,9 +853,19 @@ where
             self.state.rd.reserve(VIRTIO_NET_HDR_LEN + 65536);
         }
         self.state.rd.reserve(self.state.recv_buffer_size);
-        let buf = unsafe { &mut *(self.state.rd.chunk_mut() as *mut _ as *mut [u8]) };
-
-        let len = ready!(self.dev.borrow().poll_recv(cx, buf))?;
+        let len = {
+            let buf = self.state.rd.chunk_mut();
+            let spare_len = buf.len();
+            let len = ready!(self.dev.borrow().poll_recv_uninit(cx, buf))?;
+            if len > spare_len {
+                let err = io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "device initialized more bytes than available buffer space",
+                );
+                return Poll::Ready(Some(Err(err.into())));
+            }
+            len
+        };
         unsafe { self.state.rd.advance_mut(len) };
 
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]

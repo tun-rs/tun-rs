@@ -2,6 +2,7 @@ use std::io;
 use std::io::{IoSlice, IoSliceMut};
 use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
 
+use bytes::buf::UninitSlice;
 use libc::{self, fcntl, F_GETFL, O_NONBLOCK};
 
 /// POSIX file descriptor support for `io` traits.
@@ -75,6 +76,16 @@ impl Fd {
         Ok(amount as usize)
     }
     #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn read_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        let fd = self.as_raw_fd();
+        let amount = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };
+        if amount < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(amount as usize)
+    }
+    #[inline]
     pub fn readv(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         if bufs.len() > max_iov() {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
@@ -86,6 +97,26 @@ impl Fd {
                 bufs.len() as libc::c_int,
             )
         };
+        if amount < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(amount as usize)
+    }
+    #[inline]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))]
+    pub(crate) fn readv_raw(&self, bufs: &mut [libc::iovec]) -> io::Result<usize> {
+        if bufs.len() > max_iov() {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        let amount =
+            unsafe { libc::readv(self.as_raw_fd(), bufs.as_ptr(), bufs.len() as libc::c_int) };
         if amount < 0 {
             return Err(io::Error::last_os_error());
         }

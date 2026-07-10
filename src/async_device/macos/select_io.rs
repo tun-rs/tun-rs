@@ -1,5 +1,5 @@
 use crate::DeviceImpl;
-use std::cmp::Ordering;
+use bytes::buf::UninitSlice;
 use std::future::Future;
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
@@ -27,6 +27,10 @@ impl NonBlockingDevice {
         self.device.recv(buf)
     }
 
+    pub fn try_recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        self.device.recv_uninit(buf)
+    }
+
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
         self.device.send(buf)
     }
@@ -44,66 +48,53 @@ impl NonBlockingDevice {
 
 impl NonBlockingDevice {
     pub fn wait_writable(&self, cancel_event: Option<libc::c_int>) -> io::Result<()> {
-        let readfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let mut writefds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let fd = self.device.as_raw_fd();
-        unsafe {
-            libc::FD_SET(fd, &mut writefds);
-        }
-        self.wait(readfds, writefds, cancel_event)
+        self.wait(libc::POLLOUT, cancel_event)
     }
     pub fn wait_readable(&self, cancel_event: Option<libc::c_int>) -> io::Result<()> {
-        let mut readfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let writefds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let fd = self.device.as_raw_fd();
-        unsafe {
-            libc::FD_SET(fd, &mut readfds);
-        }
-        self.wait(readfds, writefds, cancel_event)
+        self.wait(libc::POLLIN, cancel_event)
     }
     fn wait(
         &self,
-        mut readfds: libc::fd_set,
-        mut writefds: libc::fd_set,
+        device_events: libc::c_short,
         cancel_event: Option<libc::c_int>,
     ) -> io::Result<()> {
         let fd = self.device.as_raw_fd();
         let event_fd = self.shutdown_event.as_event_fd();
-        let mut errorfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        let mut nfds = fd.max(event_fd);
-        unsafe {
-            libc::FD_SET(event_fd, &mut readfds);
-            if let Some(cancel_event) = cancel_event {
-                libc::FD_SET(cancel_event, &mut readfds);
-                nfds = nfds.max(cancel_event);
-            }
+        let mut fds = Vec::with_capacity(if cancel_event.is_some() { 3 } else { 2 });
+        fds.push(libc::pollfd {
+            fd,
+            events: device_events,
+            revents: 0,
+        });
+        fds.push(libc::pollfd {
+            fd: event_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        });
+        if let Some(cancel_event) = cancel_event {
+            fds.push(libc::pollfd {
+                fd: cancel_event,
+                events: libc::POLLIN,
+                revents: 0,
+            });
         }
-        let result = unsafe {
-            libc::select(
-                nfds + 1,
-                &mut readfds,
-                &mut writefds,
-                &mut errorfds,
-                std::ptr::null_mut(),
-            )
-        };
+        let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
         if result < 0 {
             return Err(io::Error::last_os_error());
         }
         if result == 0 {
             return Err(io::Error::from(io::ErrorKind::TimedOut));
         }
-        unsafe {
-            if libc::FD_ISSET(event_fd, &readfds) {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "close"));
-            }
-            if let Some(cancel_event) = cancel_event {
-                if libc::FD_ISSET(cancel_event, &readfds) {
-                    return Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"));
-                }
-            }
+        if fds[1].revents & libc::POLLIN != 0 {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "close"));
         }
-        Ok(())
+        if cancel_event.is_some() && fds[2].revents & libc::POLLIN != 0 {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "cancel"));
+        }
+        if fds[0].revents & device_events != 0 {
+            return Ok(());
+        }
+        Err(io::Error::other("fd error"))
     }
 }
 
@@ -116,46 +107,68 @@ impl EventFd {
         }
         let read_fd = fds[0];
         let write_fd = fds[1];
+        if let Err(e) = set_pipe_fd_flags(read_fd).and_then(|_| set_pipe_fd_flags(write_fd)) {
+            unsafe {
+                let _ = libc::close(read_fd);
+                let _ = libc::close(write_fd);
+            }
+            return Err(e);
+        }
         Ok(Self(read_fd, write_fd))
     }
     fn wake(&self) -> io::Result<()> {
         let buf: [u8; 8] = 2u64.to_ne_bytes();
         let res = unsafe { libc::write(self.1, buf.as_ptr() as *const libc::c_void, buf.len()) };
         if res == -1 {
-            Err(io::Error::last_os_error())
+            let err = io::Error::last_os_error();
+            if err.kind() == io::ErrorKind::WouldBlock {
+                Ok(())
+            } else {
+                Err(err)
+            }
         } else {
             Ok(())
         }
     }
     fn wait_timeout(&self, timeout: Duration) -> io::Result<()> {
-        let mut readfds = unsafe {
-            let mut set = std::mem::zeroed::<libc::fd_set>();
-            libc::FD_ZERO(&mut set);
-            libc::FD_SET(self.0, &mut set);
-            set
-        };
-        let mut tv = libc::timeval {
-            tv_sec: timeout.as_secs() as libc::time_t,
-            tv_usec: timeout.subsec_micros() as libc::suseconds_t,
-        };
-        let res = unsafe {
-            libc::select(
-                self.0 + 1,
-                &mut readfds,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut tv,
-            )
-        };
-        match res.cmp(&0) {
-            Ordering::Less => Err(io::Error::last_os_error()),
-            Ordering::Equal => Err(io::Error::from(io::ErrorKind::TimedOut)),
-            Ordering::Greater => Ok(()),
+        let mut fds = [libc::pollfd {
+            fd: self.0,
+            events: libc::POLLIN,
+            revents: 0,
+        }];
+        let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as libc::c_int;
+        let res = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
+        if res < 0 {
+            Err(io::Error::last_os_error())
+        } else if res == 0 {
+            Err(io::Error::from(io::ErrorKind::TimedOut))
+        } else {
+            Ok(())
         }
     }
     fn as_event_fd(&self) -> libc::c_int {
         self.0
     }
+}
+
+fn set_pipe_fd_flags(fd: libc::c_int) -> io::Result<()> {
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let fd_flags = libc::fcntl(fd, libc::F_GETFD);
+        if fd_flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if libc::fcntl(fd, libc::F_SETFD, fd_flags | libc::FD_CLOEXEC) < 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 impl Drop for EventFd {
     fn drop(&mut self) {
@@ -243,6 +256,25 @@ impl AsyncDevice {
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         loop {
             match self.try_recv(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                rs => return Poll::Ready(rs),
+            }
+            match self.poll_readable(cx)? {
+                Poll::Ready(_) => {}
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
+            }
+        }
+    }
+    #[allow(dead_code)]
+    pub(crate) fn poll_recv_uninit(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut UninitSlice,
+    ) -> Poll<io::Result<usize>> {
+        loop {
+            match self.inner.try_recv_uninit(buf) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 rs => return Poll::Ready(rs),
             }
