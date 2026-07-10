@@ -285,32 +285,13 @@ impl WinTunSession {
         }
     }
     fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut size = 0u32;
-
-        let win_tun = &self.win_tun;
-        let handle = self.handle;
-        let ptr = unsafe { win_tun.WintunReceivePacket(handle, &mut size as *mut u32) };
-
-        if ptr.is_null() {
-            // Wintun returns ERROR_NO_MORE_ITEMS instead of blocking if packets are not available
-            return match unsafe { GetLastError() } {
-                ERROR_HANDLE_EOF => Err(std::io::Error::from(io::ErrorKind::UnexpectedEof)),
-                ERROR_NO_MORE_ITEMS => Err(std::io::Error::from(io::ErrorKind::WouldBlock)),
-                e => Err(io::Error::from_raw_os_error(e as i32)),
-            };
-        }
-        let size = size as usize;
-        if size > buf.len() {
-            unsafe { win_tun.WintunReleaseReceivePacket(handle, ptr) };
-            use std::io::{Error, ErrorKind::InvalidInput};
-            return Err(Error::new(InvalidInput, "destination buffer too small"));
-        }
-        unsafe { ptr::copy_nonoverlapping(ptr, buf.as_mut_ptr(), size) };
-        unsafe { win_tun.WintunReleaseReceivePacket(handle, ptr) };
-        Ok(size)
+        self.try_recv_raw(buf.as_mut_ptr(), buf.len())
     }
     #[allow(dead_code)]
     fn try_recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
+        self.try_recv_raw(buf.as_mut_ptr(), buf.len())
+    }
+    fn try_recv_raw(&self, dst: *mut u8, dst_len: usize) -> io::Result<usize> {
         let mut size = 0u32;
 
         let win_tun = &self.win_tun;
@@ -318,6 +299,7 @@ impl WinTunSession {
         let ptr = unsafe { win_tun.WintunReceivePacket(handle, &mut size as *mut u32) };
 
         if ptr.is_null() {
+            // Wintun returns ERROR_NO_MORE_ITEMS instead of blocking if packets are not available.
             return match unsafe { GetLastError() } {
                 ERROR_HANDLE_EOF => Err(std::io::Error::from(io::ErrorKind::UnexpectedEof)),
                 ERROR_NO_MORE_ITEMS => Err(std::io::Error::from(io::ErrorKind::WouldBlock)),
@@ -325,12 +307,12 @@ impl WinTunSession {
             };
         }
         let size = size as usize;
-        if size > buf.len() {
+        if size > dst_len {
             unsafe { win_tun.WintunReleaseReceivePacket(handle, ptr) };
             use std::io::{Error, ErrorKind::InvalidInput};
             return Err(Error::new(InvalidInput, "destination buffer too small"));
         }
-        unsafe { ptr::copy_nonoverlapping(ptr, buf.as_mut_ptr(), size) };
+        unsafe { ptr::copy_nonoverlapping(ptr, dst, size) };
         unsafe { win_tun.WintunReleaseReceivePacket(handle, ptr) };
         Ok(size)
     }

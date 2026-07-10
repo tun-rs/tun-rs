@@ -19,7 +19,14 @@ impl ReadOverlapped {
             inner,
         })
     }
-    pub fn try_read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
+    pub fn try_read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.try_read_raw(buf.as_mut_ptr(), buf.len())
+    }
+    #[allow(dead_code)]
+    pub fn try_read_uninit(&mut self, buf: &mut UninitSlice) -> io::Result<usize> {
+        self.try_read_raw(buf.as_mut_ptr(), buf.len())
+    }
+    fn try_read_raw(&mut self, dst: *mut u8, dst_len: usize) -> io::Result<usize> {
         let inner = &mut self.inner;
         let result = if inner.no_pending_io {
             inner.reset()?;
@@ -42,49 +49,16 @@ impl ReadOverlapped {
         match result {
             Ok(len) => {
                 inner.no_pending_io = true;
-                let result = io::copy(&mut &self.read_buffer[..len], &mut buf);
-                match result {
-                    Ok(n) => Ok(n as usize),
-                    Err(e) => Err(e),
+                if len > dst_len {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "receive buffer too small",
+                    ));
                 }
-            }
-            Err(e) => {
-                if e.kind() != io::ErrorKind::WouldBlock {
-                    inner.no_pending_io = true;
-                }
-                Err(e)
-            }
-        }
-    }
-    #[allow(dead_code)]
-    pub fn try_read_uninit(&mut self, buf: &mut UninitSlice) -> io::Result<usize> {
-        let inner = &mut self.inner;
-        let result: io::Result<usize> = if inner.no_pending_io {
-            inner.reset()?;
-            let result = ffi::try_read_file(
-                inner.file_handle.as_raw_handle(),
-                &mut inner.overlapped,
-                &mut self.read_buffer,
-            )
-            .map(|size| size as _);
-            if let Err(e) = &result {
-                if e.kind() == io::ErrorKind::WouldBlock {
-                    inner.no_pending_io = false;
-                }
-            }
-            result
-        } else {
-            ffi::try_io_overlapped(inner.file_handle.as_raw_handle(), &inner.overlapped)
-                .map(|size| size as _)
-        };
-        match result {
-            Ok(len) => {
-                inner.no_pending_io = true;
-                let n = len.min(buf.len());
                 unsafe {
-                    std::ptr::copy_nonoverlapping(self.read_buffer.as_ptr(), buf.as_mut_ptr(), n);
+                    std::ptr::copy_nonoverlapping(self.read_buffer.as_ptr(), dst, len);
                 }
-                Ok(n)
+                Ok(len)
             }
             Err(e) => {
                 if e.kind() != io::ErrorKind::WouldBlock {
