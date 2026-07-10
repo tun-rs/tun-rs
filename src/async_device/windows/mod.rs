@@ -123,7 +123,7 @@ impl AsyncDevice {
                     Ok((packet, n)) => {
                         if n > buf.len() {
                             return Poll::Ready(Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
+                                io::ErrorKind::InvalidInput,
                                 "receive buffer too small",
                             )));
                         }
@@ -168,7 +168,7 @@ impl AsyncDevice {
                     Ok((packet, n)) => {
                         if n > buf.len() {
                             return Poll::Ready(Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
+                                io::ErrorKind::InvalidInput,
                                 "receive buffer too small",
                             )));
                         }

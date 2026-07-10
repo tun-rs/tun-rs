@@ -51,7 +51,7 @@ impl ReadOverlapped {
                 inner.no_pending_io = true;
                 if len > dst_len {
                     return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
+                        io::ErrorKind::InvalidInput,
                         "receive buffer too small",
                     ));
                 }
