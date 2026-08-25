@@ -425,6 +425,10 @@ impl DeviceImpl {
         let mtu = crate::platform::windows::ffi::get_mtu_by_index(index, true)?;
         Ok(mtu as _)
     }
+    /// Returns whether the device is operating in TAP (Layer 2) mode.
+    pub fn is_tap(&self) -> bool {
+        matches!(self.driver, Driver::Tap(_))
+    }
     /// Retrieves the MTU for the device (IPv6).
     ///
     /// This method uses a Windows-specific FFI function to query the IPv6 MTU by interface index.

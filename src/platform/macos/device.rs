@@ -206,6 +206,12 @@ impl DeviceImpl {
         let _guard = self.op_lock.read().unwrap();
         self.associate_route.load(Ordering::Relaxed)
     }
+
+    /// Returns whether the device is operating in TAP (Layer 2) mode.
+    pub fn is_tap(&self) -> bool {
+        !self.tun.is_tun()
+    }
+
     /// Enables or disables the network interface.
     ///
     /// If `value` is true, the interface is enabled by setting the IFF_UP and IFF_RUNNING flags.

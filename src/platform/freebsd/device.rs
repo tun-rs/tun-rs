@@ -354,6 +354,12 @@ impl DeviceImpl {
         let _guard = self.op_lock.read().unwrap();
         self.name_impl()
     }
+    /// Returns whether the device is operating in TAP (Layer 2) mode.
+    pub fn is_tap(&self) -> bool {
+        self.name_impl()
+            .map(|n| n.starts_with("tap"))
+            .unwrap_or(false)
+    }
     /// Sets a new name for the network interface.
     pub fn set_name(&self, value: &str) -> std::io::Result<()> {
         use std::ffi::CString;

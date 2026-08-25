@@ -217,6 +217,11 @@ impl DeviceImpl {
     /// Returns whether UDP Generic Segmentation Offload (GSO) is enabled.
     ///
     /// This is determined by the `udp_gso` flag in the device.
+    /// Returns whether the device is operating in TAP (Layer 2) mode.
+    pub fn is_tap(&self) -> bool {
+        self.flags & IFF_TAP as c_short != 0
+    }
+
     pub fn udp_gso(&self) -> bool {
         self.udp_gso
     }
