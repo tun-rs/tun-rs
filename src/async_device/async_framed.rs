@@ -530,6 +530,10 @@ where
     }
 }
 fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
+    // In TAP (L2) mode, each frame includes an Ethernet header (14 bytes for dst/src
+    // MAC + EtherType) plus up to 4 bytes for an 802.1Q VLAN tag.
+    const ETH_FRAME_OVERHEAD: usize = 18;
+
     #[cfg(any(
         target_os = "windows",
         all(target_os = "linux", not(target_env = "ohos")),
@@ -537,7 +541,15 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
         target_os = "freebsd",
         target_os = "openbsd",
     ))]
-    let mtu = _dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096);
+    let mtu = {
+        let dev = _dev.borrow();
+        let mtu = dev.mtu().map(|m| m as usize).unwrap_or(4096);
+        if dev.is_tap() {
+            mtu + ETH_FRAME_OVERHEAD
+        } else {
+            mtu
+        }
+    };
 
     #[cfg(not(any(
         target_os = "windows",

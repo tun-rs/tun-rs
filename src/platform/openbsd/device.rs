@@ -632,6 +632,10 @@ impl DeviceImpl {
         let _guard = self.op_lock.read().unwrap();
         self.name_impl()
     }
+    /// Returns whether the device is operating in TAP (Layer 2) mode.
+    pub fn is_tap(&self) -> bool {
+        self.name.starts_with("tap")
+    }
     /// Retrieves the MAC (hardware) address of the interface.
     ///
     /// This function queries the MAC address by the interface name using getifaddrs.

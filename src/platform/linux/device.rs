@@ -220,6 +220,10 @@ impl DeviceImpl {
     pub fn udp_gso(&self) -> bool {
         self.udp_gso
     }
+    /// Returns whether the device is operating in TAP (Layer 2) mode.
+    pub fn is_tap(&self) -> bool {
+        self.flags & IFF_TAP as c_short != 0
+    }
     /// Returns whether TCP Generic Segmentation Offload (GSO) is enabled.
     ///
     /// In this implementation, this is represented by the `vnet_hdr` flag.
