@@ -52,6 +52,16 @@ pub struct AsyncDevice {
     inner: Arc<DeviceImpl>,
     recv_task_lock: Arc<Mutex<Option<RecvTask>>>,
     send_task_lock: Arc<Mutex<Option<SendTask>>>,
+    /// Device-level interrupt event used to cancel background threads blocked in
+    /// TUN/TAP reads/writes started by `poll_recv`/`poll_send`.
+    ///
+    /// Those functions hand the (potentially forever-blocking) I/O to a detached
+    /// `blocking` thread that cannot be aborted by dropping the poll future. This
+    /// event lets `AsyncDevice::drop` wake such a thread so it releases its
+    /// `Arc<DeviceImpl>` clone promptly; otherwise the device is never dropped and
+    /// on Windows the tap-windows adapter (deleted in `TapInterface::drop`) is
+    /// left behind.
+    interrupt: Arc<InterruptEvent>,
 }
 type RecvTask = blocking::Task<io::Result<(Vec<u8>, usize)>>;
 type SendTask = blocking::Task<io::Result<usize>>;
@@ -63,6 +73,11 @@ impl Deref for AsyncDevice {
 }
 impl Drop for AsyncDevice {
     fn drop(&mut self) {
+        // Wake any background thread still blocked in a read/write started by
+        // poll_recv/poll_send so it can release its Arc<DeviceImpl>. Without this
+        // the underlying device is never dropped and the tap adapter is never
+        // deleted on Windows.
+        _ = self.interrupt.trigger();
         _ = self.inner.shutdown();
     }
 }
@@ -79,6 +94,28 @@ impl AsyncDevice {
             inner,
             recv_task_lock: Arc::new(Mutex::new(None)),
             send_task_lock: Arc::new(Mutex::new(None)),
+            interrupt: Arc::new(InterruptEvent::new()?),
+        })
+    }
+    /// Spawns the background blocking read used by `poll_recv`/`poll_recv_uninit`.
+    ///
+    /// Unlike `device.recv()`, the loop waits on the device-level [`InterruptEvent`]
+    /// so that dropping the `AsyncDevice` unblocks the thread. Otherwise a cancelled
+    /// poll would leave the thread blocked forever, keeping an `Arc<DeviceImpl>`
+    /// alive and preventing the tap adapter from ever being deleted.
+    fn spawn_recv_task(&self, size: usize) -> RecvTask {
+        let device = self.inner.clone();
+        let interrupt = self.interrupt.clone();
+        blocking::unblock(move || {
+            let mut in_buf = vec![0; size];
+            loop {
+                match device.try_recv(&mut in_buf) {
+                    Ok(n) => return Ok((in_buf, n)),
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                    Err(e) => return Err(e),
+                }
+                device.wait_readable_interruptible(&interrupt, None)?;
+            }
         })
     }
     /// Attempts to receive a single packet from the device
@@ -108,13 +145,7 @@ impl AsyncDevice {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 rs => return Poll::Ready(rs),
             }
-            let device = self.inner.clone();
-            let size = buf.len();
-            blocking::unblock(move || {
-                let mut in_buf = vec![0; size];
-                let n = device.recv(&mut in_buf)?;
-                Ok((in_buf, n))
-            })
+            self.spawn_recv_task(buf.len())
         };
         match Pin::new(&mut task).poll(cx) {
             Poll::Ready(rs) => {
@@ -153,13 +184,7 @@ impl AsyncDevice {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 rs => return Poll::Ready(rs),
             }
-            let device = self.inner.clone();
-            let size = buf.len();
-            blocking::unblock(move || {
-                let mut in_buf = vec![0; size];
-                let n = device.recv(&mut in_buf)?;
-                Ok((in_buf, n))
-            })
+            self.spawn_recv_task(buf.len())
         };
         match Pin::new(&mut task).poll(cx) {
             Poll::Ready(rs) => {
@@ -214,8 +239,9 @@ impl AsyncDevice {
                 rs => return Poll::Ready(rs),
             }
             let device = self.inner.clone();
+            let interrupt = self.interrupt.clone();
             let buf = src.to_vec();
-            blocking::unblock(move || device.send(&buf))
+            blocking::unblock(move || device.write_interruptible(&buf, &interrupt))
         };
         match Pin::new(&mut task).poll(cx) {
             Poll::Ready(rs) => {
