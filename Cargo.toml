@@ -74,7 +74,7 @@ route_manager = "0.2.9"
 bindgen = { version = "0.72.0", optional = true }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 ctrlc2 = { version = "3.7", features = ["tokio", "termination"] }
 env_logger = "0.11"
 futures = "0.3"
