@@ -548,6 +548,7 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
         target_os = "macos",
         target_os = "freebsd",
         target_os = "openbsd",
+        target_os = "netbsd",
     ))]
     let mtu = _dev.borrow().mtu().map(|m| m as usize).unwrap_or(4096) + FRAME_OVERHEAD;
 
@@ -557,6 +558,7 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
         target_os = "macos",
         target_os = "freebsd",
         target_os = "openbsd",
+        target_os = "netbsd",
     )))]
     let mtu = 4096usize + FRAME_OVERHEAD;
 
