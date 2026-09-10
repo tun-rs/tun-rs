@@ -1825,17 +1825,32 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
         nonlast_len_for_pseudo,
     );
 
+    let payload_len = input.len() - hdr.hdr_len as usize;
+    let segment_count = if payload_len == 0 {
+        0
+    } else {
+        (payload_len - 1) / hdr.gso_size as usize + 1
+    };
+    if segment_count > out_bufs.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "too many GSO segments",
+        ));
+    }
+    for out_buf in &out_bufs[..segment_count] {
+        let out_len = out_buf.as_ref().len();
+        if out_offset > out_len || out_len - out_offset < nonlast_total_len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "output buffer too small",
+            ));
+        }
+    }
+
     let mut next_segment_data_at = hdr.hdr_len as usize;
     let mut i = 0;
 
     while next_segment_data_at < input.len() {
-        if i == out_bufs.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "too many GSO segments",
-            ));
-        }
-
         let next_segment_end = next_segment_data_at + hdr.gso_size as usize;
         let (next_segment_end, segment_data_len, total_len, transport_csum_no_fold) =
             if next_segment_end > input.len() {
@@ -1865,13 +1880,6 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             };
 
         sizes[i] = total_len;
-        let out_len = out_bufs[i].as_ref().len();
-        if out_offset > out_len || out_len - out_offset < total_len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "output buffer too small",
-            ));
-        }
         let out = &mut out_bufs[i].as_mut()[out_offset..];
 
         out[..iph_len].copy_from_slice(&input[..iph_len]);
@@ -2303,5 +2311,25 @@ mod tests {
         let err = gso_split(&mut input, hdr, &mut out, &mut sizes, 0, false).unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn gso_split_ignores_unused_output_buffers() {
+        let mut input = make_ipv4_tcp_packet(1, 512);
+        let hdr = VirtioNetHdr {
+            gso_type: VIRTIO_NET_HDR_GSO_TCPV4,
+            hdr_len: 40,
+            gso_size: 256,
+            csum_start: 20,
+            csum_offset: 16,
+            ..Default::default()
+        };
+        let mut out = vec![vec![0u8; 296], vec![0u8; 296], vec![]];
+        let mut sizes = vec![0usize; 3];
+
+        let count = gso_split(&mut input, hdr, &mut out, &mut sizes, 0, false).unwrap();
+
+        assert_eq!(count, 2);
+        assert_eq!(&sizes[..count], &[296, 296]);
     }
 }
