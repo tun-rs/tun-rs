@@ -9,10 +9,7 @@ use crate::{
 };
 
 use crate::platform::unix::device::{copy_device_name, ctl, ctl_v6};
-use libc::{
-    self, c_char, c_short, fcntl, ifreq, kinfo_file, AF_LINK, F_KINFO, IFF_RUNNING, IFF_UP,
-    IFNAMSIZ, KINFO_FILE_SIZE, O_RDWR,
-};
+use libc::{self, c_char, c_short, ifreq, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
 use std::io::ErrorKind;
 use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -288,26 +285,15 @@ impl DeviceImpl {
         Ok(())
     }
     fn name_of_fd(tun: &Tun) -> io::Result<String> {
-        use std::path::PathBuf;
         unsafe {
-            let mut path_info: kinfo_file = std::mem::zeroed();
-            path_info.kf_structsize = KINFO_FILE_SIZE;
-            if fcntl(tun.as_raw_fd(), F_KINFO, &mut path_info as *mut _) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            let dev_path = CStr::from_ptr(path_info.kf_path.as_ptr() as *const c_char)
+            let mut req: ifreq = mem::zeroed();
+
+            tungifname(tun.as_raw_fd(), &mut req).map_err(io::Error::from)?;
+
+            let name = CStr::from_ptr(req.ifr_name.as_ptr())
                 .to_string_lossy()
                 .into_owned();
-            let path = PathBuf::from(dev_path);
-            let device_name = path
-                .file_name()
-                .ok_or(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "invalid device name",
-                ))?
-                .to_string_lossy()
-                .to_string();
-            Ok(device_name)
+            Ok(name)
         }
     }
     /// Retrieves the name of the network interface.
