@@ -55,7 +55,7 @@
 | **Linux**    | ✅  | ✅  | Full offload & multi-queue support |
 | **Windows**  | ✅  | ✅  | Requires wintun.dll / tap-windows |
 | **macOS**    | ✅  | ✅* | TAP via feth pairs |
-| **FreeBSD**  | ✅  | ✅  | Full support |
+| **FreeBSD**  | ✅  | ✅  | Full support; on FreeBSD 12.0 and earlier, live interface rename tracking falls back to the last known name |
 | **OpenBSD**  | ✅  | ✅  | Full support |
 | **NetBSD**   | ✅  | ✅  | Full support |
 | **Android**  | ✅  | -   | Via VpnService API |

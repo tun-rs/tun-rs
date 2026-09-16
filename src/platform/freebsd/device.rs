@@ -9,7 +9,10 @@ use crate::{
 };
 
 use crate::platform::unix::device::{copy_device_name, ctl, ctl_v6};
-use libc::{self, c_char, c_short, ifreq, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
+use libc::{
+    self, c_char, c_short, fcntl, ifreq, kinfo_file, AF_LINK, F_KINFO, IFF_RUNNING, IFF_UP,
+    IFNAMSIZ, KINFO_FILE_SIZE, O_RDWR,
+};
 use std::io::ErrorKind;
 use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,6 +20,7 @@ use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwL
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
+    name: RwLock<String>,
     pub(crate) tun: Tun,
     pub op_lock: RwLock<()>,
     pub associate_route: AtomicBool,
@@ -133,6 +137,10 @@ impl DeviceImpl {
             tun.set_ignore_packet_info(false);
         }
         let device = DeviceImpl {
+            name: RwLock::new(match dev_index {
+                Some(index) => format!("{device_prefix}{index}"),
+                None => Self::name_from_path_of_fd(&tun)?,
+            }),
             tun,
             op_lock: RwLock::new(()),
             associate_route: AtomicBool::new(associate_route),
@@ -141,7 +149,7 @@ impl DeviceImpl {
         Ok(device)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
-        let name = Self::name_of_fd(&tun)?;
+        let name = Self::name_of_fd_fallback(&tun)?;
         if name.starts_with("tap") {
             // Tap does not have PI
             tun.set_ignore_packet_info(false);
@@ -150,6 +158,7 @@ impl DeviceImpl {
             tun.set_ignore_packet_info(true);
         }
         let dev = Self {
+            name: RwLock::new(name),
             tun,
             op_lock: RwLock::new(()),
             associate_route: AtomicBool::new(true),
@@ -287,18 +296,57 @@ impl DeviceImpl {
     fn name_of_fd(tun: &Tun) -> io::Result<String> {
         unsafe {
             let mut req: ifreq = mem::zeroed();
-
             tungifname(tun.as_raw_fd(), &mut req).map_err(io::Error::from)?;
-
             let name = CStr::from_ptr(req.ifr_name.as_ptr())
                 .to_string_lossy()
                 .into_owned();
             Ok(name)
         }
     }
+
+    fn name_of_fd_fallback(tun: &Tun) -> io::Result<String> {
+        match Self::name_of_fd(tun) {
+            Ok(name) => Ok(name),
+            Err(err) if err.raw_os_error() == Some(libc::ENOTTY) => Self::name_from_path_of_fd(tun),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn name_from_path_of_fd(tun: &Tun) -> io::Result<String> {
+        use std::path::PathBuf;
+        unsafe {
+            let mut path_info: kinfo_file = std::mem::zeroed();
+            path_info.kf_structsize = KINFO_FILE_SIZE;
+            if fcntl(tun.as_raw_fd(), F_KINFO, &mut path_info as *mut _) < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let dev_path = CStr::from_ptr(path_info.kf_path.as_ptr() as *const c_char)
+                .to_string_lossy()
+                .into_owned();
+            let path = PathBuf::from(dev_path);
+            let device_name = path
+                .file_name()
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "invalid device name",
+                ))?
+                .to_string_lossy()
+                .to_string();
+            Ok(device_name)
+        }
+    }
     /// Retrieves the name of the network interface.
     pub(crate) fn name_impl(&self) -> std::io::Result<String> {
-        Self::name_of_fd(&self.tun)
+        match Self::name_of_fd(&self.tun) {
+            Ok(name) => {
+                *self.name.write().unwrap() = name.clone();
+                Ok(name)
+            }
+            Err(err) if err.raw_os_error() == Some(libc::ENOTTY) => {
+                Ok(self.name.read().unwrap().clone())
+            }
+            Err(err) => Err(err),
+        }
     }
 
     fn remove_all_address_v4(&self) -> io::Result<()> {
@@ -365,6 +413,7 @@ impl DeviceImpl {
             if let Err(err) = siocsifname(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
+            *self.name.write().unwrap() = value.to_owned();
 
             Ok(())
         }
