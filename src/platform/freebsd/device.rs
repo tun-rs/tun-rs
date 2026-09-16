@@ -339,7 +339,9 @@ impl DeviceImpl {
                 *self.name.write().unwrap() = name.clone();
                 Ok(name)
             }
-            Err(err) if err.raw_os_error() == Some(libc::ENOTTY) => Ok(self.name.read().unwrap().clone()),
+            Err(err) if err.raw_os_error() == Some(libc::ENOTTY) => {
+                Ok(self.name.read().unwrap().clone())
+            }
             Err(err) => Err(err),
         }
     }
