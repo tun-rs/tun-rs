@@ -1,5 +1,5 @@
 use libc::{c_char, c_int, c_uint, ifreq, sockaddr, sockaddr_in6, time_t, IFNAMSIZ};
-use nix::{ioctl_readwrite, ioctl_write_ptr};
+use nix::{ioctl_read, ioctl_readwrite, ioctl_write_ptr};
 use std::ffi::c_void;
 
 //pub const IN6_IFF_NODAD: i32 = 0x0020;
@@ -265,5 +265,7 @@ ioctl_write_ptr!(siocdifaddr_in6, b'i', 25, in6_ifreq);
 ioctl_write_ptr!(siocaifaddr_in6, b'i', 27, in6_ifaliasreq);
 
 ioctl_write_ptr!(sioctunsifhead, b't', 96, c_int);
+
+ioctl_read!(tungifname, b't', 93, ifreq);
 
 ioctl_readwrite!(siocsifinfoin6, b'i', 109, in6_ndireq);
