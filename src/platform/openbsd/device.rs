@@ -662,3 +662,26 @@ impl From<Layer> for c_short {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn borrowed_device_drop_leaves_descriptor_open() {
+        let file = File::open("/dev/null").unwrap();
+        let raw_fd = file.as_raw_fd();
+        let device = DeviceImpl {
+            name: "tun-test".into(),
+            tun: Tun::new(unsafe { Fd::new_unchecked_with_borrow(raw_fd, true) }),
+            op_lock: RwLock::new(()),
+            associate_route: AtomicBool::new(true),
+        };
+
+        drop(device);
+
+        assert!(unsafe { libc::fcntl(raw_fd, libc::F_GETFD) } >= 0);
+    }
+}
