@@ -35,6 +35,10 @@ impl Fd {
             borrow,
         }
     }
+    #[inline]
+    pub(crate) const fn should_drop_cleanup(&self) -> bool {
+        self.inner >= 0 && !self.borrow
+    }
     pub(crate) fn is_nonblocking(&self) -> io::Result<bool> {
         unsafe {
             let flags = fcntl(self.inner, F_GETFL);
@@ -188,9 +192,55 @@ impl IntoRawFd for Fd {
 
 impl Drop for Fd {
     fn drop(&mut self) {
-        if !self.borrow && self.inner >= 0 {
+        if self.should_drop_cleanup() {
             unsafe { libc::close(self.inner) };
             self.inner = -1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Fd;
+    use std::fs::File;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn should_drop_cleanup_matches_ownership() {
+        let owned = unsafe { Fd::new_unchecked(1) };
+        assert!(owned.should_drop_cleanup());
+
+        let borrowed = unsafe { Fd::new_unchecked_with_borrow(1, true) };
+        assert!(!borrowed.should_drop_cleanup());
+
+        let invalid = unsafe { Fd::new_unchecked_with_borrow(-1, false) };
+        assert!(!invalid.should_drop_cleanup());
+    }
+
+    #[test]
+    fn borrowed_fd_drop_leaves_descriptor_open() {
+        let file = File::open("/dev/null").unwrap();
+        let raw_fd = file.as_raw_fd();
+
+        let fd = unsafe { Fd::new_unchecked_with_borrow(raw_fd, true) };
+        drop(fd);
+
+        assert!(unsafe { libc::fcntl(raw_fd, libc::F_GETFD) } >= 0);
+    }
+
+    #[test]
+    fn owned_fd_drop_closes_descriptor() {
+        let file = File::open("/dev/null").unwrap();
+        let raw_fd = unsafe { libc::dup(file.as_raw_fd()) };
+        assert!(raw_fd >= 0);
+
+        let fd = unsafe { Fd::new_unchecked(raw_fd) };
+        drop(fd);
+
+        assert_eq!(unsafe { libc::fcntl(raw_fd, libc::F_GETFD) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EBADF)
+        );
     }
 }

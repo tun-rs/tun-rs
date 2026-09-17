@@ -34,7 +34,7 @@ impl IntoRawFd for DeviceImpl {
 }
 impl Drop for DeviceImpl {
     fn drop(&mut self) {
-        if self.tun.fd.inner < 0 {
+        if !self.tun.fd.should_drop_cleanup() {
             return;
         }
         // Construct the request before we do anything
