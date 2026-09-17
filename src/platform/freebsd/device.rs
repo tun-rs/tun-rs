@@ -20,6 +20,7 @@ use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwL
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
+    name: RwLock<String>,
     pub(crate) tun: Tun,
     pub op_lock: RwLock<()>,
     pub associate_route: AtomicBool,
@@ -36,15 +37,18 @@ impl Drop for DeviceImpl {
         if self.tun.fd.inner < 0 {
             return;
         }
+        // Construct the request before we do anything
+        let request = unsafe { self.request() };
         let fd = self.tun.fd.inner;
         self.tun.fd.inner = -1;
         unsafe {
-            // Try to destroy the interface before closing the fd.
-            // Even if destroy fails, we must still close the fd to avoid leaking it.
-            if let (Ok(ctl), Ok(req)) = (ctl(), self.request()) {
+            // Close the fd; without this `siocifdestroy` blocks forever
+            libc::close(fd);
+
+            // Attempt to destroy the device.
+            if let (Ok(ctl), Ok(req)) = (ctl(), request) {
                 _ = siocifdestroy(ctl.as_raw_fd(), &req);
             }
-            libc::close(fd);
         }
     }
 }
@@ -133,6 +137,10 @@ impl DeviceImpl {
             tun.set_ignore_packet_info(false);
         }
         let device = DeviceImpl {
+            name: RwLock::new(match dev_index {
+                Some(index) => format!("{device_prefix}{index}"),
+                None => Self::name_from_path_of_fd(&tun)?,
+            }),
             tun,
             op_lock: RwLock::new(()),
             associate_route: AtomicBool::new(associate_route),
@@ -141,7 +149,7 @@ impl DeviceImpl {
         Ok(device)
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
-        let name = Self::name_of_fd(&tun)?;
+        let name = Self::name_of_fd_fallback(&tun)?;
         if name.starts_with("tap") {
             // Tap does not have PI
             tun.set_ignore_packet_info(false);
@@ -150,6 +158,7 @@ impl DeviceImpl {
             tun.set_ignore_packet_info(true);
         }
         let dev = Self {
+            name: RwLock::new(name),
             tun,
             op_lock: RwLock::new(()),
             associate_route: AtomicBool::new(true),
@@ -285,6 +294,25 @@ impl DeviceImpl {
         Ok(())
     }
     fn name_of_fd(tun: &Tun) -> io::Result<String> {
+        unsafe {
+            let mut req: ifreq = mem::zeroed();
+            tungifname(tun.as_raw_fd(), &mut req).map_err(io::Error::from)?;
+            let name = CStr::from_ptr(req.ifr_name.as_ptr())
+                .to_string_lossy()
+                .into_owned();
+            Ok(name)
+        }
+    }
+
+    fn name_of_fd_fallback(tun: &Tun) -> io::Result<String> {
+        match Self::name_of_fd(tun) {
+            Ok(name) => Ok(name),
+            Err(err) if err.raw_os_error() == Some(libc::ENOTTY) => Self::name_from_path_of_fd(tun),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn name_from_path_of_fd(tun: &Tun) -> io::Result<String> {
         use std::path::PathBuf;
         unsafe {
             let mut path_info: kinfo_file = std::mem::zeroed();
@@ -309,7 +337,16 @@ impl DeviceImpl {
     }
     /// Retrieves the name of the network interface.
     pub(crate) fn name_impl(&self) -> std::io::Result<String> {
-        Self::name_of_fd(&self.tun)
+        match Self::name_of_fd(&self.tun) {
+            Ok(name) => {
+                *self.name.write().unwrap() = name.clone();
+                Ok(name)
+            }
+            Err(err) if err.raw_os_error() == Some(libc::ENOTTY) => {
+                Ok(self.name.read().unwrap().clone())
+            }
+            Err(err) => Err(err),
+        }
     }
 
     fn remove_all_address_v4(&self) -> io::Result<()> {
@@ -376,6 +413,7 @@ impl DeviceImpl {
             if let Err(err) = siocsifname(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
+            *self.name.write().unwrap() = value.to_owned();
 
             Ok(())
         }

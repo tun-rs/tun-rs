@@ -166,6 +166,7 @@ On Linux, enable offload for improved throughput:
 ### BSD (FreeBSD, OpenBSD, NetBSD)
 - Routes are automatically configured
 - Platform-specific syscall interfaces
+- On FreeBSD 12.0 and earlier, live interface rename tracking falls back to the last known name because `TUNGIFNAME` is unavailable
 
 ## Feature Flags
 
