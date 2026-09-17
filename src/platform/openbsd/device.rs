@@ -32,7 +32,7 @@ impl IntoRawFd for DeviceImpl {
 }
 impl Drop for DeviceImpl {
     fn drop(&mut self) {
-        if self.tun.fd.inner < 0 {
+        if !self.tun.fd.should_drop_cleanup() {
             return;
         }
         unsafe {
@@ -660,5 +660,28 @@ impl From<Layer> for c_short {
             Layer::L2 => 2,
             Layer::L3 => 3,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn borrowed_device_drop_leaves_descriptor_open() {
+        let file = File::open("/dev/null").unwrap();
+        let raw_fd = file.as_raw_fd();
+        let device = DeviceImpl {
+            name: "tun-test".into(),
+            tun: Tun::new(unsafe { Fd::new_unchecked_with_borrow(raw_fd, true) }),
+            op_lock: RwLock::new(()),
+            associate_route: AtomicBool::new(true),
+        };
+
+        drop(device);
+
+        assert!(unsafe { libc::fcntl(raw_fd, libc::F_GETFD) } >= 0);
     }
 }
