@@ -282,6 +282,56 @@ impl AsyncDevice {
             Ok(1)
         }
     }
+    /// Non-blocking variant of recv_multiple.
+    ///
+    /// Performs exactly one TUN read. When no packet is currently pending,
+    /// returns io::ErrorKind::WouldBlock.
+    #[cfg(target_os = "linux")]
+    pub fn try_recv_multiple<B: AsRef<[u8]> + AsMut<[u8]>>(
+        &self,
+        original_buffer: &mut [u8],
+        bufs: &mut [B],
+        sizes: &mut [usize],
+        offset: usize,
+    ) -> io::Result<usize> {
+        if bufs.is_empty() || bufs.len() != sizes.len() {
+            return Err(io::Error::other("bufs error"));
+        }
+        if bufs.len() > u16::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "too many packet buffers",
+            ));
+        }
+        let tun = self.get_ref();
+        if tun.vnet_hdr {
+            let len = self.try_recv(original_buffer)?;
+            if len <= VIRTIO_NET_HDR_LEN {
+                return Err(io::Error::other(format!(
+                    "length of packet ({len}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})"
+                )));
+            }
+            let hdr = VirtioNetHdr::decode(&original_buffer[..VIRTIO_NET_HDR_LEN])?;
+            tun.handle_virtio_read(
+                hdr,
+                &mut original_buffer[VIRTIO_NET_HDR_LEN..len],
+                bufs,
+                sizes,
+                offset,
+            )
+        } else {
+            let Some(buf) = bufs[0].as_mut().get_mut(offset..) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid offset",
+                ));
+            };
+            let len = self.try_recv(buf)?;
+            sizes[0] = len;
+            Ok(1)
+        }
+    }
+
     /// send multiple fragmented data packets.
     /// GROTable can be reused, as it is used to assist in data merging.
     /// Offset is the starting position of the data. Need to meet offset>10.
