@@ -132,6 +132,12 @@ pub const VIRTIO_NET_HDR_GSO_TCPV6: u8 = 4;
 /// Available in newer Linux kernels for UDP packet segmentation.
 pub const VIRTIO_NET_HDR_GSO_UDP_L4: u8 = 5;
 
+/// Flag combined with a TCP GSO type when Explicit Congestion Notification is active.
+///
+/// Linux masks this bit before identifying the base GSO type and maps it to
+/// SKB_GSO_TCP_ECN. It is not a standalone GSO type.
+pub const VIRTIO_NET_HDR_GSO_ECN: u8 = 0x80;
+
 /// Recommended batch size for packet operations with offload.
 ///
 /// This constant defines the optimal number of packets to handle per `recv_multiple`
@@ -163,6 +169,7 @@ const TCP_FLAGS_OFFSET: usize = 13;
 const TCP_FLAG_FIN: u8 = 0x01;
 const TCP_FLAG_PSH: u8 = 0x08;
 const TCP_FLAG_ACK: u8 = 0x10;
+const TCP_FLAG_CWR: u8 = 0x80;
 
 /// Virtio network header for offload support.
 ///
@@ -1704,6 +1711,28 @@ pub fn handle_gro<B: ExpandBuffer>(
 /// - Context switches
 ///
 /// Typical performance improvement: 2-5x for bulk transfers.
+pub(super) fn gso_transport_protocol(gso_type: u8, is_v6: bool) -> io::Result<i32> {
+    let has_ecn = gso_type & VIRTIO_NET_HDR_GSO_ECN != 0;
+    let base_type = gso_type & !VIRTIO_NET_HDR_GSO_ECN;
+    match base_type {
+        VIRTIO_NET_HDR_GSO_TCPV4 if !is_v6 => Ok(IPPROTO_TCP),
+        VIRTIO_NET_HDR_GSO_TCPV6 if is_v6 => Ok(IPPROTO_TCP),
+        VIRTIO_NET_HDR_GSO_UDP_L4 if !has_ecn => Ok(IPPROTO_UDP),
+        VIRTIO_NET_HDR_GSO_TCPV4 | VIRTIO_NET_HDR_GSO_TCPV6 => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "virtio GSO type does not match IP version",
+        )),
+        VIRTIO_NET_HDR_GSO_UDP_L4 => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "VIRTIO_NET_HDR_GSO_ECN is only valid for TCP GSO",
+        )),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported virtio GSO type: {gso_type}"),
+        )),
+    }
+}
+
 pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
     input: &mut [u8],
     hdr: VirtioNetHdr,
@@ -1730,6 +1759,7 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             "virtioNetHdr.gsoSize must be non-zero",
         ));
     }
+    let protocol = gso_transport_protocol(hdr.gso_type, is_v6)?;
     if hdr.hdr_len < hdr.csum_start {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -1780,29 +1810,25 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
     input[transport_csum_at] = 0;
     input[transport_csum_at + 1] = 0; // clear TCP/UDP checksum
 
-    let (first_tcp_seq_num, protocol) =
-        if hdr.gso_type == VIRTIO_NET_HDR_GSO_TCPV4 || hdr.gso_type == VIRTIO_NET_HDR_GSO_TCPV6 {
-            if (hdr.hdr_len as usize) < hdr.csum_start as usize + 20
-                || hdr.csum_start as usize + TCP_FLAGS_OFFSET + 1 > input.len()
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "TCP header is too short",
-                ));
-            }
-            (
-                BigEndian::read_u32(&input[hdr.csum_start as usize + 4..]),
-                IPPROTO_TCP,
-            )
-        } else {
-            if (hdr.hdr_len as usize) < hdr.csum_start as usize + UDP_H_LEN {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "UDP header is too short",
-                ));
-            }
-            (0, IPPROTO_UDP)
-        };
+    let first_tcp_seq_num = if protocol == IPPROTO_TCP {
+        if (hdr.hdr_len as usize) < hdr.csum_start as usize + 20
+            || hdr.csum_start as usize + TCP_FLAGS_OFFSET + 1 > input.len()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TCP header is too short",
+            ));
+        }
+        BigEndian::read_u32(&input[hdr.csum_start as usize + 4..])
+    } else {
+        if (hdr.hdr_len as usize) < hdr.csum_start as usize + UDP_H_LEN {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "UDP header is too short",
+            ));
+        }
+        0
+    };
 
     if src_addr_offset + 2 * addr_len > input.len() {
         return Err(io::Error::new(
@@ -1912,8 +1938,14 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
                 &mut out[(hdr.csum_start + 4) as usize..(hdr.csum_start + 8) as usize],
                 tcp_seq,
             );
+            let tcp_flags = &mut out[hdr.csum_start as usize + TCP_FLAGS_OFFSET];
+            if i > 0 {
+                // Linux legacy TCP ECN GSO keeps CWR only on the first segment.
+                *tcp_flags &= !TCP_FLAG_CWR;
+            }
             if next_segment_end != input.len() {
-                out[hdr.csum_start as usize + TCP_FLAGS_OFFSET] &= !(TCP_FLAG_FIN | TCP_FLAG_PSH);
+                // FIN and PSH belong only to the final segment.
+                *tcp_flags &= !(TCP_FLAG_FIN | TCP_FLAG_PSH);
             }
         } else {
             let udp_len = (segment_data_len + (hdr.hdr_len - hdr.csum_start) as usize) as u16;
@@ -2331,5 +2363,99 @@ mod tests {
 
         assert_eq!(count, 2);
         assert_eq!(&sizes[..count], &[296, 296]);
+    }
+}
+
+#[cfg(test)]
+mod gso_type_contract_tests {
+    use super::{
+        gso_transport_protocol, TCP_FLAGS_OFFSET, TCP_FLAG_ACK, TCP_FLAG_CWR, TCP_FLAG_FIN,
+        TCP_FLAG_PSH, VIRTIO_NET_HDR_GSO_ECN, VIRTIO_NET_HDR_GSO_TCPV4, VIRTIO_NET_HDR_GSO_TCPV6,
+        VIRTIO_NET_HDR_GSO_UDP_L4,
+    };
+    use libc::{IPPROTO_TCP, IPPROTO_UDP};
+    use std::io;
+
+    #[test]
+    fn accepts_matching_tcp_types_with_ecn() -> io::Result<()> {
+        assert_eq!(
+            gso_transport_protocol(VIRTIO_NET_HDR_GSO_TCPV4 | VIRTIO_NET_HDR_GSO_ECN, false)?,
+            IPPROTO_TCP
+        );
+        assert_eq!(
+            gso_transport_protocol(VIRTIO_NET_HDR_GSO_TCPV6 | VIRTIO_NET_HDR_GSO_ECN, true)?,
+            IPPROTO_TCP
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_udp_l4_without_ecn() -> io::Result<()> {
+        assert_eq!(
+            gso_transport_protocol(VIRTIO_NET_HDR_GSO_UDP_L4, false)?,
+            IPPROTO_UDP
+        );
+        assert_eq!(
+            gso_transport_protocol(VIRTIO_NET_HDR_GSO_UDP_L4, true)?,
+            IPPROTO_UDP
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn gso_split_accepts_tcpv4_with_ecn_flag() -> io::Result<()> {
+        const HEADER_LEN: usize = 40;
+        let mut input = vec![0u8; HEADER_LEN + 8];
+        input[0] = 0x45; // IPv4, 20-byte header
+        let total_len = u16::try_from(input.len()).map_err(io::Error::other)?;
+        input[2..4].copy_from_slice(&total_len.to_be_bytes());
+        input[9] = libc::IPPROTO_TCP as u8;
+        input[12..16].copy_from_slice(&[192, 0, 2, 1]);
+        input[16..20].copy_from_slice(&[198, 51, 100, 2]);
+        input[20..22].copy_from_slice(&1234u16.to_be_bytes());
+        input[22..24].copy_from_slice(&443u16.to_be_bytes());
+        input[24..28].copy_from_slice(&1000u32.to_be_bytes());
+        input[32] = 5 << 4; // TCP data offset: 20 bytes
+        input[33] = TCP_FLAG_ACK | TCP_FLAG_CWR | TCP_FLAG_FIN | TCP_FLAG_PSH;
+
+        let hdr = super::VirtioNetHdr {
+            gso_type: VIRTIO_NET_HDR_GSO_TCPV4 | VIRTIO_NET_HDR_GSO_ECN,
+            hdr_len: HEADER_LEN as u16,
+            gso_size: 4,
+            csum_start: 20,
+            csum_offset: 16,
+            ..Default::default()
+        };
+        let mut out = vec![vec![0u8; HEADER_LEN + 4]; 2];
+        let mut sizes = vec![0usize; 2];
+
+        let count = super::gso_split(&mut input, hdr, &mut out, &mut sizes, 0, false)?;
+        assert_eq!(count, 2);
+        assert_eq!(&sizes[..count], &[HEADER_LEN + 4, HEADER_LEN + 4]);
+
+        let first_flags = out[0][20 + TCP_FLAGS_OFFSET];
+        let last_flags = out[1][20 + TCP_FLAGS_OFFSET];
+        assert_eq!(first_flags & TCP_FLAG_CWR, TCP_FLAG_CWR);
+        assert_eq!(first_flags & (TCP_FLAG_FIN | TCP_FLAG_PSH), 0);
+        assert_eq!(last_flags & TCP_FLAG_CWR, 0);
+        assert_eq!(
+            last_flags & (TCP_FLAG_FIN | TCP_FLAG_PSH),
+            TCP_FLAG_FIN | TCP_FLAG_PSH
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_gso_type_combinations() {
+        for (gso_type, is_v6) in [
+            (VIRTIO_NET_HDR_GSO_TCPV4, true),
+            (VIRTIO_NET_HDR_GSO_TCPV6, false),
+            (VIRTIO_NET_HDR_GSO_UDP_L4 | VIRTIO_NET_HDR_GSO_ECN, false),
+            (0xff, false),
+        ] {
+            let err = gso_transport_protocol(gso_type, is_v6)
+                .expect_err("invalid GSO type unexpectedly accepted");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        }
     }
 }
