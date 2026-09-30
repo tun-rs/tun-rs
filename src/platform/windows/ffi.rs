@@ -34,6 +34,7 @@ use windows_sys::{
         },
         Foundation::{
             CloseHandle, GetLastError, ERROR_NO_MORE_ITEMS, FALSE, FILETIME, HANDLE, TRUE,
+            WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
         },
         NetworkManagement::{
             IpHelper::{
@@ -81,6 +82,15 @@ pub fn encode_utf16(string: &str) -> Vec<u16> {
 pub fn decode_utf16(string: &[u16]) -> String {
     let end = string.iter().position(|b| *b == 0).unwrap_or(string.len());
     String::from_utf16_lossy(&string[..end])
+}
+
+pub(crate) fn finite_wait_timeout_millis(duration: std::time::Duration) -> u32 {
+    let whole_millis = duration.as_millis();
+    let has_fraction = duration.subsec_nanos() != duration.subsec_millis() * 1_000_000;
+    let rounded_up = whole_millis.saturating_add(u128::from(has_fraction));
+    let max_finite = u128::from(windows_sys::Win32::System::Threading::INFINITE - 1);
+    u32::try_from(rounded_up.min(max_finite))
+        .unwrap_or(windows_sys::Win32::System::Threading::INFINITE - 1)
 }
 
 pub fn string_from_guid(guid: &GUID) -> io::Result<String> {
@@ -134,12 +144,15 @@ pub fn reset_event(handle: RawHandle) -> io::Result<()> {
     Ok(())
 }
 pub fn wait_for_single_object(handle: RawHandle, timeout: u32) -> io::Result<()> {
-    unsafe {
-        if 0 == WaitForSingleObject(handle, timeout) {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
-        }
+    // SAFETY: callers supply a live waitable handle; WaitForSingleObject borrows
+    // the handle synchronously and does not alter its ownership.
+    match unsafe { WaitForSingleObject(handle, timeout) } {
+        WAIT_OBJECT_0 => Ok(()),
+        WAIT_TIMEOUT => Err(io::Error::from(io::ErrorKind::TimedOut)),
+        WAIT_FAILED => Err(io::Error::last_os_error()),
+        value => Err(io::Error::other(format!(
+            "WaitForSingleObject returned unexpected status {value:#x}"
+        ))),
     }
 }
 pub fn set_event(handle: RawHandle) -> io::Result<()> {
@@ -861,4 +874,34 @@ pub fn set_device_state(
     }
 
     call_class_installer(devinfo, devinfo_data, DIF_PROPERTYCHANGE)
+}
+
+#[cfg(test)]
+mod wait_semantics_tests {
+    use super::{create_event, finite_wait_timeout_millis, wait_for_single_object};
+    use std::io;
+    use std::os::windows::io::AsRawHandle;
+    use std::time::Duration;
+    use windows_sys::Win32::System::Threading::INFINITE;
+
+    #[test]
+    fn finite_wait_timeout_rounds_up_without_aliasing_infinite() {
+        assert_eq!(finite_wait_timeout_millis(Duration::ZERO), 0);
+        assert_eq!(finite_wait_timeout_millis(Duration::from_nanos(1)), 1);
+        assert_eq!(finite_wait_timeout_millis(Duration::from_micros(1001)), 2);
+        assert_eq!(
+            finite_wait_timeout_millis(Duration::from_millis(u64::from(INFINITE))),
+            INFINITE - 1
+        );
+    }
+
+    #[test]
+    fn unsignalled_event_reports_timeout() -> io::Result<()> {
+        let event = create_event()?;
+        let error = wait_for_single_object(event.as_raw_handle(), 0)
+            .err()
+            .ok_or_else(|| io::Error::other("unsignalled event unexpectedly became ready"))?;
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        Ok(())
+    }
 }
