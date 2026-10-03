@@ -105,6 +105,25 @@ fn timeout_expired(started: Instant, timeout: Option<Duration>) -> bool {
     }
 }
 
+fn retry_read_with_timeout<T>(
+    timeout: Option<Duration>,
+    mut wait: impl FnMut(Option<Duration>) -> io::Result<()>,
+    mut read: impl FnMut() -> io::Result<T>,
+    mut elapsed: impl FnMut() -> Duration,
+) -> io::Result<T> {
+    loop {
+        wait(timeout.map(|limit| limit.saturating_sub(elapsed())))?;
+        match read() {
+            Err(ref error) if error.kind() == io::ErrorKind::WouldBlock => {
+                if timeout.map(|limit| elapsed() >= limit).unwrap_or(false) {
+                    return Err(io::Error::from(io::ErrorKind::TimedOut));
+                }
+            }
+            result => return result,
+        }
+    }
+}
+
 impl Fd {
     pub(crate) fn read_interruptible(
         &self,
@@ -113,20 +132,12 @@ impl Fd {
         timeout: Option<Duration>,
     ) -> io::Result<usize> {
         let started = Instant::now();
-        loop {
-            self.wait_readable_interruptible(
-                event,
-                timeout.map(|limit| limit.saturating_sub(started.elapsed())),
-            )?;
-            match self.read(buf) {
-                Err(ref error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    if timeout_expired(started, timeout) {
-                        return Err(io::Error::from(io::ErrorKind::TimedOut));
-                    }
-                }
-                result => return result,
-            }
-        }
+        retry_read_with_timeout(
+            timeout,
+            |remaining| self.wait_readable_interruptible(event, remaining),
+            || self.read(buf),
+            || started.elapsed(),
+        )
     }
     pub(crate) fn readv_interruptible(
         &self,
@@ -135,20 +146,12 @@ impl Fd {
         timeout: Option<Duration>,
     ) -> io::Result<usize> {
         let started = Instant::now();
-        loop {
-            self.wait_readable_interruptible(
-                event,
-                timeout.map(|limit| limit.saturating_sub(started.elapsed())),
-            )?;
-            match self.readv(bufs) {
-                Err(ref error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    if timeout_expired(started, timeout) {
-                        return Err(io::Error::from(io::ErrorKind::TimedOut));
-                    }
-                }
-                result => return result,
-            }
-        }
+        retry_read_with_timeout(
+            timeout,
+            |remaining| self.wait_readable_interruptible(event, remaining),
+            || self.readv(bufs),
+            || started.elapsed(),
+        )
     }
     pub(crate) fn write_interruptible(
         &self,
@@ -675,7 +678,7 @@ impl InterruptEvent {
 
 #[cfg(test)]
 mod timeout_tests {
-    use super::{poll_timeout_ms, Fd, InterruptEvent};
+    use super::{poll_timeout_ms, retry_read_with_timeout, Fd, InterruptEvent};
     use std::io;
     use std::time::Duration;
 
@@ -699,6 +702,47 @@ mod timeout_tests {
             2
         );
         assert_eq!(poll_timeout_ms(Some(Duration::MAX)), libc::c_int::MAX);
+    }
+
+    #[test]
+    fn retry_read_keeps_original_deadline_after_would_block() -> io::Result<()> {
+        let timeout = Duration::from_millis(10);
+        let elapsed_samples = [
+            Duration::ZERO,
+            Duration::from_millis(6),
+            Duration::from_millis(7),
+            timeout,
+        ];
+        let mut elapsed_index = 0;
+        let mut observed_waits = Vec::new();
+        let mut read_calls = 0;
+
+        let error = retry_read_with_timeout::<usize>(
+            Some(timeout),
+            |remaining| {
+                observed_waits.push(remaining);
+                Ok(())
+            },
+            || {
+                read_calls += 1;
+                Err(io::Error::from(io::ErrorKind::WouldBlock))
+            },
+            || {
+                let sample = elapsed_samples[elapsed_index];
+                elapsed_index += 1;
+                sample
+            },
+        )
+        .expect_err("scripted WouldBlock retries unexpectedly succeeded");
+
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(
+            observed_waits,
+            [Some(timeout), Some(Duration::from_millis(3))]
+        );
+        assert_eq!(read_calls, 2);
+        assert_eq!(elapsed_index, elapsed_samples.len());
+        Ok(())
     }
 
     #[test]
