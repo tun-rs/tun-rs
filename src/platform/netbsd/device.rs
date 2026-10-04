@@ -12,8 +12,7 @@ use crate::platform::unix::device::{copy_device_name, ctl, ctl_v6};
 use libc::{self, c_char, c_short, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
 use nix::sys::socket::{LinkAddr, SockaddrLike};
 use std::io::ErrorKind;
-use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
-use std::os::unix::fs::MetadataExt;
+use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
 
@@ -314,7 +313,10 @@ impl DeviceImpl {
                     }
                 }
                 _ => {
-                    unreachable!();
+                    return Err(io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "address and netmask families must match",
+                    ));
                 }
             }
             Ok(())
@@ -365,11 +367,15 @@ impl DeviceImpl {
                 return Ok(dev_name);
             }
         }
-        let file = unsafe { std::fs::File::from_raw_fd(tun) };
-        let metadata = file.metadata()?;
-        let rdev = metadata.rdev();
-        let index = rdev % 256;
-        std::mem::forget(file); // prevent fd being closed
+        let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: tun is a borrowed live descriptor and st is writable storage
+        // for the synchronous fstat call; no ownership is transferred.
+        if unsafe { libc::fstat(tun, st.as_mut_ptr()) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: successful fstat initializes the complete stat object.
+        let st = unsafe { st.assume_init() };
+        let index = st.st_rdev % 256;
         Ok(format!("tun{index}"))
     }
 
