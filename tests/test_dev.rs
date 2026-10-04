@@ -628,6 +628,18 @@ fn test_windows_new_apis() {
         .expect("clear_dns_servers (IPv6) should succeed");
 }
 
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+#[test]
+fn linux_rejects_packet_information_with_vnet_offload() {
+    let error = DeviceBuilder::new()
+        .packet_information(true)
+        .offload(true)
+        .build_sync()
+        .err()
+        .expect("unsupported PI + vnet-header combination was accepted");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+}
+
 /// Regression test for the device-wide TUN_F_* offload mask not being
 /// cleared on attach with `offload=false`.
 ///
