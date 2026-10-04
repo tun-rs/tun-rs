@@ -148,27 +148,48 @@ impl DeviceImpl {
             Ok(device)
         }
     }
-    unsafe fn set_tcp_offloads(&self) -> io::Result<()> {
+    fn set_tcp_offloads(&self) -> io::Result<()> {
         let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
-        tunsetoffload(self.as_raw_fd(), tun_tcp_offloads as _)
-            .map(|_| ())
-            .map_err(|e| e.into())
+        unsafe {
+            tunsetoffload(self.as_raw_fd(), tun_tcp_offloads as _)
+                .map(|_| ())
+                .map_err(io::Error::from)
+        }
     }
-    unsafe fn set_tcp_udp_offloads(&self) -> io::Result<()> {
+    fn set_tcp_udp_offloads(&self) -> io::Result<()> {
         let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
         let tun_udp_offloads = libc::TUN_F_USO4 | libc::TUN_F_USO6;
-        tunsetoffload(self.as_raw_fd(), (tun_tcp_offloads | tun_udp_offloads) as _)
-            .map(|_| ())
-            .map_err(|e| e.into())
+        unsafe {
+            tunsetoffload(self.as_raw_fd(), (tun_tcp_offloads | tun_udp_offloads) as _)
+                .map(|_| ())
+                .map_err(io::Error::from)
+        }
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
-        Ok(Self {
+        let flags = tun_flags(tun.as_raw_fd())?;
+        let vnet_hdr = flags & (libc::IFF_VNET_HDR as c_short) != 0;
+        let has_packet_information = flags & (IFF_NO_PI as c_short) == 0;
+        if vnet_hdr && has_packet_information {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Linux raw fd combines packet-information and virtio headers",
+            ));
+        }
+
+        let mut dev = Self {
             tun,
-            vnet_hdr: false,
+            vnet_hdr,
             udp_gso: false,
-            flags: 0,
+            flags,
             op_lock: Arc::new(RwLock::new(())),
-        })
+        };
+
+        if vnet_hdr {
+            dev.set_tcp_offloads()?;
+            dev.udp_gso = dev.set_tcp_udp_offloads().is_ok();
+        }
+
+        Ok(dev)
     }
 
     /// # Prerequisites
@@ -1221,6 +1242,14 @@ impl DeviceImpl {
 
             Ok(mac)
         }
+    }
+}
+
+fn tun_flags(fd: RawFd) -> io::Result<c_short> {
+    unsafe {
+        let mut req: ifreq = mem::zeroed();
+        tungetiff(fd, (&raw mut req).cast()).map_err(io::Error::from)?;
+        Ok(req.ifr_ifru.ifru_flags)
     }
 }
 

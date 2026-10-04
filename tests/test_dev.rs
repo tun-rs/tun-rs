@@ -403,6 +403,41 @@ fn test_op() {
     assert!(device.is_running().unwrap());
 }
 
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+#[test]
+#[ignore = "requires CAP_NET_ADMIN and Linux multiqueue/offload TUN support"]
+#[expect(
+    unsafe_code,
+    reason = "the test round-trips ownership through the public raw-fd constructor"
+)]
+fn linux_from_fd_recovers_queue_and_vnet_state() {
+    use std::os::fd::IntoRawFd;
+
+    let device = DeviceBuilder::new()
+        .multi_queue(true)
+        .offload(true)
+        .build_sync()
+        .expect("create multiqueue offload TUN");
+    let name = device.name().expect("query TUN name");
+    assert!(device.tcp_gso());
+
+    let fd = device.into_raw_fd();
+    // SAFETY: IntoRawFd transferred ownership of the live TUN descriptor and
+    // from_fd immediately takes that ownership back.
+    let restored = unsafe { SyncDevice::from_fd(fd) }.expect("restore TUN from raw fd");
+    assert_eq!(restored.name().expect("query restored TUN name"), name);
+    assert!(restored.tcp_gso());
+
+    // TUNGETIFF state must restore IFF_MULTI_QUEUE, otherwise a raw-fd
+    // round-trip silently breaks try_clone().
+    let clone = restored.try_clone().expect("clone restored multiqueue TUN");
+    assert_eq!(clone.name().expect("query cloned TUN name"), name);
+    assert_eq!(
+        clone.if_index().expect("query clone index"),
+        restored.if_index().expect("query restored index")
+    );
+}
+
 #[cfg(any(
     target_os = "windows",
     target_os = "macos",
