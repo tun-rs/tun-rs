@@ -1250,21 +1250,6 @@ fn validate_adopted_tun_flags(flags: c_short) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod raw_fd_contract_tests {
-    use super::validate_adopted_tun_flags;
-    use std::io;
-
-    #[test]
-    fn adopted_raw_fd_rejects_virtio_header_framing() {
-        assert!(validate_adopted_tun_flags(0).is_ok());
-        assert!(matches!(
-            validate_adopted_tun_flags(libc::IFF_VNET_HDR as libc::c_short),
-            Err(error) if error.kind() == io::ErrorKind::InvalidInput
-        ));
-    }
-}
-
 unsafe fn name(fd: RawFd) -> io::Result<String> {
     let mut req: ifreq = mem::zeroed();
     if let Err(err) = tungetiff(fd, &mut req as *mut _ as *mut _) {
@@ -1291,5 +1276,20 @@ impl From<Layer> for c_short {
             Layer::L2 => IFF_TAP as c_short,
             Layer::L3 => IFF_TUN as c_short,
         }
+    }
+}
+
+#[cfg(test)]
+mod raw_fd_contract_tests {
+    use super::validate_adopted_tun_flags;
+    use std::io;
+
+    #[test]
+    fn adopted_raw_fd_rejects_virtio_header_framing() {
+        assert!(validate_adopted_tun_flags(0).is_ok());
+        assert!(matches!(
+            validate_adopted_tun_flags(libc::IFF_VNET_HDR as libc::c_short),
+            Err(error) if error.kind() == io::ErrorKind::InvalidInput
+        ));
     }
 }

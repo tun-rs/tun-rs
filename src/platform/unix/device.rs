@@ -17,18 +17,16 @@ impl FromRawFd for DeviceImpl {
     /// # Safety
     ///
     /// The caller must ensure that `fd` is a valid, open file descriptor for a TUN/TAP device.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
     ///
     /// # Panics
     ///
-    /// This function will panic if the provided file descriptor is invalid or cannot be used
-    /// to create a TUN/TAP device. This is acceptable because providing an invalid fd violates
-    /// the safety contract of `FromRawFd`.
+    /// This function will panic if the provided file descriptor is invalid or violates the
+    /// platform-specific adoption contract.
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        // If this panics, the caller violated the safety contract by providing an invalid fd
+        // If this panics, the caller violated the descriptor adoption safety contract
         DeviceImpl::from_fd(fd).expect(
-            "Failed to create device from file descriptor. \
-                                         The provided fd must be a valid, open file descriptor \
-                                         for a TUN/TAP device.",
+            "Failed to adopt TUN/TAP file descriptor; the descriptor must satisfy the platform-specific adoption contract",
         )
     }
 }
@@ -51,12 +49,14 @@ impl std::os::unix::io::IntoRawFd for DeviceImpl {
 impl DeviceImpl {
     /// # Safety
     /// The fd passed in must be an owned file descriptor; in particular, it must be open.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
     pub(crate) unsafe fn from_fd(fd: RawFd) -> io::Result<Self> {
         let tun = Fd::new_unchecked(fd);
         DeviceImpl::from_tun(Tun::new(tun))
     }
     /// # Safety
     /// The fd passed in must be a valid, open file descriptor.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
     /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
     /// and therefore will not close it when dropped.  
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.

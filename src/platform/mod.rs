@@ -805,6 +805,12 @@ impl Deref for SyncDevice {
 
 #[cfg(unix)]
 impl FromRawFd for SyncDevice {
+    /// # Safety
+    /// The fd must be valid, open, and refer to a TUN/TAP device.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
+    ///
+    /// # Panics
+    /// Panics if the descriptor is invalid or violates the platform-specific adoption contract.
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         SyncDevice::from_fd(fd).expect(
             "Failed to create device from file descriptor. \
