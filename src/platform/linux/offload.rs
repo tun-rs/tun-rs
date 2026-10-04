@@ -852,17 +852,32 @@ fn checksum_valid(pkt: &[u8], iph_len: u8, proto: u8, is_v6: bool) -> bool {
     } else {
         (IPV4_SRC_ADDR_OFFSET, 4)
     };
+    let iph_len = usize::from(iph_len);
+    let Some(addresses_end) = src_addr_at.checked_add(addr_size * 2) else {
+        return false;
+    };
+    if iph_len > pkt.len() || addresses_end > pkt.len() {
+        return false;
+    }
 
-    let len_for_pseudo = (pkt.len() as u16).saturating_sub(iph_len as u16);
+    let Ok(pkt_len) = u16::try_from(pkt.len()) else {
+        return false;
+    };
+    let Ok(iph_len_u16) = u16::try_from(iph_len) else {
+        return false;
+    };
+    let Some(len_for_pseudo) = pkt_len.checked_sub(iph_len_u16) else {
+        return false;
+    };
 
     let c_sum = pseudo_header_checksum_no_fold(
         proto,
         &pkt[src_addr_at..src_addr_at + addr_size],
-        &pkt[src_addr_at + addr_size..src_addr_at + addr_size * 2],
+        &pkt[src_addr_at + addr_size..addresses_end],
         len_for_pseudo,
     );
 
-    (!checksum(&pkt[iph_len as usize..], c_sum)) == 0
+    (!checksum(&pkt[iph_len..], c_sum)) == 0
 }
 
 /// coalesceResult represents the result of attempting to coalesce two TCP
@@ -2278,6 +2293,18 @@ mod tests {
         pkt[IPH_LEN + 16..IPH_LEN + 18].copy_from_slice(&tcp_checksum.to_be_bytes());
 
         pkt
+    }
+
+    #[test]
+    fn checksum_valid_rejects_truncated_headers_without_panic() {
+        assert!(!checksum_valid(&[0; 19], 20, IPPROTO_TCP as u8, false));
+        assert!(!checksum_valid(&[0; 39], 40, IPPROTO_TCP as u8, true));
+    }
+
+    #[test]
+    fn checksum_valid_rejects_oversized_packets() {
+        let pkt = vec![0u8; usize::from(u16::MAX) + 1];
+        assert!(!checksum_valid(&pkt, 20, IPPROTO_TCP as u8, false));
     }
 
     #[test]
