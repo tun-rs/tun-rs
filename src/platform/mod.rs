@@ -161,6 +161,10 @@ impl SyncDevice {
     /// # }
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    /// # Safety
+    /// On Linux, the descriptor must use `IFF_NO_PI` framing and must not use
+    /// `IFF_VNET_HDR`. Linux does not expose enough read-only state to recover
+    /// arbitrary packet-information/offload framing safely from an adopted fd.
     #[cfg(unix)]
     pub unsafe fn from_fd(fd: RawFd) -> std::io::Result<Self> {
         Ok(SyncDevice(DeviceImpl::from_fd(fd)?))
@@ -843,6 +847,7 @@ impl Deref for BorrowedSyncDevice<'_> {
 impl BorrowedSyncDevice<'_> {
     /// # Safety
     /// The fd passed in must be a valid, open file descriptor.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
     /// Unlike [`SyncDevice::from_fd`], this function does **not** take ownership of `fd`,
     /// and therefore will not close it when dropped.  
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.

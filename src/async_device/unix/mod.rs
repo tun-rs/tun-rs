@@ -50,8 +50,9 @@ impl AsyncDevice {
     }
 
     /// # Safety
-    /// This method is safe if the provided fd is valid
-    /// Construct a AsyncDevice from an existing file descriptor
+    /// The fd must be valid, open, and refer to a TUN/TAP device.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
+    /// Construct an AsyncDevice from an existing file descriptor.
     pub unsafe fn from_fd(fd: RawFd) -> io::Result<AsyncDevice> {
         AsyncDevice::new_dev(DeviceImpl::from_fd(fd)?)
     }
