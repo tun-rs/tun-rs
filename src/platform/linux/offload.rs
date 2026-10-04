@@ -1748,6 +1748,53 @@ pub(super) fn gso_transport_protocol(gso_type: u8, is_v6: bool) -> io::Result<i3
     }
 }
 
+#[inline]
+fn checked_segment_lengths(
+    hdr_len: usize,
+    csum_start: usize,
+    segment_data_len: usize,
+    is_v6: bool,
+) -> io::Result<(usize, u16, u16)> {
+    let transport_header_len = hdr_len.checked_sub(csum_start).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid transport header length",
+        )
+    })?;
+    let checksum_len = transport_header_len
+        .checked_add(segment_data_len)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "segment transport length overflow",
+            )
+        })?;
+    let checksum_len = u16::try_from(checksum_len).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "segment transport length exceeds u16",
+        )
+    })?;
+    let total_len = hdr_len.checked_add(segment_data_len).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "segment total length overflow")
+    })?;
+    let ip_len = if is_v6 {
+        total_len.checked_sub(40).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "IPv6 packet is shorter than the fixed header",
+            )
+        })?
+    } else {
+        total_len
+    };
+    let ip_len = u16::try_from(ip_len).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "segment IP length exceeds u16")
+    })?;
+
+    Ok((total_len, checksum_len, ip_len))
+}
+
 pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
     input: &mut [u8],
     hdr: VirtioNetHdr,
@@ -1794,7 +1841,9 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             "input shorter than virtioNetHdr.hdrLen",
         ));
     }
-    let iph_len = hdr.csum_start as usize;
+    let hdr_len = usize::from(hdr.hdr_len);
+    let csum_start = usize::from(hdr.csum_start);
+    let iph_len = csum_start;
     let (src_addr_offset, addr_len) = if is_v6 {
         if input.len() < 40 {
             return Err(io::Error::new(
@@ -1810,20 +1859,21 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
                 "IPv4 packet is too short",
             ));
         }
-        input[10] = 0;
-        input[11] = 0; // clear IPv4 header checksum
         (IPV4_SRC_ADDR_OFFSET, 4)
     };
 
-    let transport_csum_at = (hdr.csum_start + hdr.csum_offset) as usize;
-    if transport_csum_at + 1 >= input.len() {
+    let transport_csum_at = csum_start
+        .checked_add(usize::from(hdr.csum_offset))
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "checksum offset overflow"))?;
+    let transport_csum_end = transport_csum_at
+        .checked_add(2)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "checksum field overflow"))?;
+    if transport_csum_end > hdr_len {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "checksum offset exceeds input length",
+            "checksum field exceeds transport header",
         ));
     }
-    input[transport_csum_at] = 0;
-    input[transport_csum_at + 1] = 0; // clear TCP/UDP checksum
 
     let first_tcp_seq_num = if protocol == IPPROTO_TCP {
         if (hdr.hdr_len as usize) < hdr.csum_start as usize + 20
@@ -1853,24 +1903,13 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
     }
     let src_addr_bytes = &input[src_addr_offset..src_addr_offset + addr_len];
     let dst_addr_bytes = &input[src_addr_offset + addr_len..src_addr_offset + 2 * addr_len];
-    let transport_header_len = (hdr.hdr_len - hdr.csum_start) as usize;
 
-    let nonlast_segment_data_len = hdr.gso_size as usize;
-    let nonlast_len_for_pseudo = (transport_header_len + nonlast_segment_data_len) as u16;
-    let nonlast_total_len = hdr.hdr_len as usize + nonlast_segment_data_len;
-
-    let nonlast_transport_csum_no_fold = pseudo_header_checksum_no_fold(
-        protocol as u8,
-        src_addr_bytes,
-        dst_addr_bytes,
-        nonlast_len_for_pseudo,
-    );
-
-    let payload_len = input.len() - hdr.hdr_len as usize;
+    let payload_len = input.len() - hdr_len;
+    let gso_size = usize::from(hdr.gso_size);
     let segment_count = if payload_len == 0 {
         0
     } else {
-        (payload_len - 1) / hdr.gso_size as usize + 1
+        (payload_len - 1) / gso_size + 1
     };
     if segment_count > out_bufs.len() {
         return Err(io::Error::new(
@@ -1878,9 +1917,13 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             "too many GSO segments",
         ));
     }
+
+    let max_segment_data_len = payload_len.min(gso_size);
+    let (max_total_len, _, _) =
+        checked_segment_lengths(hdr_len, csum_start, max_segment_data_len, is_v6)?;
     for out_buf in &out_bufs[..segment_count] {
         let out_len = out_buf.as_ref().len();
-        if out_offset > out_len || out_len - out_offset < nonlast_total_len {
+        if out_offset > out_len || out_len - out_offset < max_total_len {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "output buffer too small",
@@ -1888,37 +1931,26 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
         }
     }
 
-    let mut next_segment_data_at = hdr.hdr_len as usize;
+    let mut next_segment_data_at = hdr_len;
     let mut i = 0;
 
     while next_segment_data_at < input.len() {
-        let next_segment_end = next_segment_data_at + hdr.gso_size as usize;
-        let (next_segment_end, segment_data_len, total_len, transport_csum_no_fold) =
-            if next_segment_end > input.len() {
-                let last_segment_data_len = input.len() - next_segment_data_at;
-                let last_len_for_pseudo = (transport_header_len + last_segment_data_len) as u16;
-
-                let last_total_len = hdr.hdr_len as usize + last_segment_data_len;
-                let last_transport_csum_no_fold = pseudo_header_checksum_no_fold(
-                    protocol as u8,
-                    src_addr_bytes,
-                    dst_addr_bytes,
-                    last_len_for_pseudo,
-                );
-                (
-                    input.len(),
-                    last_segment_data_len,
-                    last_total_len,
-                    last_transport_csum_no_fold,
-                )
-            } else {
-                (
-                    next_segment_end,
-                    hdr.gso_size as usize,
-                    nonlast_total_len,
-                    nonlast_transport_csum_no_fold,
-                )
-            };
+        let candidate_segment_end = next_segment_data_at
+            .checked_add(gso_size)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "segment end overflow"))?;
+        let (next_segment_end, segment_data_len) = if candidate_segment_end > input.len() {
+            (input.len(), input.len() - next_segment_data_at)
+        } else {
+            (candidate_segment_end, gso_size)
+        };
+        let (total_len, len_for_pseudo, ip_len_field) =
+            checked_segment_lengths(hdr_len, csum_start, segment_data_len, is_v6)?;
+        let transport_csum_no_fold = pseudo_header_checksum_no_fold(
+            protocol as u8,
+            src_addr_bytes,
+            dst_addr_bytes,
+            len_for_pseudo,
+        );
 
         sizes[i] = total_len;
         let out = &mut out_bufs[i].as_mut()[out_offset..];
@@ -1929,23 +1961,23 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             // For IPv4 we are responsible for incrementing the ID field,
             // updating the total len field, and recalculating the header
             // checksum.
+            out[10] = 0;
+            out[11] = 0; // clear IPv4 header checksum
             if i > 0 {
                 let id = BigEndian::read_u16(&out[4..]).wrapping_add(i as u16);
                 BigEndian::write_u16(&mut out[4..6], id);
             }
-            BigEndian::write_u16(&mut out[2..4], total_len as u16);
+            BigEndian::write_u16(&mut out[2..4], ip_len_field);
             let ipv4_csum = !checksum(&out[..iph_len], 0);
             BigEndian::write_u16(&mut out[10..12], ipv4_csum);
         } else {
             // For IPv6 we are responsible for updating the payload length field.
             // IPv6 extensions are not checksumed, but included in the payload length.
-            const IPV6_FIXED_HDR_LEN: usize = 40;
-            let payload_len = total_len - IPV6_FIXED_HDR_LEN;
-            BigEndian::write_u16(&mut out[4..6], payload_len as u16);
+            BigEndian::write_u16(&mut out[4..6], ip_len_field);
         }
 
-        out[hdr.csum_start as usize..hdr.hdr_len as usize]
-            .copy_from_slice(&input[hdr.csum_start as usize..hdr.hdr_len as usize]);
+        out[csum_start..hdr_len].copy_from_slice(&input[csum_start..hdr_len]);
+        out[transport_csum_at..transport_csum_end].fill(0);
 
         if protocol == IPPROTO_TCP {
             let tcp_seq = first_tcp_seq_num.wrapping_add(hdr.gso_size as u32 * i as u32);
@@ -1963,7 +1995,7 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
                 *tcp_flags &= !(TCP_FLAG_FIN | TCP_FLAG_PSH);
             }
         } else {
-            let udp_len = (segment_data_len + (hdr.hdr_len - hdr.csum_start) as usize) as u16;
+            let udp_len = len_for_pseudo;
             BigEndian::write_u16(
                 &mut out[(hdr.csum_start + 4) as usize..(hdr.csum_start + 6) as usize],
                 udp_len,
@@ -1979,11 +2011,11 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             transport_csum_no_fold,
         );
         BigEndian::write_u16(
-            &mut out[transport_csum_at..transport_csum_at + 2],
+            &mut out[transport_csum_at..transport_csum_end],
             transport_csum,
         );
 
-        next_segment_data_at += hdr.gso_size as usize;
+        next_segment_data_at = next_segment_end;
         i += 1;
     }
 
@@ -2484,5 +2516,52 @@ mod gso_type_contract_tests {
                 .expect_err("invalid GSO type unexpectedly accepted");
             assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
         }
+    }
+
+    #[test]
+    fn gso_split_rejects_checksum_field_outside_header_without_mutating_input() {
+        let mut input = vec![0u8; 60];
+        input[0] = 0x45;
+        input[10] = 0x12;
+        input[11] = 0x34;
+        let original = input.clone();
+        let hdr = super::VirtioNetHdr {
+            gso_type: VIRTIO_NET_HDR_GSO_TCPV4,
+            hdr_len: 40,
+            gso_size: 4,
+            csum_start: 20,
+            csum_offset: 30,
+            ..Default::default()
+        };
+        let mut out = vec![vec![0u8; 60]; 5];
+        let mut sizes = vec![0usize; 5];
+
+        let err = super::gso_split(&mut input, hdr, &mut out, &mut sizes, 0, false)
+            .expect_err("checksum field outside hdr_len unexpectedly accepted");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(input, original);
+    }
+
+    #[test]
+    fn gso_split_rejects_segment_lengths_that_do_not_fit_wire_fields() {
+        const HEADER_LEN: usize = 40;
+        let mut input = vec![0u8; HEADER_LEN + usize::from(u16::MAX)];
+        input[0] = 0x45;
+        let original = input.clone();
+        let hdr = super::VirtioNetHdr {
+            gso_type: VIRTIO_NET_HDR_GSO_TCPV4,
+            hdr_len: HEADER_LEN as u16,
+            gso_size: u16::MAX,
+            csum_start: 20,
+            csum_offset: 16,
+            ..Default::default()
+        };
+        let mut out = vec![vec![0u8; input.len()]];
+        let mut sizes = vec![0usize; 1];
+
+        let err = super::gso_split(&mut input, hdr, &mut out, &mut sizes, 0, false)
+            .expect_err("oversized segment unexpectedly accepted");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(input, original);
     }
 }
