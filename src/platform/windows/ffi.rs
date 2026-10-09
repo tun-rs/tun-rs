@@ -175,7 +175,7 @@ pub fn create_file(
             ptr::null_mut(),
         )
     };
-    if handle.is_null() {
+    if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
         Err(io::Error::last_os_error())
     } else {
         Ok(handle)
@@ -932,6 +932,38 @@ mod netio_status_tests {
             Some(STALE_LAST_ERROR as i32),
             "wrapper returned stale GetLastError instead of the NETIO status"
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod create_file_tests {
+    use super::create_file;
+    use std::io;
+
+    #[test]
+    fn missing_file_returns_error_instead_of_invalid_handle() -> io::Result<()> {
+        let missing_dir =
+            std::env::temp_dir().join(format!("tun-rs-create-file-missing-{}", std::process::id()));
+        match std::fs::remove_dir_all(&missing_dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+
+        let missing_file = missing_dir.join("device");
+        let path = missing_file.to_string_lossy();
+        let error = create_file(
+            &path,
+            0,
+            0,
+            windows_sys::Win32::Storage::FileSystem::OPEN_EXISTING,
+            windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
+        )
+        .err()
+        .ok_or_else(|| io::Error::other("CreateFileW failure returned a usable handle"))?;
+
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
         Ok(())
     }
 }
