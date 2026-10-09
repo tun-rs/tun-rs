@@ -243,7 +243,7 @@ pub(crate) unsafe fn ctl() -> io::Result<Fd> {
 #[cfg(target_os = "macos")]
 pub(crate) unsafe fn ctl() -> io::Result<Fd> {
     let fd = Fd::new(libc::socket(AF_INET, SOCK_DGRAM, 0))?;
-    _ = fd.set_cloexec();
+    fd.set_cloexec()?;
     Ok(fd)
 }
 #[cfg(any(
@@ -258,7 +258,7 @@ pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
 #[cfg(target_os = "macos")]
 pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
     let fd = Fd::new(libc::socket(AF_INET6, SOCK_DGRAM, 0))?;
-    _ = fd.set_cloexec();
+    fd.set_cloexec()?;
     Ok(fd)
 }
 
