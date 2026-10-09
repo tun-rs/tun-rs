@@ -16,7 +16,7 @@ use libc::{
 use std::io::ErrorKind;
 use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr, sync::RwLock};
+use std::{ffi::CStr, io, mem, net::IpAddr, os::unix::io::AsRawFd, sync::RwLock};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
@@ -38,7 +38,7 @@ impl Drop for DeviceImpl {
             return;
         }
         // Construct the request before we do anything
-        let request = unsafe { self.request() };
+        let request = self.request();
         let fd = self.tun.fd.inner;
         self.tun.fd.inner = -1;
         unsafe {
@@ -170,7 +170,7 @@ impl DeviceImpl {
         unsafe {
             let tun_name = self.name_impl()?;
             let mut req: in6_ndireq = mem::zeroed();
-            copy_device_name(&tun_name, req.ifra_name.as_mut_ptr(), IFNAMSIZ);
+            copy_device_name(&tun_name, &mut req.ifra_name)?;
             req.ndi.flags &= !(ND6_IFF_AUTO_LINKLOCAL as u32);
             if let Err(err) = siocsifinfoin6(ctl_v6()?.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
@@ -218,11 +218,7 @@ impl DeviceImpl {
                     let ctl = ctl()?;
                     let mut req: ifaliasreq = mem::zeroed();
                     let tun_name = self.name_impl()?;
-                    ptr::copy_nonoverlapping(
-                        tun_name.as_ptr() as *const c_char,
-                        req.ifran.as_mut_ptr(),
-                        tun_name.len(),
-                    );
+                    copy_device_name(&tun_name, &mut req.ifran)?;
 
                     req.addr = crate::platform::unix::sockaddr_union::from((addr, 0)).addr;
                     if let Some(dest) = dest {
@@ -243,11 +239,7 @@ impl DeviceImpl {
                     };
                     let tun_name = self.name_impl()?;
                     let mut req: in6_ifaliasreq = mem::zeroed();
-                    ptr::copy_nonoverlapping(
-                        tun_name.as_ptr() as *const c_char,
-                        req.ifra_name.as_mut_ptr(),
-                        tun_name.len(),
-                    );
+                    copy_device_name(&tun_name, &mut req.ifra_name)?;
                     req.ifra_addr = sockaddr_union::from((addr, 0)).addr6;
                     req.ifra_prefixmask = sockaddr_union::from((mask, 0)).addr6;
                     req.in6_addrlifetime.ia6t_vltime = 0xffffffff_u32;
@@ -264,18 +256,22 @@ impl DeviceImpl {
     }
 
     /// Prepare a new request.
-    unsafe fn request(&self) -> std::io::Result<ifreq> {
-        let mut req: ifreq = mem::zeroed();
+    fn request(&self) -> std::io::Result<ifreq> {
+        // SAFETY: ifreq is a C request POD; zero initializes the union and scalar fields
+        // to the kernel ABI's empty-request state before the interface name is populated.
+        let mut req: ifreq = unsafe { mem::zeroed() };
         let tun_name = self.name_impl()?;
-        copy_device_name(&tun_name, req.ifr_name.as_mut_ptr(), IFNAMSIZ);
+        copy_device_name(&tun_name, &mut req.ifr_name)?;
         Ok(req)
     }
 
-    /// # Safety
-    unsafe fn request_v6(&self) -> std::io::Result<in6_ifreq> {
+    /// Prepare a new IPv6 request.
+    fn request_v6(&self) -> std::io::Result<in6_ifreq> {
         let tun_name = self.name_impl()?;
-        let mut req: in6_ifreq = mem::zeroed();
-        copy_device_name(&tun_name, req.ifra_name.as_mut_ptr(), IFNAMSIZ);
+        // SAFETY: in6_ifreq is a C request POD; zero is the kernel ABI's empty request
+        // state before the interface name and flags are populated.
+        let mut req: in6_ifreq = unsafe { mem::zeroed() };
+        copy_device_name(&tun_name, &mut req.ifra_name)?;
         req.ifr_ifru.ifru_flags = IN6_IFF_NODAD as _;
         Ok(req)
     }

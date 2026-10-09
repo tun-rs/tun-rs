@@ -9,12 +9,12 @@ use crate::{
 };
 
 use crate::platform::unix::device::{copy_device_name, ctl, ctl_v6};
-use libc::{self, c_char, c_short, ifreq, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
+use libc::{self, c_short, ifreq, AF_LINK, IFF_RUNNING, IFF_UP, IFNAMSIZ, O_RDWR};
 use std::io::ErrorKind;
 use std::os::fd::{IntoRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
-use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd, ptr};
+use std::{io, mem, net::IpAddr, os::unix::io::AsRawFd};
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
@@ -176,11 +176,7 @@ impl DeviceImpl {
     fn create_dev(name: &str) -> io::Result<()> {
         unsafe {
             let mut req: ifreq = mem::zeroed();
-            ptr::copy_nonoverlapping(
-                name.as_ptr() as *const c_char,
-                req.ifr_name.as_mut_ptr(),
-                name.len(),
-            );
+            copy_device_name(name, &mut req.ifr_name)?;
             if let Err(err) = siocifcreate(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -225,11 +221,7 @@ impl DeviceImpl {
                     let ctl = ctl()?;
                     let mut req: ifaliasreq = mem::zeroed();
                     let tun_name = self.name_impl()?;
-                    ptr::copy_nonoverlapping(
-                        tun_name.as_ptr() as *const c_char,
-                        req.ifra_name.as_mut_ptr(),
-                        tun_name.len(),
-                    );
+                    copy_device_name(&tun_name, &mut req.ifra_name)?;
 
                     req.ifra_ifrau.ifrau_addr =
                         crate::platform::unix::sockaddr_union::from((addr, 0)).addr;
@@ -252,11 +244,7 @@ impl DeviceImpl {
                     };
                     let tun_name = self.name_impl()?;
                     let mut req: in6_aliasreq = mem::zeroed();
-                    ptr::copy_nonoverlapping(
-                        tun_name.as_ptr() as *const c_char,
-                        req.ifra_name.as_mut_ptr(),
-                        tun_name.len(),
-                    );
+                    copy_device_name(&tun_name, &mut req.ifra_name)?;
                     req.ifra_ifrau.ifrau_addr = sockaddr_union::from((addr, 0)).addr6;
                     req.ifra_prefixmask = sockaddr_union::from((mask, 0)).addr6;
                     req.ifra_lifetime.ia6t_vltime = 0xffffffff_u32;
@@ -273,18 +261,22 @@ impl DeviceImpl {
     }
 
     /// Prepare a new request.
-    unsafe fn request(&self) -> io::Result<ifreq> {
-        let mut req: ifreq = mem::zeroed();
+    fn request(&self) -> io::Result<ifreq> {
+        // SAFETY: ifreq is a C request POD; zero initializes the union and scalar fields
+        // to the kernel ABI's empty-request state before the interface name is populated.
+        let mut req: ifreq = unsafe { mem::zeroed() };
         let tun_name = self.name_impl()?;
-        copy_device_name(&tun_name, req.ifr_name.as_mut_ptr(), IFNAMSIZ);
+        copy_device_name(&tun_name, &mut req.ifr_name)?;
         Ok(req)
     }
 
-    /// # Safety
-    unsafe fn request_v6(&self) -> io::Result<in6_ifreq> {
+    /// Prepare a new IPv6 request.
+    fn request_v6(&self) -> io::Result<in6_ifreq> {
         let tun_name = self.name_impl()?;
-        let mut req: in6_ifreq = mem::zeroed();
-        copy_device_name(&tun_name, req.ifra_name.as_mut_ptr(), IFNAMSIZ);
+        // SAFETY: in6_ifreq is a C request POD; zero is the kernel ABI's empty request
+        // state before the interface name and flags are populated.
+        let mut req: in6_ifreq = unsafe { mem::zeroed() };
+        copy_device_name(&tun_name, &mut req.ifra_name)?;
         req.ifr_ifru.ifru_flags = IN6_IFF_NODAD as _;
         Ok(req)
     }
@@ -451,11 +443,7 @@ impl DeviceImpl {
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name_impl()?;
-            ptr::copy_nonoverlapping(
-                tun_name.as_ptr() as *const c_char,
-                req.ifr_name.as_mut_ptr(),
-                tun_name.len(),
-            );
+            copy_device_name(&tun_name, &mut req.ifr_name)?;
             if let Err(err) = siocgifmtu(ctl()?.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
@@ -470,11 +458,7 @@ impl DeviceImpl {
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name_impl()?;
-            ptr::copy_nonoverlapping(
-                tun_name.as_ptr() as *const c_char,
-                req.ifr_name.as_mut_ptr(),
-                tun_name.len(),
-            );
+            copy_device_name(&tun_name, &mut req.ifr_name)?;
             req.mtu = value as _;
 
             if let Err(err) = siocsifmtu(ctl()?.as_raw_fd(), &req) {
