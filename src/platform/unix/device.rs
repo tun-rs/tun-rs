@@ -156,6 +156,23 @@ impl DeviceImpl {
     target_os = "openbsd",
     target_os = "netbsd",
 ))]
+fn if_name_to_index(if_name: &std::ffi::CStr) -> io::Result<u32> {
+    // SAFETY: CStr guarantees a live NUL-terminated pointer for the call.
+    let index = unsafe { libc::if_nametoindex(if_name.as_ptr()) };
+    if index == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(index)
+    }
+}
+
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
 impl DeviceImpl {
     /// Retrieves the interface index for the network interface.
     ///
@@ -168,7 +185,7 @@ impl DeviceImpl {
     }
     pub(crate) fn if_index_impl(&self) -> io::Result<u32> {
         let if_name = std::ffi::CString::new(self.name_impl()?)?;
-        unsafe { Ok(libc::if_nametoindex(if_name.as_ptr())) }
+        if_name_to_index(&if_name)
     }
     /// Retrieves all IP addresses associated with the network interface.
     ///
@@ -252,4 +269,23 @@ pub(crate) unsafe fn copy_device_name(name: &str, dest: *mut libc::c_char, max_l
     use std::ptr;
     let copy_len = name.len().min(max_len - 1);
     ptr::copy_nonoverlapping(name.as_ptr() as *const libc::c_char, dest, copy_len);
+}
+
+#[cfg(all(
+    test,
+    any(
+        all(target_os = "linux", not(target_env = "ohos")),
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+    )
+))]
+mod if_index_tests {
+    use super::if_name_to_index;
+
+    #[test]
+    fn missing_interface_is_an_error_not_index_zero() {
+        assert!(if_name_to_index(c"tun-rs/definitely-invalid").is_err());
+    }
 }

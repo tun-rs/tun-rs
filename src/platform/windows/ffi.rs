@@ -95,35 +95,31 @@ pub fn string_from_guid(guid: &GUID) -> io::Result<String> {
 pub fn alias_to_luid(alias: &str) -> io::Result<NET_LUID_LH> {
     let alias = encode_utf16(alias);
     let mut luid = unsafe { mem::zeroed() };
-    match unsafe { ConvertInterfaceAliasToLuid(alias.as_ptr(), &mut luid) } {
-        0 => Ok(luid),
-        _err => Err(io::Error::last_os_error()),
-    }
+    let status = unsafe { ConvertInterfaceAliasToLuid(alias.as_ptr(), &mut luid) };
+    win_result(status)?;
+    Ok(luid)
 }
 
 pub fn luid_to_index(luid: &NET_LUID_LH) -> io::Result<u32> {
     let mut index = 0;
-    match unsafe { ConvertInterfaceLuidToIndex(luid, &mut index) } {
-        0 => Ok(index),
-        _err => Err(io::Error::last_os_error()),
-    }
+    let status = unsafe { ConvertInterfaceLuidToIndex(luid, &mut index) };
+    win_result(status)?;
+    Ok(index)
 }
 
 pub fn luid_to_guid(luid: &NET_LUID_LH) -> io::Result<GUID> {
     let mut guid = unsafe { mem::zeroed() };
-    match unsafe { ConvertInterfaceLuidToGuid(luid, &mut guid) } {
-        0 => Ok(guid),
-        _err => Err(io::Error::last_os_error()),
-    }
+    let status = unsafe { ConvertInterfaceLuidToGuid(luid, &mut guid) };
+    win_result(status)?;
+    Ok(guid)
 }
 
 pub fn luid_to_alias(luid: &NET_LUID_LH) -> io::Result<String> {
     // IF_MAX_STRING_SIZE + 1
     let mut alias = vec![0; 257];
-    match unsafe { ConvertInterfaceLuidToAlias(luid, alias.as_mut_ptr(), alias.len()) } {
-        0 => Ok(decode_utf16(&alias)),
-        _err => Err(io::Error::last_os_error()),
-    }
+    let status = unsafe { ConvertInterfaceLuidToAlias(luid, alias.as_mut_ptr(), alias.len()) };
+    win_result(status)?;
+    Ok(decode_utf16(&alias))
 }
 pub fn reset_event(handle: RawHandle) -> io::Result<()> {
     unsafe {
@@ -614,14 +610,18 @@ pub fn device_io_control(
     }
 }
 
+fn get_ip_interface_table(family: u16) -> io::Result<*mut MIB_IPINTERFACE_TABLE> {
+    let mut if_table: *mut MIB_IPINTERFACE_TABLE = ptr::null_mut();
+    let status = unsafe { GetIpInterfaceTable(family, &mut if_table) };
+    win_result(status)?;
+    Ok(if_table)
+}
+
 pub fn get_mtu_by_index(index: u32, is_v4: bool) -> io::Result<u32> {
     // https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getipinterfacetable#examples
-    let mut if_table: *mut MIB_IPINTERFACE_TABLE = ptr::null_mut();
+    let if_table = get_ip_interface_table(if is_v4 { AF_INET } else { AF_INET6 })?;
     let mut mtu = None;
     unsafe {
-        if GetIpInterfaceTable(if is_v4 { AF_INET } else { AF_INET6 }, &mut if_table) != NO_ERROR {
-            return Err(io::Error::last_os_error());
-        }
         let ifaces = std::slice::from_raw_parts::<MIB_IPINTERFACE_ROW>(
             &(*if_table).Table[0],
             (*if_table).NumEntries as usize,
@@ -861,6 +861,79 @@ pub fn set_device_state(
     }
 
     call_class_installer(devinfo, devinfo_data, DIF_PROPERTYCHANGE)
+}
+
+#[cfg(test)]
+mod netio_status_tests {
+    use super::{get_ip_interface_table, luid_to_index};
+    use std::io;
+    use windows_sys::Win32::NetworkManagement::{
+        IpHelper::{ConvertInterfaceLuidToIndex, FreeMibTable, GetIpInterfaceTable},
+        Ndis::NET_LUID_LH,
+    };
+
+    #[test]
+    fn ip_interface_table_uses_returned_status_not_stale_last_error() -> io::Result<()> {
+        const STALE_LAST_ERROR: u32 = 0x1234;
+        const INVALID_FAMILY: u16 = u16::MAX;
+        let mut direct_table = std::ptr::null_mut();
+
+        let direct_status = unsafe { GetIpInterfaceTable(INVALID_FAMILY, &mut direct_table) };
+        if direct_status == 0 {
+            unsafe { FreeMibTable(direct_table.cast()) };
+            return Err(io::Error::other(
+                "invalid address family unexpectedly produced an interface table",
+            ));
+        }
+
+        unsafe { windows_sys::Win32::Foundation::SetLastError(STALE_LAST_ERROR) };
+        let error = get_ip_interface_table(INVALID_FAMILY)
+            .err()
+            .ok_or_else(|| io::Error::other("invalid address family unexpectedly succeeded"))?;
+
+        assert_eq!(
+            error.raw_os_error(),
+            Some(direct_status as i32),
+            "wrapper did not preserve GetIpInterfaceTable's returned status"
+        );
+        assert_ne!(
+            error.raw_os_error(),
+            Some(STALE_LAST_ERROR as i32),
+            "wrapper returned stale GetLastError instead of GetIpInterfaceTable status"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn netio_wrapper_uses_returned_status_not_stale_last_error() -> io::Result<()> {
+        const STALE_LAST_ERROR: u32 = 0x1234;
+        let luid = NET_LUID_LH { Value: 0 };
+        let mut direct_index = 0;
+
+        let direct_status = unsafe { ConvertInterfaceLuidToIndex(&luid, &mut direct_index) };
+        if direct_status == 0 {
+            return Err(io::Error::other(
+                "zero/reserved interface LUID unexpectedly resolved",
+            ));
+        }
+
+        unsafe { windows_sys::Win32::Foundation::SetLastError(STALE_LAST_ERROR) };
+        let error = luid_to_index(&luid)
+            .err()
+            .ok_or_else(|| io::Error::other("invalid interface LUID unexpectedly resolved"))?;
+
+        assert_eq!(
+            error.raw_os_error(),
+            Some(direct_status as i32),
+            "wrapper did not preserve the NETIO API's returned status"
+        );
+        assert_ne!(
+            error.raw_os_error(),
+            Some(STALE_LAST_ERROR as i32),
+            "wrapper returned stale GetLastError instead of the NETIO status"
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
