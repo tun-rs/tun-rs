@@ -422,8 +422,11 @@ impl InterruptEvent {
             }
             let read_fd = Fd::new_unchecked(fds[0]);
             let write_fd = Fd::new_unchecked(fds[1]);
-            read_fd.set_cloexec()?;
-            write_fd.set_cloexec()?;
+            #[cfg(target_os = "macos")]
+            {
+                read_fd.set_cloexec()?;
+                write_fd.set_cloexec()?;
+            }
             write_fd.set_nonblocking(true)?;
             read_fd.set_nonblocking(true)?;
             Ok(Self {
