@@ -47,6 +47,10 @@ impl DeviceImpl {
             associate_route: AtomicBool::new(true),
         })
     }
+    #[inline]
+    pub(crate) fn writable_fd(&self) -> std::os::fd::RawFd {
+        self.tun.writable_fd()
+    }
     /// Prepare a new request.
     fn request(&self) -> io::Result<libc::ifreq> {
         self.tun.request()

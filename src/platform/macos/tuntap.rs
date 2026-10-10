@@ -156,6 +156,13 @@ impl TunTap {
         }
     }
     #[inline]
+    pub(crate) fn writable_fd(&self) -> RawFd {
+        match self {
+            TunTap::Tun(tun) => tun.as_raw_fd(),
+            TunTap::Tap(tap) => tap.writable_fd(),
+        }
+    }
+    #[inline]
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         match &self {
             TunTap::Tun(tun) => tun.send(buf),

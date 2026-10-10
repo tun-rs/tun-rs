@@ -223,6 +223,10 @@ impl Tap {
         Ok(())
     }
     #[inline]
+    pub(crate) fn writable_fd(&self) -> RawFd {
+        self.s_ndrv_fd.as_raw_fd()
+    }
+    #[inline]
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.s_ndrv_fd.write(buf)
     }
