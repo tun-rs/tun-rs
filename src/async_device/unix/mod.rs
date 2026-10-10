@@ -20,8 +20,14 @@ mod async_io;
 pub use self::async_io::AsyncDevice;
 
 impl FromRawFd for AsyncDevice {
+    /// # Safety
+    /// The fd must be valid, open, and refer to a TUN/TAP device.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
+    ///
+    /// # Panics
+    /// Panics if the descriptor is invalid or violates the platform-specific adoption contract.
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        AsyncDevice::from_fd(fd).unwrap()
+        AsyncDevice::from_fd(fd).expect("failed to adopt TUN/TAP file descriptor")
     }
 }
 impl IntoRawFd for AsyncDevice {
@@ -50,14 +56,16 @@ impl AsyncDevice {
     }
 
     /// # Safety
-    /// This method is safe if the provided fd is valid
-    /// Construct a AsyncDevice from an existing file descriptor
+    /// The fd must be valid, open, and refer to a TUN/TAP device.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
+    /// Construct an AsyncDevice from an existing file descriptor.
     pub unsafe fn from_fd(fd: RawFd) -> io::Result<AsyncDevice> {
         AsyncDevice::new_dev(DeviceImpl::from_fd(fd)?)
     }
 
     /// # Safety
     /// The fd passed in must be a valid, open file descriptor.
+    /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
     /// Unlike [`from_fd`], this function does **not** take ownership of `fd`,
     /// and therefore will not close it when dropped.  
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
