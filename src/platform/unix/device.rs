@@ -192,6 +192,7 @@ impl DeviceImpl {
     /// This function calls `getifaddrs` with the interface name,
     /// then iterates over the returned list of interface addresses, extracting and collecting
     /// the IP addresses into a vector.
+    #[cfg(any(not(target_os = "linux"), feature = "address-management"))]
     pub fn addresses(&self) -> io::Result<Vec<std::net::IpAddr>> {
         Ok(crate::platform::get_if_addrs_by_name(self.name_impl()?)?
             .iter()
