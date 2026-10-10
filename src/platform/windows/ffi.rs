@@ -524,25 +524,27 @@ pub fn notify_change_key_value(
     notify_filter: u32,
     milliseconds: u32,
 ) -> io::Result<()> {
-    const INVALID_HANDLE_VALUE: HKEY = windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE as _;
+    let event = unsafe { CreateEventW(ptr::null_mut(), FALSE, FALSE, ptr::null()) };
+    if event.is_null() {
+        return Err(io::Error::last_os_error());
+    }
 
-    let event = match unsafe { CreateEventW(ptr::null_mut(), FALSE, FALSE, ptr::null()) } {
-        INVALID_HANDLE_VALUE => Err(io::Error::last_os_error()),
-        event => Ok(event),
-    }?;
-
-    let result =
-        match unsafe { RegNotifyChangeKeyValue(key, watch_subtree, notify_filter, event, TRUE) } {
-            0 => match unsafe { WaitForSingleObject(event, milliseconds) } {
-                0 => Ok(()),
-                0x102 => Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "Registry timed out",
-                )),
-                _ => Err(io::Error::last_os_error()),
-            },
-            _err => Err(io::Error::last_os_error()),
-        };
+    let notify_status =
+        unsafe { RegNotifyChangeKeyValue(key, watch_subtree, notify_filter, event, TRUE) };
+    let result = if notify_status == 0 {
+        match unsafe { WaitForSingleObject(event, milliseconds) } {
+            windows_sys::Win32::Foundation::WAIT_OBJECT_0 => Ok(()),
+            windows_sys::Win32::Foundation::WAIT_TIMEOUT => {
+                Err(io::Error::from(io::ErrorKind::TimedOut))
+            }
+            windows_sys::Win32::Foundation::WAIT_FAILED => Err(io::Error::last_os_error()),
+            value => Err(io::Error::other(format!(
+                "WaitForSingleObject returned unexpected status {value:#x}"
+            ))),
+        }
+    } else {
+        Err(io::Error::from_raw_os_error(notify_status as i32))
+    };
 
     unsafe { CloseHandle(event) };
 
@@ -964,6 +966,34 @@ mod create_file_tests {
         .ok_or_else(|| io::Error::other("CreateFileW failure returned a usable handle"))?;
 
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod registry_notify_status_tests {
+    use super::notify_change_key_value;
+    use std::io;
+    use windows_sys::Win32::{
+        Foundation::{SetLastError, FALSE},
+        System::Registry::REG_NOTIFY_CHANGE_LAST_SET,
+    };
+
+    #[test]
+    fn registry_notify_returns_api_status_not_stale_last_error() -> io::Result<()> {
+        const STALE_LAST_ERROR: u32 = 0x1234;
+
+        unsafe { SetLastError(STALE_LAST_ERROR) };
+        let error =
+            notify_change_key_value(std::ptr::null_mut(), FALSE, REG_NOTIFY_CHANGE_LAST_SET, 0)
+                .err()
+                .ok_or_else(|| io::Error::other("invalid registry key unexpectedly succeeded"))?;
+
+        assert_ne!(
+            error.raw_os_error(),
+            Some(STALE_LAST_ERROR as i32),
+            "wrapper returned stale GetLastError instead of registry API status"
+        );
         Ok(())
     }
 }
