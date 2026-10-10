@@ -764,7 +764,7 @@ impl DeviceImpl {
     fn set_address_v4(&self, addr: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(addr, 0, &mut req.ifr_ifru.ifru_addr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(addr, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -774,7 +774,7 @@ impl DeviceImpl {
     fn set_netmask(&self, value: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_netmask, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifnetmask(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -785,7 +785,7 @@ impl DeviceImpl {
     fn set_destination(&self, value: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_dstaddr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifdstaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -958,7 +958,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_broadaddr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifbrdaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
