@@ -433,6 +433,22 @@ fn create_tun() {
     }
 }
 
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+#[test]
+fn adopted_raw_fd_rejects_virtio_header_framing() {
+    use std::io;
+    use std::os::fd::IntoRawFd;
+
+    let device = DeviceBuilder::new().offload(true).build_sync().unwrap();
+    let fd = device.into_raw_fd();
+
+    let error = match unsafe { SyncDevice::from_fd(fd) } {
+        Ok(_) => panic!("adopting an IFF_VNET_HDR descriptor unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+}
+
 #[cfg(any(
     target_os = "windows",
     target_os = "macos",
