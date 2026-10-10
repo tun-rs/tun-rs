@@ -25,7 +25,6 @@ tokio = { version = "1.49", features = [
 async-io = { version = "2.3", optional = true }
 
 ipnet = "2"
-byteorder = "1.5.0"
 getifaddrs = "0.6.0"
 
 futures-core = { version = "0.3", optional = true }

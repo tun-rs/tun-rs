@@ -1,5 +1,3 @@
-use byteorder::{BigEndian, ByteOrder};
-
 /// A pure Rust scalar (non-SIMD) implementation for the checksum accumulation.
 ///
 /// It uses a simple loop instead of manual unrolling for better clarity and maintainability.
@@ -8,13 +6,13 @@ fn checksum_no_fold_scalar(mut b: &[u8], initial: u64) -> u64 {
 
     // Process the slice in 4-byte (u32) chunks.
     while b.len() >= 4 {
-        accumulator += BigEndian::read_u32(&b[0..4]) as u64;
+        accumulator += u64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
         b = &b[4..];
     }
 
     // Handle the remaining 1-3 bytes.
     if b.len() >= 2 {
-        accumulator += BigEndian::read_u16(&b[0..2]) as u64;
+        accumulator += u64::from(u16::from_be_bytes([b[0], b[1]]));
         b = &b[2..];
     }
     if let Some(&byte) = b.first() {
