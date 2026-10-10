@@ -12,8 +12,11 @@ use crate::{
         unix::{ipaddr_to_sockaddr, sockaddr_union, Fd, Tun},
         ETHER_ADDR_LEN,
     },
-    ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask,
+    ToIpv6Address, ToIpv6Netmask,
 };
+#[cfg(feature = "address-management")]
+use crate::{ToIpv4Address, ToIpv4Netmask};
+#[cfg(feature = "address-management")]
 use ipnet::IpNet;
 use libc::{
     self, c_char, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI, IFF_RUNNING,
@@ -793,6 +796,31 @@ impl DeviceImpl {
         }
     }
 
+    pub(crate) fn configure_initial_ipv4(
+        &self,
+        address: Ipv4Addr,
+        prefix: u8,
+        destination: Option<Ipv4Addr>,
+    ) -> io::Result<()> {
+        if prefix > 32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "IPv4 prefix length exceeds 32",
+            ));
+        }
+        let mask = if prefix == 0 {
+            0
+        } else {
+            u32::MAX << (32 - u32::from(prefix))
+        };
+        self.set_address_v4(address)?;
+        self.set_netmask(Ipv4Addr::from(mask))?;
+        if let Some(destination) = destination {
+            self.set_destination(destination)?;
+        }
+        Ok(())
+    }
+
     /// Retrieves the name of the network interface.
     pub(crate) fn name_impl(&self) -> io::Result<String> {
         unsafe { name(self.as_raw_fd()) }
@@ -810,6 +838,7 @@ impl DeviceImpl {
         }
     }
 
+    #[cfg(feature = "address-management")]
     fn remove_all_address_v4(&self) -> io::Result<()> {
         let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
             .map_err(io::Error::from)?;
@@ -985,6 +1014,7 @@ impl DeviceImpl {
     /// # }
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    #[cfg(feature = "address-management")]
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -1022,6 +1052,7 @@ impl DeviceImpl {
     /// # }
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    #[cfg(feature = "address-management")]
     pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -1062,6 +1093,7 @@ impl DeviceImpl {
     /// # }
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    #[cfg(feature = "address-management")]
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         let _guard = self.op_lock.write().unwrap();
         match addr {
