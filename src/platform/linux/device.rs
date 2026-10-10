@@ -162,6 +162,14 @@ impl DeviceImpl {
             .map_err(|e| e.into())
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        let flags = tun_flags(tun.as_raw_fd())?;
+        validate_adopted_tun_flags(flags)?;
+
+        // TUNGETIFF cannot reliably recover IFF_NO_PI: Linux overlays the
+        // same returned bit as IFF_NOFILTER when no socket filter is attached.
+        // The public unsafe contract therefore requires adopted Linux fds to
+        // use plain IFF_NO_PI framing. Keep the legacy non-offload state here
+        // instead of guessing or mutating device-wide TUNSETOFFLOAD policy.
         Ok(Self {
             tun,
             vnet_hdr: false,
@@ -1224,6 +1232,24 @@ impl DeviceImpl {
     }
 }
 
+fn tun_flags(fd: RawFd) -> io::Result<c_short> {
+    unsafe {
+        let mut req: ifreq = mem::zeroed();
+        tungetiff(fd, &mut req as *mut _ as *mut _).map_err(io::Error::from)?;
+        Ok(req.ifr_ifru.ifru_flags)
+    }
+}
+
+fn validate_adopted_tun_flags(flags: c_short) -> io::Result<()> {
+    if flags & (libc::IFF_VNET_HDR as c_short) != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Linux raw-fd adoption does not support IFF_VNET_HDR; use an explicitly configured device instead",
+        ));
+    }
+    Ok(())
+}
+
 unsafe fn name(fd: RawFd) -> io::Result<String> {
     let mut req: ifreq = mem::zeroed();
     if let Err(err) = tungetiff(fd, &mut req as *mut _ as *mut _) {
@@ -1250,5 +1276,20 @@ impl From<Layer> for c_short {
             Layer::L2 => IFF_TAP as c_short,
             Layer::L3 => IFF_TUN as c_short,
         }
+    }
+}
+
+#[cfg(test)]
+mod raw_fd_contract_tests {
+    use super::validate_adopted_tun_flags;
+    use std::io;
+
+    #[test]
+    fn adopted_raw_fd_rejects_virtio_header_framing() {
+        assert!(validate_adopted_tun_flags(0).is_ok());
+        assert!(matches!(
+            validate_adopted_tun_flags(libc::IFF_VNET_HDR as libc::c_short),
+            Err(error) if error.kind() == io::ErrorKind::InvalidInput
+        ));
     }
 }

@@ -460,6 +460,11 @@ impl InterruptEvent {
             }
             let read_fd = Fd::new_unchecked(fds[0]);
             let write_fd = Fd::new_unchecked(fds[1]);
+            #[cfg(target_os = "macos")]
+            {
+                read_fd.set_cloexec()?;
+                write_fd.set_cloexec()?;
+            }
             write_fd.set_nonblocking(true)?;
             read_fd.set_nonblocking(true)?;
             Ok(Self {
@@ -673,6 +678,26 @@ impl InterruptEvent {
     }
     fn as_event_fd(&self) -> libc::c_int {
         self.read_fd.as_raw_fd()
+    }
+}
+
+#[cfg(test)]
+mod cloexec_tests {
+    use super::InterruptEvent;
+    use std::io;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn interrupt_pipe_is_close_on_exec() -> io::Result<()> {
+        let event = InterruptEvent::new()?;
+        // SAFETY: both descriptors are live; F_GETFD only queries flags.
+        let read_flags = unsafe { libc::fcntl(event.read_fd.as_raw_fd(), libc::F_GETFD) };
+        let write_flags = unsafe { libc::fcntl(event.write_fd.as_raw_fd(), libc::F_GETFD) };
+        assert!(read_flags >= 0);
+        assert!(write_flags >= 0);
+        assert_ne!(read_flags & libc::FD_CLOEXEC, 0);
+        assert_ne!(write_flags & libc::FD_CLOEXEC, 0);
+        Ok(())
     }
 }
 
