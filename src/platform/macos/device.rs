@@ -47,6 +47,11 @@ impl DeviceImpl {
             associate_route: AtomicBool::new(true),
         })
     }
+    #[cfg(any(feature = "async_io", feature = "async_tokio"))]
+    #[inline]
+    pub(crate) fn writable_fd(&self) -> std::os::fd::RawFd {
+        self.tun.writable_fd()
+    }
     /// Prepare a new request.
     fn request(&self) -> io::Result<libc::ifreq> {
         self.tun.request()
