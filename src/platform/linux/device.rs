@@ -150,14 +150,16 @@ impl DeviceImpl {
     }
     unsafe fn set_tcp_offloads(&self) -> io::Result<()> {
         let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
-        tunsetoffload(self.as_raw_fd(), tun_tcp_offloads as _)
+        // SAFETY: self owns a live TUN descriptor and the offload mask is composed of TUN_F_* flags.
+        unsafe { tunsetoffload(self.as_raw_fd(), tun_tcp_offloads as _) }
             .map(|_| ())
             .map_err(|e| e.into())
     }
     unsafe fn set_tcp_udp_offloads(&self) -> io::Result<()> {
         let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
         let tun_udp_offloads = libc::TUN_F_USO4 | libc::TUN_F_USO6;
-        tunsetoffload(self.as_raw_fd(), (tun_tcp_offloads | tun_udp_offloads) as _)
+        // SAFETY: self owns a live TUN descriptor and the offload mask is composed of TUN_F_* flags.
+        unsafe { tunsetoffload(self.as_raw_fd(), (tun_tcp_offloads | tun_udp_offloads) as _) }
             .map(|_| ())
             .map_err(|e| e.into())
     }
@@ -759,7 +761,8 @@ impl DeviceImpl {
 impl DeviceImpl {
     /// Prepare a new request.
     unsafe fn request(&self) -> io::Result<ifreq> {
-        request(&self.name_impl()?)
+        // SAFETY: this method forwards the same interface-name validity contract to request().
+        unsafe { request(&self.name_impl()?) }
     }
     fn set_address_v4(&self, addr: Ipv4Addr) -> io::Result<()> {
         unsafe {
@@ -1251,22 +1254,29 @@ fn validate_adopted_tun_flags(flags: c_short) -> io::Result<()> {
 }
 
 unsafe fn name(fd: RawFd) -> io::Result<String> {
-    let mut req: ifreq = mem::zeroed();
-    if let Err(err) = tungetiff(fd, &mut req as *mut _ as *mut _) {
+    // SAFETY: ifreq is C request storage that is initialized by TUNGETIFF below.
+    let mut req: ifreq = unsafe { mem::zeroed() };
+    // SAFETY: the caller provides a live TUN fd and req is writable request storage.
+    if let Err(err) = unsafe { tungetiff(fd, &mut req as *mut _ as *mut _) } {
         return Err(io::Error::from(err));
     }
-    let c_str = std::ffi::CStr::from_ptr(req.ifr_name.as_ptr() as *const c_char);
+    // SAFETY: successful TUNGETIFF initializes ifr_name as a NUL-terminated interface name.
+    let c_str = unsafe { std::ffi::CStr::from_ptr(req.ifr_name.as_ptr() as *const c_char) };
     let tun_name = c_str.to_string_lossy().into_owned();
     Ok(tun_name)
 }
 
 unsafe fn request(name: &str) -> io::Result<ifreq> {
-    let mut req: ifreq = mem::zeroed();
-    ptr::copy_nonoverlapping(
-        name.as_ptr() as *const c_char,
-        req.ifr_name.as_mut_ptr(),
-        name.len(),
-    );
+    // SAFETY: ifreq is C request storage and callers guarantee name fits ifr_name.
+    let mut req: ifreq = unsafe { mem::zeroed() };
+    // SAFETY: source and destination are non-overlapping and the caller guarantees the copy fits.
+    unsafe {
+        ptr::copy_nonoverlapping(
+            name.as_ptr() as *const c_char,
+            req.ifr_name.as_mut_ptr(),
+            name.len(),
+        );
+    }
     Ok(req)
 }
 

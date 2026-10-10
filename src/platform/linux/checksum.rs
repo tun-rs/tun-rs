@@ -50,7 +50,8 @@ unsafe fn checksum_no_fold_avx2(mut b: &[u8], initial: u64) -> u64 {
 
         while b.len() >= CHUNK_SIZE {
             // Load 32 bytes of data.
-            let data = _mm256_loadu_si256(b.as_ptr() as *const __m256i);
+            // SAFETY: b has at least CHUNK_SIZE bytes and this intrinsic permits unaligned loads.
+            let data = unsafe { _mm256_loadu_si256(b.as_ptr() as *const __m256i) };
             // Swap byte order from BE to LE.
             let swapped = _mm256_shuffle_epi8(data, shuffle_mask);
 
@@ -97,7 +98,8 @@ unsafe fn checksum_no_fold_sse41(mut b: &[u8], initial: u64) -> u64 {
 
         while b.len() >= CHUNK_SIZE {
             // Load 16 bytes of data.
-            let data = _mm_loadu_si128(b.as_ptr() as *const __m128i);
+            // SAFETY: b has at least CHUNK_SIZE bytes and this intrinsic permits unaligned loads.
+            let data = unsafe { _mm_loadu_si128(b.as_ptr() as *const __m128i) };
             // Swap byte order from BE to LE.
             let swapped = _mm_shuffle_epi8(data, shuffle_mask);
 
