@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_op_in_unsafe_fn,
+    clippy::missing_safety_doc,
+    reason = "generated Wintun bindings are regenerated rather than hand-edited"
+)]
 #![allow(warnings)]
 
 #[cfg(all(not(docsrs), feature = "bindgen"))]

@@ -27,7 +27,8 @@ impl Fd {
         Ok(unsafe { Self::new_unchecked(value) })
     }
     pub(crate) unsafe fn new_unchecked(value: RawFd) -> Self {
-        Fd::new_unchecked_with_borrow(value, false)
+        // SAFETY: this function has the same raw-fd ownership contract with borrow=false.
+        unsafe { Fd::new_unchecked_with_borrow(value, false) }
     }
     pub(crate) unsafe fn new_unchecked_with_borrow(value: RawFd, borrow: bool) -> Self {
         Fd {

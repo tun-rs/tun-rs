@@ -1,19 +1,22 @@
 /// # Safety
 unsafe fn sockaddr_to_rs_addr(sa: &sockaddr_union) -> Option<std::net::SocketAddr> {
-    match sa.addr_stor.ss_family as libc::c_int {
-        libc::AF_INET => {
-            let sa_in = sa.addr4;
-            let ip = std::net::Ipv4Addr::from(sa_in.sin_addr.s_addr.to_ne_bytes());
-            let port = u16::from_be(sa_in.sin_port);
-            Some(std::net::SocketAddr::new(ip.into(), port))
+    // SAFETY: ss_family selects which sockaddr union member is active before it is read.
+    unsafe {
+        match sa.addr_stor.ss_family as libc::c_int {
+            libc::AF_INET => {
+                let sa_in = sa.addr4;
+                let ip = std::net::Ipv4Addr::from(sa_in.sin_addr.s_addr.to_ne_bytes());
+                let port = u16::from_be(sa_in.sin_port);
+                Some(std::net::SocketAddr::new(ip.into(), port))
+            }
+            libc::AF_INET6 => {
+                let sa_in6 = sa.addr6;
+                let ip = std::net::Ipv6Addr::from(sa_in6.sin6_addr.s6_addr);
+                let port = u16::from_be(sa_in6.sin6_port);
+                Some(std::net::SocketAddr::new(ip.into(), port))
+            }
+            _ => None,
         }
-        libc::AF_INET6 => {
-            let sa_in6 = sa.addr6;
-            let ip = std::net::Ipv6Addr::from(sa_in6.sin6_addr.s6_addr);
-            let port = u16::from_be(sa_in6.sin6_port);
-            Some(std::net::SocketAddr::new(ip.into(), port))
-        }
-        _ => None,
     }
 }
 
@@ -73,11 +76,14 @@ pub(crate) unsafe fn ipaddr_to_sockaddr<T>(
     T: Into<std::net::IpAddr>,
 {
     let sa = rs_addr_to_sockaddr((src_addr.into(), src_port).into());
-    std::ptr::copy_nonoverlapping(
-        &sa as *const _ as *const libc::c_void,
-        addr as *mut _ as *mut libc::c_void,
-        size.min(std::mem::size_of::<sockaddr_union>()),
-    );
+    // SAFETY: the caller guarantees addr is writable for the requested non-overlapping copy.
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            &sa as *const _ as *const libc::c_void,
+            addr as *mut _ as *mut libc::c_void,
+            size.min(std::mem::size_of::<sockaddr_union>()),
+        );
+    }
 }
 
 #[repr(C)]

@@ -24,10 +24,13 @@ impl FromRawFd for DeviceImpl {
     /// This function will panic if the provided file descriptor is invalid or violates the
     /// platform-specific adoption contract.
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        // If this panics, the caller violated the descriptor adoption safety contract
-        DeviceImpl::from_fd(fd).expect(
-            "Failed to adopt TUN/TAP file descriptor; the descriptor must satisfy the platform-specific adoption contract",
-        )
+        // SAFETY: FromRawFd transfers ownership of a valid open descriptor to this object.
+        unsafe {
+            // If this panics, the caller violated the descriptor adoption safety contract.
+            DeviceImpl::from_fd(fd).expect(
+                "Failed to adopt TUN/TAP file descriptor; the descriptor must satisfy the platform-specific adoption contract",
+            )
+        }
     }
 }
 impl AsRawFd for DeviceImpl {
@@ -51,7 +54,8 @@ impl DeviceImpl {
     /// The fd passed in must be an owned file descriptor; in particular, it must be open.
     /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
     pub(crate) unsafe fn from_fd(fd: RawFd) -> io::Result<Self> {
-        let tun = Fd::new_unchecked(fd);
+        // SAFETY: from_fd's contract transfers ownership of a valid open descriptor.
+        let tun = unsafe { Fd::new_unchecked(fd) };
         DeviceImpl::from_tun(Tun::new(tun))
     }
     /// # Safety
@@ -61,7 +65,8 @@ impl DeviceImpl {
     /// and therefore will not close it when dropped.  
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
     pub(crate) unsafe fn borrow_raw(fd: RawFd) -> io::Result<Self> {
-        let tun = Fd::new_unchecked_with_borrow(fd, true);
+        // SAFETY: borrow_raw's contract guarantees the externally owned descriptor stays valid.
+        let tun = unsafe { Fd::new_unchecked_with_borrow(fd, true) };
         DeviceImpl::from_tun(Tun::new(tun))
     }
     pub(crate) fn is_nonblocking(&self) -> io::Result<bool> {
@@ -238,11 +243,13 @@ impl DeviceImpl {
     target_os = "netbsd",
 ))]
 pub(crate) unsafe fn ctl() -> io::Result<Fd> {
-    Fd::new(libc::socket(AF_INET, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0))
+    // SAFETY: libc::socket has no additional Rust-side memory-safety preconditions.
+    Fd::new(unsafe { libc::socket(AF_INET, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0) })
 }
 #[cfg(target_os = "macos")]
 pub(crate) unsafe fn ctl() -> io::Result<Fd> {
-    let fd = Fd::new(libc::socket(AF_INET, SOCK_DGRAM, 0))?;
+    // SAFETY: libc::socket has no additional Rust-side memory-safety preconditions.
+    let fd = Fd::new(unsafe { libc::socket(AF_INET, SOCK_DGRAM, 0) })?;
     fd.set_cloexec()?;
     Ok(fd)
 }
@@ -253,11 +260,13 @@ pub(crate) unsafe fn ctl() -> io::Result<Fd> {
     target_os = "netbsd",
 ))]
 pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
-    Fd::new(libc::socket(AF_INET6, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0))
+    // SAFETY: libc::socket has no additional Rust-side memory-safety preconditions.
+    Fd::new(unsafe { libc::socket(AF_INET6, SOCK_DGRAM | libc::SOCK_CLOEXEC, 0) })
 }
 #[cfg(target_os = "macos")]
 pub(crate) unsafe fn ctl_v6() -> io::Result<Fd> {
-    let fd = Fd::new(libc::socket(AF_INET6, SOCK_DGRAM, 0))?;
+    // SAFETY: libc::socket has no additional Rust-side memory-safety preconditions.
+    let fd = Fd::new(unsafe { libc::socket(AF_INET6, SOCK_DGRAM, 0) })?;
     fd.set_cloexec()?;
     Ok(fd)
 }
