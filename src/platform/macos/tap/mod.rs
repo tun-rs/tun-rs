@@ -222,6 +222,7 @@ impl Tap {
         self.s_ndrv_fd.set_nonblocking(nonblocking)?;
         Ok(())
     }
+    #[cfg(any(feature = "async_io", feature = "async_tokio"))]
     #[inline]
     pub(crate) fn writable_fd(&self) -> RawFd {
         self.s_ndrv_fd.as_raw_fd()
