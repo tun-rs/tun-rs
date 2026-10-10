@@ -32,6 +32,9 @@ futures-core = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
 libc = { version = "0.2", features = ["extra_traits"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+ahash = "0.8"
+
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "android", target_os="freebsd", target_os="openbsd", target_os = "netbsd"))'.dependencies]
 nix = { version = "0.31", features = ["ioctl", "net"] }
 

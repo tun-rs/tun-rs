@@ -101,8 +101,149 @@ use crate::platform::linux::checksum::{checksum, pseudo_header_checksum_no_fold}
 use byteorder::{BigEndian, ByteOrder};
 use bytes::BytesMut;
 use libc::{IPPROTO_TCP, IPPROTO_UDP};
-use std::collections::HashMap;
+use std::hash::{BuildHasher, Hash};
 use std::io;
+
+const GRO_FLOW_TABLE_SLOTS: usize = IDEAL_BATCH_SIZE * 2;
+
+trait GroFlowKey: Copy + Eq + Hash {}
+
+impl<T: Copy + Eq + Hash> GroFlowKey for T {}
+
+enum GroLookup {
+    Occupied(usize),
+    Vacant(usize),
+    Full,
+}
+
+struct GroFlowTable<K, I, S = ahash::RandomState> {
+    slots: Vec<Option<(K, Vec<I>)>>,
+    occupied: Vec<usize>,
+    items_pool: Vec<Vec<I>>,
+    hash_builder: S,
+}
+
+impl<K: GroFlowKey, I> GroFlowTable<K, I> {
+    fn new() -> Self {
+        Self::with_hasher(ahash::RandomState::new())
+    }
+}
+
+impl<K: GroFlowKey, I, S: BuildHasher> GroFlowTable<K, I, S> {
+    fn empty_slots(count: usize) -> Vec<Option<(K, Vec<I>)>> {
+        let mut slots = Vec::with_capacity(count);
+        slots.resize_with(count, || None);
+        slots
+    }
+
+    fn with_hasher(hash_builder: S) -> Self {
+        debug_assert!(GRO_FLOW_TABLE_SLOTS.is_power_of_two());
+        let mut items_pool = Vec::with_capacity(IDEAL_BATCH_SIZE);
+        for _ in 0..IDEAL_BATCH_SIZE {
+            items_pool.push(Vec::with_capacity(IDEAL_BATCH_SIZE));
+        }
+        Self {
+            slots: Self::empty_slots(GRO_FLOW_TABLE_SLOTS),
+            occupied: Vec::with_capacity(IDEAL_BATCH_SIZE),
+            items_pool,
+            hash_builder,
+        }
+    }
+
+    fn find(&self, key: K) -> GroLookup {
+        let mask = self.slots.len() - 1;
+        let start = self.hash_builder.hash_one(key) as usize & mask;
+        for probe in 0..self.slots.len() {
+            let index = (start + probe) & mask;
+            match &self.slots[index] {
+                Some((existing, _)) if *existing == key => return GroLookup::Occupied(index),
+                Some(_) => {}
+                None => return GroLookup::Vacant(index),
+            }
+        }
+        GroLookup::Full
+    }
+
+    fn occupied_mut(&mut self, index: usize) -> &mut Vec<I> {
+        &mut self.slots[index]
+            .as_mut()
+            .expect("occupied GRO slot disappeared")
+            .1
+    }
+
+    fn at_insert_load_limit(&self) -> bool {
+        self.occupied.len() >= self.slots.len() * 3 / 4
+    }
+
+    fn lookup_or_insert_with(
+        &mut self,
+        key: K,
+        make_item: impl FnOnce() -> I,
+    ) -> Option<&mut Vec<I>> {
+        let index = loop {
+            match self.find(key) {
+                GroLookup::Occupied(index) => return Some(self.occupied_mut(index)),
+                GroLookup::Vacant(index) if !self.at_insert_load_limit() => break index,
+                GroLookup::Vacant(_) | GroLookup::Full => self.grow(),
+            }
+        };
+        let mut items = self.items_pool.pop().unwrap_or_default();
+        items.push(make_item());
+        self.slots[index] = Some((key, items));
+        self.occupied.push(index);
+        None
+    }
+
+    fn grow(&mut self) {
+        let new_len = self
+            .slots
+            .len()
+            .checked_mul(2)
+            .expect("GRO flow table capacity overflow");
+        let old_slots = std::mem::replace(&mut self.slots, Self::empty_slots(new_len));
+        self.occupied.clear();
+        for entry in old_slots.into_iter().flatten() {
+            let GroLookup::Vacant(index) = self.find(entry.0) else {
+                unreachable!("freshly grown GRO flow table must have a vacant slot");
+            };
+            self.slots[index] = Some(entry);
+            self.occupied.push(index);
+        }
+    }
+
+    fn insert(&mut self, key: K, item: I) {
+        let index = loop {
+            match self.find(key) {
+                GroLookup::Occupied(index) => break index,
+                GroLookup::Vacant(index) if !self.at_insert_load_limit() => break index,
+                GroLookup::Vacant(_) | GroLookup::Full => self.grow(),
+            }
+        };
+        if self.slots[index].is_none() {
+            let items = self.items_pool.pop().unwrap_or_default();
+            self.slots[index] = Some((key, items));
+            self.occupied.push(index);
+        }
+        if let Some((_, items)) = &mut self.slots[index] {
+            items.push(item);
+        }
+    }
+
+    fn reset(&mut self) {
+        for index in self.occupied.drain(..) {
+            if let Some((_, mut items)) = self.slots[index].take() {
+                items.clear();
+                self.items_pool.push(items);
+            }
+        }
+    }
+
+    fn values(&self) -> impl Iterator<Item = &Vec<I>> {
+        self.occupied
+            .iter()
+            .filter_map(|&index| self.slots[index].as_ref().map(|(_, items)| items))
+    }
+}
 
 /// GSO type: Not a GSO frame (normal packet).
 ///
@@ -386,13 +527,12 @@ pub struct TcpFlowKey {
 ///
 /// # Performance Considerations
 ///
-/// - Maintains a hash map of active flows
+/// - Maintains a compact open-addressed table of active flows
 /// - Preallocates buffers for [`IDEAL_BATCH_SIZE`] flows
 /// - Memory pooling reduces allocations
 /// - State is maintained across multiple recv_multiple calls
 pub struct TcpGROTable {
-    items_by_flow: HashMap<TcpFlowKey, Vec<TcpGROItem>>,
-    items_pool: Vec<Vec<TcpGROItem>>,
+    items_by_flow: GroFlowTable<TcpFlowKey, TcpGROItem>,
 }
 
 impl Default for TcpGROTable {
@@ -403,13 +543,8 @@ impl Default for TcpGROTable {
 
 impl TcpGROTable {
     fn new() -> Self {
-        let mut items_pool = Vec::with_capacity(IDEAL_BATCH_SIZE);
-        for _ in 0..IDEAL_BATCH_SIZE {
-            items_pool.push(Vec::with_capacity(IDEAL_BATCH_SIZE));
-        }
-        TcpGROTable {
-            items_by_flow: HashMap::with_capacity(IDEAL_BATCH_SIZE),
-            items_pool,
+        Self {
+            items_by_flow: GroFlowTable::new(),
         }
     }
 }
@@ -451,19 +586,20 @@ impl TcpGROTable {
         bufs_index: usize,
     ) -> Option<&mut Vec<TcpGROItem>> {
         let key = TcpFlowKey::new(pkt, src_addr_offset, dst_addr_offset, tcph_offset);
-        if self.items_by_flow.contains_key(&key) {
-            return self.items_by_flow.get_mut(&key);
-        }
-        // Insert the new item into the table
-        self.insert(
-            pkt,
-            src_addr_offset,
-            dst_addr_offset,
-            tcph_offset,
-            tcph_len,
-            bufs_index,
-        );
-        None
+        self.items_by_flow
+            .lookup_or_insert_with(key, || TcpGROItem {
+                key,
+                bufs_index: bufs_index.try_into().expect("bufs_index exceeds u16::MAX"),
+                num_merged: 0,
+                gso_size: pkt[tcph_offset + tcph_len..]
+                    .len()
+                    .try_into()
+                    .expect("gso_size exceeds u16::MAX"),
+                iph_len: tcph_offset.try_into().expect("iph_len exceeds u8::MAX"),
+                tcph_len: tcph_len.try_into().expect("tcph_len exceeds u8::MAX"),
+                sent_seq: BigEndian::read_u32(&pkt[tcph_offset + 4..tcph_offset + 8]),
+                psh_set: pkt[tcph_offset + TCP_FLAGS_OFFSET] & TCP_FLAG_PSH != 0,
+            })
     }
     /// insert an item in the table for the provided packet and packet metadata.
     fn insert(
@@ -490,11 +626,7 @@ impl TcpGROTable {
             psh_set: pkt[tcph_offset + TCP_FLAGS_OFFSET] & TCP_FLAG_PSH != 0,
         };
 
-        let items = self
-            .items_by_flow
-            .entry(key)
-            .or_insert_with(|| self.items_pool.pop().unwrap_or_default());
-        items.push(item);
+        self.items_by_flow.insert(key, item);
     }
 }
 // func (t *tcpGROTable) updateAt(item tcpGROItem, i int) {
@@ -529,10 +661,7 @@ pub struct TcpGROItem {
 // }
 impl TcpGROTable {
     fn reset(&mut self) {
-        for (_key, mut items) in self.items_by_flow.drain() {
-            items.clear();
-            self.items_pool.push(items);
-        }
+        self.items_by_flow.reset();
     }
 }
 
@@ -548,8 +677,7 @@ pub struct UdpFlowKey {
 
 ///  udpGROTable holds flow and coalescing information for the purposes of UDP GRO.
 pub struct UdpGROTable {
-    items_by_flow: HashMap<UdpFlowKey, Vec<UdpGROItem>>,
-    items_pool: Vec<Vec<UdpGROItem>>,
+    items_by_flow: GroFlowTable<UdpFlowKey, UdpGROItem>,
 }
 
 impl Default for UdpGROTable {
@@ -560,13 +688,8 @@ impl Default for UdpGROTable {
 
 impl UdpGROTable {
     pub fn new() -> Self {
-        let mut items_pool = Vec::with_capacity(IDEAL_BATCH_SIZE);
-        for _ in 0..IDEAL_BATCH_SIZE {
-            items_pool.push(Vec::with_capacity(IDEAL_BATCH_SIZE));
-        }
-        UdpGROTable {
-            items_by_flow: HashMap::with_capacity(IDEAL_BATCH_SIZE),
-            items_pool,
+        Self {
+            items_by_flow: GroFlowTable::new(),
         }
     }
 }
@@ -609,20 +732,17 @@ impl UdpGROTable {
         bufs_index: usize,
     ) -> Option<&mut Vec<UdpGROItem>> {
         let key = UdpFlowKey::new(pkt, src_addr_offset, dst_addr_offset, udph_offset);
-        if self.items_by_flow.contains_key(&key) {
-            self.items_by_flow.get_mut(&key)
-        } else {
-            // If the flow does not exist, insert a new entry.
-            self.insert(
-                pkt,
-                src_addr_offset,
-                dst_addr_offset,
-                udph_offset,
-                bufs_index,
-                false,
-            );
-            None
-        }
+        self.items_by_flow
+            .lookup_or_insert_with(key, || UdpGROItem {
+                key,
+                bufs_index: bufs_index.try_into().expect("bufs_index exceeds u16::MAX"),
+                num_merged: 0,
+                gso_size: (pkt.len() - (udph_offset + UDP_H_LEN))
+                    .try_into()
+                    .expect("gso_size exceeds u16::MAX"),
+                iph_len: udph_offset.try_into().expect("iph_len exceeds u8::MAX"),
+                c_sum_known_invalid: false,
+            })
     }
     /// Inserts an item in the table for the provided packet and its metadata.
     fn insert(
@@ -645,11 +765,7 @@ impl UdpGROTable {
             iph_len: udph_offset.try_into().expect("iph_len exceeds u8::MAX"),
             c_sum_known_invalid,
         };
-        let items = self
-            .items_by_flow
-            .entry(key)
-            .or_insert_with(|| self.items_pool.pop().unwrap_or_default());
-        items.push(item);
+        self.items_by_flow.insert(key, item);
     }
 }
 // func (u *udpGROTable) updateAt(item udpGROItem, i int) {
@@ -676,10 +792,7 @@ pub struct UdpGROItem {
 
 impl UdpGROTable {
     fn reset(&mut self) {
-        for (_key, mut items) in self.items_by_flow.drain() {
-            items.clear();
-            self.items_pool.push(items);
-        }
+        self.items_by_flow.reset();
     }
 }
 
@@ -2204,6 +2317,108 @@ impl ExpandBuffer for &mut Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+    struct CollidingFlowKey(u16);
+
+    #[derive(Default)]
+    struct ZeroHasher;
+
+    impl std::hash::Hasher for ZeroHasher {
+        fn finish(&self) -> u64 {
+            0
+        }
+
+        fn write(&mut self, _bytes: &[u8]) {}
+    }
+
+    #[test]
+    fn flow_table_resolves_collisions_grows_and_resets() {
+        let mut table = GroFlowTable::<
+            CollidingFlowKey,
+            u16,
+            std::hash::BuildHasherDefault<ZeroHasher>,
+        >::with_hasher(std::hash::BuildHasherDefault::default());
+        let count = GRO_FLOW_TABLE_SLOTS + 17;
+
+        for value in 0..count {
+            let value = u16::try_from(value).unwrap();
+            assert!(table
+                .lookup_or_insert_with(CollidingFlowKey(value), || value)
+                .is_none());
+        }
+        assert_eq!(table.values().count(), count);
+
+        for value in 0..count {
+            let value = u16::try_from(value).unwrap();
+            let items = table
+                .lookup_or_insert_with(CollidingFlowKey(value), || {
+                    panic!("existing key reinserted")
+                })
+                .unwrap();
+            assert_eq!(items, &[value]);
+        }
+
+        table.reset();
+        assert_eq!(table.values().count(), 0);
+        assert!(table
+            .lookup_or_insert_with(CollidingFlowKey(7), || 7)
+            .is_none());
+        let items = table
+            .lookup_or_insert_with(CollidingFlowKey(7), || panic!("existing key reinserted"))
+            .unwrap();
+        assert_eq!(items, &[7]);
+    }
+
+    #[test]
+    fn flow_table_grows_before_reaching_full_occupancy() {
+        type CollisionTable =
+            GroFlowTable<CollidingFlowKey, u16, std::hash::BuildHasherDefault<ZeroHasher>>;
+
+        let make_table = || CollisionTable::with_hasher(std::hash::BuildHasherDefault::default());
+
+        let mut lazy_table = make_table();
+        let initial_slots = lazy_table.slots.len();
+        let load_limit = initial_slots * 3 / 4;
+        for value in 0..load_limit {
+            let value = u16::try_from(value).unwrap();
+            assert!(lazy_table
+                .lookup_or_insert_with(CollidingFlowKey(value), || value)
+                .is_none());
+        }
+        assert_eq!(lazy_table.slots.len(), initial_slots);
+
+        let existing = lazy_table
+            .lookup_or_insert_with(CollidingFlowKey(0), || panic!("existing key reinserted"))
+            .unwrap();
+        assert_eq!(existing, &[0]);
+        assert_eq!(lazy_table.slots.len(), initial_slots);
+
+        let next = u16::try_from(load_limit).unwrap();
+        assert!(lazy_table
+            .lookup_or_insert_with(CollidingFlowKey(next), || next)
+            .is_none());
+        assert_eq!(lazy_table.slots.len(), initial_slots * 2);
+
+        let mut insert_table = make_table();
+        for value in 0..load_limit {
+            let value = u16::try_from(value).unwrap();
+            insert_table.insert(CollidingFlowKey(value), value);
+        }
+        assert_eq!(insert_table.slots.len(), initial_slots);
+
+        insert_table.insert(CollidingFlowKey(0), u16::MAX);
+        assert_eq!(insert_table.slots.len(), initial_slots);
+        assert_eq!(
+            insert_table
+                .lookup_or_insert_with(CollidingFlowKey(0), || panic!("existing key reinserted"))
+                .unwrap(),
+            &[0, u16::MAX]
+        );
+
+        insert_table.insert(CollidingFlowKey(next), next);
+        assert_eq!(insert_table.slots.len(), initial_slots * 2);
+    }
 
     fn make_ipv4_tcp_packet(seq: u32, payload_len: usize) -> Vec<u8> {
         const IPH_LEN: usize = 20;
