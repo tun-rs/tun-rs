@@ -164,7 +164,7 @@ impl DeviceImpl {
     /// Wraps an arbitrary owned descriptor (socketpair, pipe) without the
     /// `TUNGETIFF` validation so readiness behaviour can be tested without
     /// privileges. The descriptor is closed when the device is dropped.
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "async_tokio", feature = "async_io")))]
     pub(crate) fn from_fd_for_test(fd: RawFd) -> Self {
         Self {
             tun: Tun::new(unsafe { Fd::new_unchecked(fd) }),
