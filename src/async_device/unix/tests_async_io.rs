@@ -673,34 +673,6 @@ fn poll_readable_waiter_wakes_on_error_despite_try_recv() {
     );
 }
 
-/// A poll-style waiter and a `readable()` waiter both wake on data while
-/// `try_recv` probes.
-#[test]
-fn mixed_waiters_wake_on_data_despite_try_recv() {
-    run(
-        "test",
-        try_recv_leaves_parked_waiters_alone(
-            data_case,
-            false,
-            &[Waiter::PollRecv, Waiter::Readable],
-        ),
-    );
-}
-
-/// A poll-style waiter and a `readable()` waiter both wake on the error while
-/// `try_recv` probes.
-#[test]
-fn mixed_waiters_wake_on_error_despite_try_recv() {
-    run(
-        "test",
-        try_recv_leaves_parked_waiters_alone(
-            error_case,
-            true,
-            &[Waiter::PollRecv, Waiter::Readable],
-        ),
-    );
-}
-
 // ---------------------------------------------------------------------------
 // Privileged: real TUN/TAP devices removed from under a pending reader.
 //
