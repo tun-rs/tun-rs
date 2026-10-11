@@ -4,6 +4,7 @@
 //! privileges. `AsyncDevice` only relies on `read(2)`, `write(2)` and the
 //! readiness the kernel reports for them.
 
+use super::AsyncDevice;
 use futures::task::AtomicWaker;
 use std::future::{poll_fn, Future};
 use std::io;
@@ -171,6 +172,42 @@ impl Wake for WakeCounter {
 pub(super) fn counting_waker() -> (Waker, Arc<WakeCounter>) {
     let counter = Arc::new(WakeCounter::default());
     (Waker::from(counter.clone()), counter)
+}
+
+/// The kinds of read waiter a test can park on a device.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Waiter {
+    /// `poll_recv` driven by `poll_fn`; registers the shared read waker.
+    PollRecv,
+    /// `readable().await`.
+    Readable,
+    /// `poll_readable` driven by `poll_fn`; registers the shared read waker.
+    PollReadable,
+}
+
+/// Parks a waiter of the given kind on `dev` and resolves when the device
+/// wakes it. A `PollRecv` waiter that succeeds must have read the one-byte
+/// packet `x`.
+pub(super) async fn park(dev: Arc<AsyncDevice>, kind: Waiter) -> io::Result<()> {
+    let mut buf = [0u8; 16];
+    match kind {
+        Waiter::PollRecv => poll_fn(|cx| dev.poll_recv(cx, &mut buf))
+            .await
+            .map(|n| assert_eq!(&buf[..n], b"x")),
+        Waiter::Readable => dev.readable().await,
+        Waiter::PollReadable => poll_fn(|cx| dev.poll_readable(cx)).await,
+    }
+}
+
+/// Asserts how a parked waiter finished: only `PollRecv` can report the
+/// device error, the readiness waiters just complete.
+pub(super) fn assert_wake_outcome(kind: Waiter, result: io::Result<()>, expect_error: bool) {
+    let expect_error = expect_error && matches!(kind, Waiter::PollRecv);
+    assert_eq!(
+        result.is_err(),
+        expect_error,
+        "{kind:?}: unexpected result {result:?}"
+    );
 }
 
 /// Drives one read entry point through its whole wakeup contract.

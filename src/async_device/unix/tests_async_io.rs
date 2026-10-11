@@ -572,6 +572,136 @@ fn large_packets_do_not_spin() {
 }
 
 // ---------------------------------------------------------------------------
+// try_recv() must not steal or clobber wakeups registered by other waiters.
+// ---------------------------------------------------------------------------
+
+/// A parked waiter as a boxed future, paired with its kind.
+type ParkedWaiter = (Waiter, Pin<Box<dyn Future<Output = io::Result<()>>>>);
+
+/// Parks `kinds` on a device from `case`, calls `try_recv` over and over while
+/// they are idle, then fires the trigger. Every waiter must still wake: a
+/// `try_recv` that replaced their waker or consumed their readiness would leave
+/// one of them hanging.
+async fn try_recv_leaves_parked_waiters_alone(
+    case: fn() -> (Arc<AsyncDevice>, Trigger),
+    expect_error: bool,
+    kinds: &[Waiter],
+) {
+    let (dev, trigger) = case();
+    let mut waiters: Vec<ParkedWaiter> = Vec::new();
+    for &kind in kinds {
+        let mut waiter: Pin<Box<dyn Future<Output = io::Result<()>>>> =
+            Box::pin(park(dev.clone(), kind));
+        assert!(
+            poll!(waiter.as_mut()).is_pending(),
+            "{kind:?} ready while idle"
+        );
+        waiters.push((kind, waiter));
+    }
+    let mut buf = [0u8; 16];
+    for _ in 0..50 {
+        let err = dev.try_recv(&mut buf).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::WouldBlock, "{err}");
+        Timer::after(Duration::from_millis(1)).await;
+    }
+    trigger();
+    let results = within(
+        "parked waiters",
+        futures::future::join_all(
+            waiters
+                .into_iter()
+                .map(|(kind, waiter)| async move { (kind, waiter.await) }),
+        ),
+    )
+    .await;
+    for (kind, result) in results {
+        assert_wake_outcome(kind, result, expect_error);
+    }
+}
+
+/// A `poll_recv` waiter still receives the packet after `try_recv` probing.
+#[test]
+fn poll_recv_waiter_gets_packet_despite_try_recv() {
+    run(
+        "test",
+        try_recv_leaves_parked_waiters_alone(data_case, false, &[Waiter::PollRecv]),
+    );
+}
+
+/// A `poll_recv` waiter still gets the error after `try_recv` probing.
+#[test]
+fn poll_recv_waiter_gets_error_despite_try_recv() {
+    run(
+        "test",
+        try_recv_leaves_parked_waiters_alone(error_case, true, &[Waiter::PollRecv]),
+    );
+}
+
+/// A `readable()` waiter still wakes on data after `try_recv` probing.
+#[test]
+fn readable_waiter_wakes_on_data_despite_try_recv() {
+    run(
+        "test",
+        try_recv_leaves_parked_waiters_alone(data_case, false, &[Waiter::Readable]),
+    );
+}
+
+/// A `readable()` waiter still wakes on the error after `try_recv` probing.
+#[test]
+fn readable_waiter_wakes_on_error_despite_try_recv() {
+    run(
+        "test",
+        try_recv_leaves_parked_waiters_alone(error_case, true, &[Waiter::Readable]),
+    );
+}
+
+/// A `poll_readable` waiter still wakes on data after `try_recv` probing.
+#[test]
+fn poll_readable_waiter_wakes_on_data_despite_try_recv() {
+    run(
+        "test",
+        try_recv_leaves_parked_waiters_alone(data_case, false, &[Waiter::PollReadable]),
+    );
+}
+
+/// A `poll_readable` waiter still wakes on the error after `try_recv` probing.
+#[test]
+fn poll_readable_waiter_wakes_on_error_despite_try_recv() {
+    run(
+        "test",
+        try_recv_leaves_parked_waiters_alone(error_case, true, &[Waiter::PollReadable]),
+    );
+}
+
+/// A poll-style waiter and a `readable()` waiter both wake on data while
+/// `try_recv` probes.
+#[test]
+fn mixed_waiters_wake_on_data_despite_try_recv() {
+    run(
+        "test",
+        try_recv_leaves_parked_waiters_alone(
+            data_case,
+            false,
+            &[Waiter::PollRecv, Waiter::Readable],
+        ),
+    );
+}
+
+/// A poll-style waiter and a `readable()` waiter both wake on the error while
+/// `try_recv` probes.
+#[test]
+fn mixed_waiters_wake_on_error_despite_try_recv() {
+    run(
+        "test",
+        try_recv_leaves_parked_waiters_alone(
+            error_case,
+            true,
+            &[Waiter::PollRecv, Waiter::Readable],
+        ),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Privileged: real TUN/TAP devices removed from under a pending reader.
 //
 // Run with CAP_NET_ADMIN, the `ip` tool and /dev/net/tun:

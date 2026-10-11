@@ -24,7 +24,7 @@ use std::future::{poll_fn, Future};
 use std::io::{self, IoSliceMut};
 use std::os::fd::{AsRawFd, RawFd};
 use std::pin::{pin, Pin};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
@@ -691,6 +691,118 @@ async fn large_packets_do_not_spin() {
 on_both_runtimes!(large_packets_do_not_spin);
 
 // ---------------------------------------------------------------------------
+// try_recv() must not steal or clobber wakeups registered by other tasks.
+// ---------------------------------------------------------------------------
+
+/// Starts a task that keeps calling `try_recv` on an idle device (each call
+/// must give `WouldBlock`); returns its stop flag and handle.
+fn spawn_prober(dev: Arc<AsyncDevice>) -> (Arc<AtomicBool>, tokio::task::JoinHandle<usize>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let handle = {
+        let stop = stop.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 16];
+            let mut attempts = 0;
+            while !stop.load(Ordering::Relaxed) {
+                let err = dev.try_recv(&mut buf).unwrap_err();
+                assert_eq!(err.kind(), io::ErrorKind::WouldBlock, "{err}");
+                attempts += 1;
+                tokio::task::yield_now().await;
+            }
+            attempts
+        })
+    };
+    (stop, handle)
+}
+
+/// Stops a [`spawn_prober`] task and checks that it probed repeatedly.
+async fn stop_prober(stop: Arc<AtomicBool>, handle: tokio::task::JoinHandle<usize>) {
+    stop.store(true, Ordering::Relaxed);
+    let attempts = within("prober", handle).await.unwrap();
+    assert!(attempts > 1, "prober ran only {attempts} times");
+}
+
+/// Parks `kinds` on a device from `case`, lets a third task call `try_recv`
+/// over and over while they are idle, then fires the trigger. Every waiter
+/// must still wake: a `try_recv` that registered its own waker over theirs, or
+/// consumed their readiness, would leave one of them hanging.
+async fn try_recv_leaves_parked_waiters_alone(
+    case: fn() -> (Arc<AsyncDevice>, Trigger),
+    expect_error: bool,
+    kinds: &[Waiter],
+) {
+    let (dev, trigger) = case();
+    let waiters: Vec<_> = kinds
+        .iter()
+        .map(|&kind| (kind, tokio::spawn(park(dev.clone(), kind))))
+        .collect();
+    tokio::time::sleep(IDLE_WINDOW).await;
+    for (kind, waiter) in &waiters {
+        assert!(!waiter.is_finished(), "{kind:?} completed while idle");
+    }
+    let (stop, prober) = spawn_prober(dev.clone());
+    tokio::time::sleep(IDLE_WINDOW).await;
+    stop_prober(stop, prober).await;
+    trigger();
+    for (kind, waiter) in waiters {
+        let result = within("parked waiter", waiter).await.unwrap();
+        assert_wake_outcome(kind, result, expect_error);
+    }
+}
+
+/// A `poll_recv` waiter still receives the packet after `try_recv` probing.
+async fn poll_recv_waiter_gets_packet_despite_try_recv() {
+    try_recv_leaves_parked_waiters_alone(data_case, false, &[Waiter::PollRecv]).await;
+}
+on_both_runtimes!(poll_recv_waiter_gets_packet_despite_try_recv);
+
+/// A `poll_recv` waiter still gets the error after `try_recv` probing.
+async fn poll_recv_waiter_gets_error_despite_try_recv() {
+    try_recv_leaves_parked_waiters_alone(error_case, true, &[Waiter::PollRecv]).await;
+}
+on_both_runtimes!(poll_recv_waiter_gets_error_despite_try_recv);
+
+/// A `readable()` waiter still wakes on data after `try_recv` probing.
+async fn readable_waiter_wakes_on_data_despite_try_recv() {
+    try_recv_leaves_parked_waiters_alone(data_case, false, &[Waiter::Readable]).await;
+}
+on_both_runtimes!(readable_waiter_wakes_on_data_despite_try_recv);
+
+/// A `readable()` waiter still wakes on the error after `try_recv` probing.
+async fn readable_waiter_wakes_on_error_despite_try_recv() {
+    try_recv_leaves_parked_waiters_alone(error_case, true, &[Waiter::Readable]).await;
+}
+on_both_runtimes!(readable_waiter_wakes_on_error_despite_try_recv);
+
+/// A `poll_readable` waiter still wakes on data after `try_recv` probing.
+async fn poll_readable_waiter_wakes_on_data_despite_try_recv() {
+    try_recv_leaves_parked_waiters_alone(data_case, false, &[Waiter::PollReadable]).await;
+}
+on_both_runtimes!(poll_readable_waiter_wakes_on_data_despite_try_recv);
+
+/// A `poll_readable` waiter still wakes on the error after `try_recv` probing.
+async fn poll_readable_waiter_wakes_on_error_despite_try_recv() {
+    try_recv_leaves_parked_waiters_alone(error_case, true, &[Waiter::PollReadable]).await;
+}
+on_both_runtimes!(poll_readable_waiter_wakes_on_error_despite_try_recv);
+
+/// A poll-style waiter and a `readable()` waiter both wake on data while a
+/// third task probes with `try_recv`.
+async fn mixed_waiters_wake_on_data_despite_try_recv() {
+    try_recv_leaves_parked_waiters_alone(data_case, false, &[Waiter::PollRecv, Waiter::Readable])
+        .await;
+}
+on_both_runtimes!(mixed_waiters_wake_on_data_despite_try_recv);
+
+/// A poll-style waiter and a `readable()` waiter both wake on the error while
+/// a third task probes with `try_recv`.
+async fn mixed_waiters_wake_on_error_despite_try_recv() {
+    try_recv_leaves_parked_waiters_alone(error_case, true, &[Waiter::PollRecv, Waiter::Readable])
+        .await;
+}
+on_both_runtimes!(mixed_waiters_wake_on_error_despite_try_recv);
+
+// ---------------------------------------------------------------------------
 // Privileged: real TUN/TAP devices removed from under a pending reader.
 //
 // Run with CAP_NET_ADMIN, the `ip` tool and /dev/net/tun:
@@ -792,6 +904,24 @@ mod privileged {
         assert!(poll!(recv.as_mut()).is_pending());
         delete_link(name);
         assert_read_error(within("poll_recv", recv).await.unwrap_err());
+    }
+
+    /// Deleting the link wakes a parked `poll_recv` with the error even though
+    /// another task keeps probing the device with `try_recv`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "needs CAP_NET_ADMIN, /dev/net/tun and the `ip` tool"]
+    async fn privileged_try_recv_does_not_steal_poll_recv_wake() {
+        let name = "trs_tun_probe";
+        let dev = Arc::new(build(name, Layer::L3, false));
+        let waiter = tokio::spawn(park(dev.clone(), Waiter::PollRecv));
+        tokio::time::sleep(IDLE_WINDOW).await;
+        assert!(!waiter.is_finished(), "poll_recv completed while idle");
+        let (stop, prober) = spawn_prober(dev.clone());
+        tokio::time::sleep(IDLE_WINDOW).await;
+        stop_prober(stop, prober).await;
+        delete_link(name);
+        let result = within("parked poll_recv", waiter).await.unwrap();
+        assert_wake_outcome(Waiter::PollRecv, result, true);
     }
 
     /// Every queue of a multi-queue device wakes with an error when the link
