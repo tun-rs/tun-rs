@@ -20,6 +20,30 @@ pub(super) const HANG_GUARD: Duration = Duration::from_secs(10);
 /// Time given to a device that must stay idle before asserting on it.
 pub(super) const IDLE_WINDOW: Duration = Duration::from_millis(150);
 
+/// Aborts the test process when a test is stuck in a loop that never yields
+/// to the timeout guards (a busy loop inside a single `poll`), so that a
+/// regression fails fast instead of hanging until the CI job times out.
+pub(super) struct Watchdog {
+    _disarm: std::sync::mpsc::Sender<()>,
+}
+
+impl Watchdog {
+    /// Arm it on the thread that runs the test; the libtest thread name is
+    /// the test name.
+    pub(super) fn arm() -> Self {
+        let test = std::thread::current().name().unwrap_or("?").to_owned();
+        let (disarm, armed) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            if armed.recv_timeout(HANG_GUARD * 3) == Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            {
+                eprintln!("{test}: stuck without yielding for {:?}", HANG_GUARD * 3);
+                std::process::abort();
+            }
+        });
+        Self { _disarm: disarm }
+    }
+}
+
 fn check(rc: libc::c_int) {
     assert_eq!(rc, 0, "{}", io::Error::last_os_error());
 }

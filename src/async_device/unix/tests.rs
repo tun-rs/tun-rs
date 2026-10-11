@@ -37,12 +37,16 @@ fn async_dev(fd: RawFd) -> AsyncDevice {
 macro_rules! on_both_runtimes {
     ($scenario:ident) => {
         mod $scenario {
+            use super::Watchdog;
+
             #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
             async fn multi_thread() {
+                let _watchdog = Watchdog::arm();
                 super::$scenario().await
             }
             #[tokio::test(flavor = "current_thread")]
             async fn current_thread() {
+                let _watchdog = Watchdog::arm();
                 super::$scenario().await
             }
         }
@@ -485,25 +489,15 @@ async fn idle_then_wakes(case: fn() -> (Arc<AsyncDevice>, Trigger), expect_error
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn idle_data_device_wakes_once_per_event_multi_thread() {
+async fn idle_data_device_wakes_once_per_event() {
     idle_then_wakes(data_case, false).await;
 }
+on_both_runtimes!(idle_data_device_wakes_once_per_event);
 
-#[tokio::test(flavor = "current_thread")]
-async fn idle_data_device_wakes_once_per_event_current_thread() {
-    idle_then_wakes(data_case, false).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn idle_error_device_wakes_once_per_event_multi_thread() {
+async fn idle_error_device_wakes_once_per_event() {
     idle_then_wakes(error_case, true).await;
 }
-
-#[tokio::test(flavor = "current_thread")]
-async fn idle_error_device_wakes_once_per_event_current_thread() {
-    idle_then_wakes(error_case, true).await;
-}
+on_both_runtimes!(idle_error_device_wakes_once_per_event);
 
 // ---------------------------------------------------------------------------
 // readable() + try_recv() under traffic must not busy-loop.
@@ -548,10 +542,11 @@ async fn assert_no_spin(packets: usize, size: usize, traffic: fn(RawFd, usize, u
         peer
     });
     let outcome = within("reader", reader).await.unwrap();
-    close(writer.join().unwrap());
+    // Fail before joining: a writer blocked on a full queue never finishes.
     if let Err(e) = outcome {
         panic!("{e}");
     }
+    close(writer.join().unwrap());
     let used = iterations.load(Ordering::Relaxed);
     assert!(used <= cap, "{used} iterations for {packets} packets");
 }

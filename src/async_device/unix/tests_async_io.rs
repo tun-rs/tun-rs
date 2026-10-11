@@ -33,6 +33,7 @@ async fn within<F: Future>(what: &str, fut: F) -> F::Output {
 }
 
 fn run<F: Future>(what: &str, fut: F) -> F::Output {
+    let _watchdog = Watchdog::arm();
     block_on(within(what, fut))
 }
 
@@ -478,10 +479,11 @@ fn assert_no_spin(packets: usize, size: usize, traffic: fn(RawFd, usize, usize))
             Ok(())
         }
     });
-    close(writer.join().unwrap());
+    // Fail before joining: a writer blocked on a full queue never finishes.
     if let Err(e) = outcome {
         panic!("{e}");
     }
+    close(writer.join().unwrap());
 }
 
 fn packet(seq: usize, size: usize) -> Vec<u8> {
