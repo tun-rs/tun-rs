@@ -1,5 +1,7 @@
 use std::future::Future;
 use std::io;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use crate::platform::DeviceImpl;
@@ -14,8 +16,11 @@ use bytes::buf::UninitSlice;
 /// which a `READABLE`-only waiter never observes. Waiting for `ERROR` too lets
 /// the following read surface the error instead of hanging forever.
 ///
-/// Only `AsyncFd::ready` and the guard's `try_io` understand a combined
-/// interest; never pass it to `AsyncFd::try_io` / `async_io`.
+/// `AsyncFd::try_io` must not be given this combined interest: it maps only a
+/// single interest to a readiness mask, so it sees an empty readiness, never
+/// runs the operation and never clears the event, which makes a
+/// `readable()` + `try_recv()` loop spin. `ready`, `async_io` and the guard's
+/// `try_io` handle it correctly.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const READ_INTEREST: Interest = Interest::READABLE.add(Interest::ERROR);
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
@@ -59,9 +64,73 @@ const READ_INTEREST: Interest = Interest::READABLE;
 ///     Ok(())
 /// }
 /// ```
-pub struct AsyncDevice(pub(crate) TokioAsyncFd<DeviceImpl>);
+pub struct AsyncDevice(pub(crate) Arc<TokioAsyncFd<DeviceImpl>>, ErrorWait);
+
+/// Parked wait for the error readiness, used by the `poll_*` read methods.
+///
+/// `AsyncFd::poll_read_ready` only observes `READABLE`, and tokio offers no
+/// poll-style call for `ERROR`, so the `ready(ERROR)` future is kept between
+/// polls to hold the task's waker. The future owns an `Arc` of the descriptor.
+type ErrorWait = Mutex<Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send>>>>;
+
+impl AsyncDevice {
+    /// Polls for an error condition on the device and consumes the parked wait
+    /// once it fires. Never completes where `READ_INTEREST` has no `ERROR`.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn poll_error_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let mut slot = self
+            .1
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let wait = slot.get_or_insert_with(|| {
+            let fd = self.0.clone();
+            Box::pin(async move { fd.ready(Interest::ERROR).await.map(|_| ()) })
+        });
+        let polled = wait.as_mut().poll(cx);
+        if polled.is_ready() {
+            *slot = None;
+        }
+        polled
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    fn poll_error_ready(&self, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Pending
+    }
+
+    /// Poll-style read: runs `op` when the device is readable, or when it only
+    /// reports an error so that the operation can return it.
+    fn poll_read_with<R>(
+        &self,
+        cx: &mut Context<'_>,
+        mut op: impl FnMut(&DeviceImpl) -> io::Result<R>,
+    ) -> Poll<io::Result<R>> {
+        loop {
+            match self.0.poll_read_ready(cx) {
+                Poll::Ready(Ok(mut guard)) => match guard.try_io(|fd| op(fd.get_ref())) {
+                    Ok(result) => return Poll::Ready(result),
+                    Err(_would_block) => continue,
+                },
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => {}
+            }
+            match self.poll_error_ready(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Ready(Ok(())) => match self.try_read_io(&mut op) {
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    result => return Poll::Ready(result),
+                },
+            }
+        }
+    }
+}
+
 impl AsyncDevice {
     /// Polls the I/O handle for readability.
+    ///
+    /// On Linux and Android it also completes when the device only reports an
+    /// error (for example a TUN/TAP interface that was deleted), so the
+    /// following read can return that error.
     ///
     /// # Caveats
     ///
@@ -81,7 +150,10 @@ impl AsyncDevice {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_readable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.0.poll_read_ready(cx).map_ok(|_| ())
+        match self.0.poll_read_ready(cx) {
+            Poll::Ready(result) => Poll::Ready(result.map(|_| ())),
+            Poll::Pending => self.poll_error_ready(cx),
+        }
     }
     /// Attempts to receive a single packet from the device
     ///
@@ -103,19 +175,7 @@ impl AsyncDevice {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_recv(&self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        loop {
-            return match self.0.poll_read_ready(cx) {
-                Poll::Ready(Ok(mut rs)) => {
-                    let n = match rs.try_io(|dev| dev.get_ref().recv(buf)) {
-                        Ok(rs) => rs?,
-                        Err(_) => continue,
-                    };
-                    Poll::Ready(Ok(n))
-                }
-                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                Poll::Pending => Poll::Pending,
-            };
-        }
+        self.poll_read_with(cx, |dev| dev.recv(buf))
     }
 
     #[allow(dead_code)]
@@ -124,19 +184,7 @@ impl AsyncDevice {
         cx: &mut Context<'_>,
         buf: &mut UninitSlice,
     ) -> Poll<io::Result<usize>> {
-        loop {
-            return match self.0.poll_read_ready(cx) {
-                Poll::Ready(Ok(mut rs)) => {
-                    let n = match rs.try_io(|dev| dev.get_ref().recv_uninit(buf)) {
-                        Ok(rs) => rs?,
-                        Err(_) => continue,
-                    };
-                    Poll::Ready(Ok(n))
-                }
-                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                Poll::Pending => Poll::Pending,
-            };
-        }
+        self.poll_read_with(cx, |dev| dev.recv_uninit(buf))
     }
 
     /// Polls the I/O handle for writability.
@@ -200,10 +248,14 @@ impl AsyncDevice {
 impl AsyncDevice {
     pub(crate) fn new_dev(device: DeviceImpl) -> io::Result<Self> {
         device.set_nonblocking(true)?;
-        Ok(Self(TokioAsyncFd::new(device)?))
+        Ok(Self(Arc::new(TokioAsyncFd::new(device)?), Mutex::new(None)))
     }
     pub(crate) fn into_device(self) -> io::Result<DeviceImpl> {
-        Ok(self.0.into_inner())
+        // The parked error wait holds the only other reference.
+        drop(self.1);
+        Arc::try_unwrap(self.0)
+            .map(TokioAsyncFd::into_inner)
+            .map_err(|_| io::Error::other("device is still shared"))
     }
 
     /// Waits until the device is readable or, on Linux, in an error state.
@@ -215,20 +267,11 @@ impl AsyncDevice {
 
     /// Runs `op` once the device is readable (or, on Linux, in an error state).
     ///
-    /// This uses `ready` + the guard's `try_io` instead of `AsyncFd::async_io`
-    /// / `AsyncFd::try_io`: those take a single interest and, given a combined
-    /// one, see an empty readiness (the operation is never attempted and the
-    /// readiness is never cleared), which busy-loops callers.
     pub(crate) async fn read_with<R>(
         &self,
         mut op: impl FnMut(&DeviceImpl) -> io::Result<R>,
     ) -> io::Result<R> {
-        loop {
-            let mut guard = self.0.ready(READ_INTEREST).await?;
-            if let Ok(result) = guard.try_io(|fd| op(fd.get_ref())) {
-                return result;
-            }
-        }
+        self.0.async_io(READ_INTEREST, |device| op(device)).await
     }
     pub(crate) async fn write_with<R>(
         &self,
