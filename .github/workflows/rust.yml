@@ -83,35 +83,33 @@ jobs:
           cargo build --verbose --examples --tests
           cargo build --verbose --examples --tests --features async_io
           cargo build --verbose --examples --tests --features async_tokio
-      - name: Abort on error
-        if: ${{ failure() }}
-        run: echo "Some of jobs failed" && false
-
-  linux_readiness:
-    # The readiness unit tests run on pipes and socketpairs. The `privileged_`
-    # tests remove real TUN/TAP devices from under pending readers; they need
-    # root, /dev/net/tun and the `ip` tool, so they are #[ignore]d elsewhere.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@v7
-      - name: Unprivileged readiness tests
+      # The readiness unit tests run on pipes and socketpairs (Linux only).
+      - name: Readiness tests (Linux)
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
         run: |
           cargo test --lib --features async_tokio -- --skip should_drop_cleanup_matches_ownership
           cargo test --lib --features async_io -- --skip should_drop_cleanup_matches_ownership
-      - name: Prepare TUN
+      # The `privileged_` tests remove real TUN/TAP devices from under pending
+      # readers; they need root, /dev/net/tun and the `ip` tool, so they are
+      # #[ignore]d elsewhere.
+      - name: Prepare TUN (Linux)
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
         run: |
           sudo modprobe tun || true
           ls -l /dev/net/tun
-      - name: Deleted device wakes tokio readers
+      - name: Deleted device wakes tokio readers (Linux)
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
         run: |
           sudo -E env "PATH=$PATH" "HOME=$HOME" \
             cargo test --lib --features async_tokio -- --ignored privileged_ --test-threads=1
-      - name: Deleted device wakes async-io readers
+      - name: Deleted device wakes async-io readers (Linux)
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
         run: |
           sudo -E env "PATH=$PATH" "HOME=$HOME" \
             cargo test --lib --features async_io -- --ignored privileged_ --test-threads=1
+      - name: Abort on error
+        if: ${{ failure() }}
+        run: echo "Some of jobs failed" && false
 
   build_n_test_freebsd:
     runs-on: ubuntu-latest
