@@ -86,6 +86,7 @@ jobs:
       # The readiness unit tests run on pipes and socketpairs (Linux only).
       - name: Readiness tests (Linux)
         if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
+        timeout-minutes: 10
         run: |
           cargo test --lib --features async_tokio -- --skip should_drop_cleanup_matches_ownership
           cargo test --lib --features async_io -- --skip should_drop_cleanup_matches_ownership
@@ -94,16 +95,19 @@ jobs:
       # #[ignore]d elsewhere.
       - name: Prepare TUN (Linux)
         if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
+        timeout-minutes: 10
         run: |
           sudo modprobe tun || true
           ls -l /dev/net/tun
       - name: Deleted device wakes tokio readers (Linux)
         if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
+        timeout-minutes: 10
         run: |
           sudo -E env "PATH=$PATH" "HOME=$HOME" \
             cargo test --lib --features async_tokio -- --ignored privileged_ --test-threads=1
       - name: Deleted device wakes async-io readers (Linux)
         if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
+        timeout-minutes: 10
         run: |
           sudo -E env "PATH=$PATH" "HOME=$HOME" \
             cargo test --lib --features async_io -- --ignored privileged_ --test-threads=1
