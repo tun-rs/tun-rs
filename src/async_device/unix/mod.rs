@@ -9,6 +9,8 @@ use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 
+#[cfg(all(test, feature = "async_tokio", target_os = "linux"))]
+mod tests;
 #[cfg(feature = "async_tokio")]
 mod tokio;
 #[cfg(feature = "async_tokio")]

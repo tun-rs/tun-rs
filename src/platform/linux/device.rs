@@ -161,6 +161,19 @@ impl DeviceImpl {
             .map(|_| ())
             .map_err(|e| e.into())
     }
+    /// Wraps an arbitrary owned descriptor (socketpair, pipe) without the
+    /// `TUNGETIFF` validation so readiness behaviour can be tested without
+    /// privileges. The descriptor is closed when the device is dropped.
+    #[cfg(test)]
+    pub(crate) fn from_fd_for_test(fd: RawFd) -> Self {
+        Self {
+            tun: Tun::new(unsafe { Fd::new_unchecked(fd) }),
+            vnet_hdr: false,
+            udp_gso: false,
+            flags: 0,
+            op_lock: Arc::new(RwLock::new(())),
+        }
+    }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
         let flags = tun_flags(tun.as_raw_fd())?;
         validate_adopted_tun_flags(flags)?;
