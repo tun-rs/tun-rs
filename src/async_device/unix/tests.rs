@@ -111,7 +111,10 @@ async fn recv_returns_error_on_error_only_readiness() {
     };
     // Let the task park on the (still healthy) device first.
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(!task.is_finished(), "recv must wait while the device is idle");
+    assert!(
+        !task.is_finished(),
+        "recv must wait while the device is idle"
+    );
     close_peer();
     let res = tokio::time::timeout(ERROR_WAIT, task)
         .await
@@ -163,12 +166,16 @@ async fn idle_device_stays_pending() {
     let (a, b) = socketpair();
     let dev = async_dev(a);
     let mut buf = [0u8; 16];
-    assert!(tokio::time::timeout(Duration::from_millis(100), dev.recv(&mut buf))
-        .await
-        .is_err());
-    assert!(tokio::time::timeout(Duration::from_millis(100), dev.readable())
-        .await
-        .is_err());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), dev.recv(&mut buf))
+            .await
+            .is_err()
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), dev.readable())
+            .await
+            .is_err()
+    );
     assert_eq!(
         dev.try_recv(&mut buf).unwrap_err().kind(),
         io::ErrorKind::WouldBlock

@@ -11,6 +11,13 @@ use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 
 #[cfg(all(test, feature = "async_tokio", target_os = "linux"))]
 mod tests;
+#[cfg(all(
+    test,
+    feature = "async_io",
+    not(feature = "async_tokio"),
+    target_os = "linux"
+))]
+mod tests_async_io;
 #[cfg(feature = "async_tokio")]
 mod tokio;
 #[cfg(feature = "async_tokio")]
@@ -87,6 +94,11 @@ impl AsyncDevice {
     /// false-positive and attempting a `try_recv()` will return with
     /// `io::ErrorKind::WouldBlock`.
     ///
+    /// On Linux with the tokio backend this also completes when the kernel
+    /// reports an error condition for the device (for example the interface
+    /// was deleted with `ip link del`); the following `try_recv()` then
+    /// returns that error instead of `WouldBlock`.
+    ///
     /// # Cancel safety
     ///
     /// This method is cancel safe. Once a readiness event occurs, the method
@@ -121,7 +133,7 @@ impl AsyncDevice {
     /// # }
     /// ```
     pub async fn readable(&self) -> io::Result<()> {
-        self.0.readable().await.map(|_| ())
+        self.wait_readable().await
     }
     /// Waits for the device to become writable.
     ///

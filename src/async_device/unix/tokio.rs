@@ -1,10 +1,25 @@
+use std::future::Future;
 use std::io;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 
 use crate::platform::DeviceImpl;
 use ::tokio::io::unix::AsyncFd as TokioAsyncFd;
 use ::tokio::io::Interest;
 use bytes::buf::UninitSlice;
+
+/// Interest used when waiting for the device to become readable.
+///
+/// On Linux a TUN/TAP file whose interface was deleted (`ip link del`) reports
+/// only `EPOLLERR` (`tun_chr_poll`), which tokio maps to `Ready::ERROR` and
+/// which a `READABLE`-only waiter never observes. Waiting for `ERROR` too lets
+/// the following read surface the error instead of hanging forever.
+///
+/// Only `AsyncFd::ready` and the guard's `try_io` understand a combined
+/// interest; never pass it to `AsyncFd::try_io` / `async_io`.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const READ_INTEREST: Interest = Interest::READABLE.add(Interest::ERROR);
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const READ_INTEREST: Interest = Interest::READABLE;
 
 /// An async Tun/Tap device wrapper around a Tun/Tap device.
 ///
@@ -191,13 +206,29 @@ impl AsyncDevice {
         Ok(self.0.into_inner())
     }
 
+    /// Waits until the device is readable or, on Linux, in an error state.
+    ///
+    /// The readiness is intentionally not cleared; the following read does it.
+    pub(crate) async fn wait_readable(&self) -> io::Result<()> {
+        self.0.ready(READ_INTEREST).await.map(|_| ())
+    }
+
+    /// Runs `op` once the device is readable (or, on Linux, in an error state).
+    ///
+    /// This uses `ready` + the guard's `try_io` instead of `AsyncFd::async_io`
+    /// / `AsyncFd::try_io`: those take a single interest and, given a combined
+    /// one, see an empty readiness (the operation is never attempted and the
+    /// readiness is never cleared), which busy-loops callers.
     pub(crate) async fn read_with<R>(
         &self,
         mut op: impl FnMut(&DeviceImpl) -> io::Result<R>,
     ) -> io::Result<R> {
-        self.0
-            .async_io(Interest::READABLE, |device| op(device))
-            .await
+        loop {
+            let mut guard = self.0.ready(READ_INTEREST).await?;
+            if let Ok(result) = guard.try_io(|fd| op(fd.get_ref())) {
+                return result;
+            }
+        }
     }
     pub(crate) async fn write_with<R>(
         &self,
@@ -212,7 +243,18 @@ impl AsyncDevice {
         &self,
         f: impl FnOnce(&DeviceImpl) -> io::Result<R>,
     ) -> io::Result<R> {
-        self.0.try_io(Interest::READABLE, |device| f(device))
+        // Poll the readiness once with a no-op waker: a pending result means
+        // "not ready" (WouldBlock) without registering a wakeup.
+        let mut ready = std::pin::pin!(self.0.ready(READ_INTEREST));
+        let mut cx = Context::from_waker(Waker::noop());
+        match ready.as_mut().poll(&mut cx) {
+            Poll::Ready(Ok(mut guard)) => match guard.try_io(|fd| f(fd.get_ref())) {
+                Ok(result) => result,
+                Err(_would_block) => Err(io::ErrorKind::WouldBlock.into()),
+            },
+            Poll::Ready(Err(e)) => Err(e),
+            Poll::Pending => Err(io::ErrorKind::WouldBlock.into()),
+        }
     }
 
     pub(crate) fn try_write_io<R>(
