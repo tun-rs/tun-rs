@@ -419,6 +419,36 @@ async fn spurious_readiness_keeps_would_block_semantics() {
 }
 on_both_runtimes!(spurious_readiness_keeps_would_block_semantics);
 
+/// `poll_recv` over stale readiness retries and parks instead of returning
+/// `WouldBlock`, then still delivers the next real packet.
+async fn poll_recv_over_stale_readiness_stays_pending() {
+    let (dev, peer) = data_device();
+    let raw = dev.get_ref().as_raw_fd();
+    let mut buf = [0u8; 16];
+
+    send_all(peer, b"stolen");
+    within("readable", dev.readable()).await.unwrap();
+    assert_eq!(raw_recv(raw, &mut buf), 6);
+
+    let (waker, wakes) = counting_waker();
+    let mut cx = std::task::Context::from_waker(&waker);
+    for _ in 0..3 {
+        match dev.poll_recv(&mut cx, &mut buf) {
+            Poll::Pending => {}
+            Poll::Ready(result) => panic!("poll_recv completed while idle: {result:?}"),
+        }
+    }
+
+    send_all(peer, b"real");
+    within("wake", wakes.wait_wakes(1)).await;
+    match dev.poll_recv(&mut cx, &mut buf) {
+        Poll::Ready(Ok(n)) => assert_eq!(&buf[..n], b"real"),
+        other => panic!("expected the packet, got {other:?}"),
+    }
+    close(peer);
+}
+on_both_runtimes!(poll_recv_over_stale_readiness_stays_pending);
+
 // ---------------------------------------------------------------------------
 // Idle devices stay quiet; events cause a bounded number of wakeups.
 // ---------------------------------------------------------------------------
@@ -488,6 +518,30 @@ async fn idle_then_wakes(case: fn() -> (Arc<AsyncDevice>, Trigger), expect_error
         .await;
     }
 }
+
+/// A `recv` that follows a consumed packet waits for the next one instead of
+/// failing with `WouldBlock` on stale readiness.
+async fn recv_after_recv_waits_for_next_packet() {
+    let (dev, peer) = data_device();
+    let mut buf = [0u8; 8];
+    for round in 0..3u8 {
+        send_all(peer, &[round]);
+        let n = within("first recv", dev.recv(&mut buf)).await.unwrap();
+        assert_eq!(&buf[..n], &[round]);
+
+        let n = {
+            let mut next = pin!(dev.recv(&mut buf));
+            assert!(
+                poll!(next.as_mut()).is_pending(),
+                "recv completed while idle"
+            );
+            send_all(peer, &[round + 100]);
+            within("second recv", next).await.unwrap()
+        };
+        assert_eq!(&buf[..n], &[round + 100]);
+    }
+}
+on_both_runtimes!(recv_after_recv_waits_for_next_packet);
 
 async fn idle_data_device_wakes_once_per_event() {
     idle_then_wakes(data_case, false).await;
