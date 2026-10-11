@@ -27,6 +27,7 @@ pub(super) struct Watchdog {
     _disarm: std::sync::mpsc::Sender<()>,
 }
 
+/// Arming a watchdog.
 impl Watchdog {
     /// Arm it on the thread that runs the test; the libtest thread name is
     /// the test name.
@@ -44,10 +45,13 @@ impl Watchdog {
     }
 }
 
+/// Panics with the last OS error unless a libc call returned `0`.
 fn check(rc: libc::c_int) {
     assert_eq!(rc, 0, "{}", io::Error::last_os_error());
 }
 
+/// A connected `AF_UNIX` socket pair of the given type (`SOCK_DGRAM`,
+/// `SOCK_STREAM`, ...), close-on-exec.
 pub(super) fn socketpair(kind: libc::c_int) -> (RawFd, RawFd) {
     let mut fds = [0; 2];
     check(unsafe {
@@ -86,14 +90,18 @@ pub(super) fn refused_udp_socket() -> RawFd {
     socket.into_raw_fd()
 }
 
+/// Sends a datagram on a [`refused_udp_socket`] so the kernel queues an
+/// `ECONNREFUSED` error on it.
 pub(super) fn provoke_socket_error(fd: RawFd) {
     send_all(fd, b"x");
 }
 
+/// Closes a descriptor, panicking on failure.
 pub(super) fn close(fd: RawFd) {
     check(unsafe { libc::close(fd) });
 }
 
+/// Sends `payload` as a single `send(2)` and asserts it was written whole.
 pub(super) fn send_all(fd: RawFd, payload: &[u8]) {
     let n = unsafe { libc::send(fd, payload.as_ptr().cast(), payload.len(), 0) };
     assert_eq!(n, payload.len() as isize, "{}", io::Error::last_os_error());
@@ -125,11 +133,14 @@ pub(super) struct WakeCounter {
     waiter: AtomicWaker,
 }
 
+/// Observing the wakeups received.
 impl WakeCounter {
+    /// Number of wakeups received so far.
     pub(super) fn count(&self) -> usize {
         self.count.load(Ordering::SeqCst)
     }
 
+    /// Completes once at least `at_least` wakeups have been received.
     pub(super) async fn wait_wakes(&self, at_least: usize) {
         poll_fn(|cx| {
             self.waiter.register(cx.waker());
@@ -143,16 +154,20 @@ impl WakeCounter {
     }
 }
 
+/// Lets a [`WakeCounter`] be turned into a [`Waker`].
 impl Wake for WakeCounter {
+    /// Counts the wakeup.
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
     }
+    /// Counts the wakeup and wakes the task awaiting [`WakeCounter::wait_wakes`].
     fn wake_by_ref(self: &Arc<Self>) {
         self.count.fetch_add(1, Ordering::SeqCst);
         self.waiter.wake();
     }
 }
 
+/// A [`Waker`] together with the [`WakeCounter`] that observes its wakeups.
 pub(super) fn counting_waker() -> (Waker, Arc<WakeCounter>) {
     let counter = Arc::new(WakeCounter::default());
     (Waker::from(counter.clone()), counter)

@@ -21,10 +21,12 @@ use std::sync::{Arc, Barrier};
 use std::task::Poll;
 use std::time::Duration;
 
+/// Wraps an arbitrary non-blocking descriptor in an `AsyncDevice`.
 fn async_dev(fd: RawFd) -> AsyncDevice {
     AsyncDevice::new_dev(DeviceImpl::from_fd_for_test(fd)).unwrap()
 }
 
+/// Awaits `fut`, panicking with `what` if it takes longer than [`HANG_GUARD`].
 async fn within<F: Future>(what: &str, fut: F) -> F::Output {
     match select(pin!(fut), pin!(Timer::after(HANG_GUARD))).await {
         Either::Left((value, _)) => value,
@@ -32,15 +34,18 @@ async fn within<F: Future>(what: &str, fut: F) -> F::Output {
     }
 }
 
+/// Blocks on `fut` under the process watchdog and the [`HANG_GUARD`] timeout.
 fn run<F: Future>(what: &str, fut: F) -> F::Output {
     let _watchdog = Watchdog::arm();
     block_on(within(what, fut))
 }
 
+/// Sleeps for [`IDLE_WINDOW`] so a device that must stay quiet can be checked.
 async fn idle() {
     Timer::after(IDLE_WINDOW).await;
 }
 
+/// Idle, then healthy: a datagram device and its peer descriptor.
 fn data_device() -> (Arc<AsyncDevice>, RawFd) {
     let (a, b) = socketpair(libc::SOCK_DGRAM);
     (Arc::new(async_dev(a)), b)
@@ -64,10 +69,12 @@ fn error_only_device() -> (Arc<AsyncDevice>, RawFd) {
     (Arc::new(async_dev(fd)), fd)
 }
 
+/// Asserts the error is the `ECONNREFUSED` provoked by [`provoke_socket_error`].
 fn assert_connection_refused(err: io::Error) {
     assert_eq!(err.kind(), io::ErrorKind::ConnectionRefused, "{err}");
 }
 
+/// Asserts that a read surfaced a real error rather than `WouldBlock`.
 fn assert_read_error(err: io::Error) {
     assert_ne!(err.kind(), io::ErrorKind::WouldBlock, "{err}");
 }
@@ -76,6 +83,7 @@ fn assert_read_error(err: io::Error) {
 // Error-only readiness: every read entry point wakes and keeps failing.
 // ---------------------------------------------------------------------------
 
+/// A pending `recv` wakes with the socket error.
 #[test]
 fn recv_wakes_on_error_only_readiness() {
     run("test", async {
@@ -88,6 +96,8 @@ fn recv_wakes_on_error_only_readiness() {
     });
 }
 
+/// A permanently failing descriptor reports its error on every read entry
+/// point, repeatedly.
 #[test]
 fn failing_device_keeps_reporting_the_error() {
     run("test", async {
@@ -102,6 +112,8 @@ fn failing_device_keeps_reporting_the_error() {
     });
 }
 
+/// `readable()` wakes on error-only readiness and `try_recv` /
+/// `try_recv_vectored` return the error instead of `WouldBlock`.
 #[test]
 fn readable_then_try_recv_surfaces_error_only_readiness() {
     run("test", async {
@@ -121,6 +133,7 @@ fn readable_then_try_recv_surfaces_error_only_readiness() {
     });
 }
 
+/// A pending `poll_recv` wakes with the socket error.
 #[test]
 fn poll_recv_wakes_on_error_only_readiness() {
     run("test", async {
@@ -133,6 +146,7 @@ fn poll_recv_wakes_on_error_only_readiness() {
     });
 }
 
+/// A pending `poll_recv_uninit` wakes with the socket error.
 #[test]
 fn poll_recv_uninit_wakes_on_error_only_readiness() {
     run("test", async {
@@ -147,6 +161,8 @@ fn poll_recv_uninit_wakes_on_error_only_readiness() {
     });
 }
 
+/// A pending `poll_readable` wakes on error-only readiness and the following
+/// `poll_recv` reports the error.
 #[test]
 fn poll_readable_wakes_on_error_only_readiness() {
     run("test", async {
@@ -215,6 +231,8 @@ fn reader_on_another_thread_wakes_on_error() {
 // Send side
 // ---------------------------------------------------------------------------
 
+/// Writing to a pipe whose reader is gone fails with `BrokenPipe` on every
+/// send entry point, and `writable()` still resolves.
 #[test]
 fn send_reports_closed_peer() {
     run("test", async {
@@ -256,6 +274,7 @@ fn pending_send_wakes_when_peer_closes() {
 // Cancellation safety
 // ---------------------------------------------------------------------------
 
+/// Dropping pending read futures does not swallow a later error.
 #[test]
 fn dropped_futures_do_not_lose_the_error() {
     run("test", async {
@@ -280,6 +299,7 @@ fn dropped_futures_do_not_lose_the_error() {
     });
 }
 
+/// Dropping pending read futures does not lose a packet that arrives later.
 #[test]
 fn dropped_futures_do_not_lose_data() {
     run("test", async {
@@ -364,18 +384,23 @@ fn spurious_readiness_keeps_would_block_semantics() {
 // Idle devices stay quiet; events cause a bounded number of wakeups.
 // ---------------------------------------------------------------------------
 
+/// Action that makes an idle device ready (a packet or an error).
 type Trigger = Box<dyn FnOnce()>;
 
+/// An idle datagram device whose trigger sends it a packet.
 fn data_case() -> (Arc<AsyncDevice>, Trigger) {
     let (dev, peer) = data_device();
     (dev, Box::new(move || send_all(peer, b"x")))
 }
 
+/// An idle error-only device whose trigger provokes the socket error.
 fn error_case() -> (Arc<AsyncDevice>, Trigger) {
     let (dev, fd) = error_only_device();
     (dev, Box::new(move || provoke_socket_error(fd)))
 }
 
+/// Runs the idle-then-wake contract for `poll_recv`, `poll_readable`, `recv`
+/// and `readable` on a fresh device from `case`.
 async fn idle_then_wakes(case: fn() -> (Arc<AsyncDevice>, Trigger), expect_error: bool) {
     {
         let (dev, trigger) = case();
@@ -430,11 +455,15 @@ async fn idle_then_wakes(case: fn() -> (Arc<AsyncDevice>, Trigger), expect_error
     }
 }
 
+/// A healthy idle device stays quiet and wakes a bounded number of times per
+/// packet.
 #[test]
 fn idle_data_device_wakes_once_per_event() {
     run("test", idle_then_wakes(data_case, false));
 }
 
+/// An idle error-only device stays quiet and wakes a bounded number of times
+/// when the error appears.
 #[test]
 fn idle_error_device_wakes_once_per_event() {
     run("test", idle_then_wakes(error_case, true));
@@ -486,18 +515,21 @@ fn assert_no_spin(packets: usize, size: usize, traffic: fn(RawFd, usize, usize))
     close(writer.join().unwrap());
 }
 
+/// A `size`-byte packet whose first eight bytes carry `seq` little-endian.
 fn packet(seq: usize, size: usize) -> Vec<u8> {
     let mut p = vec![0xAB; size];
     p[..8].copy_from_slice(&(seq as u64).to_le_bytes());
     p
 }
 
+/// Traffic pattern: all packets back to back.
 fn burst(peer: RawFd, packets: usize, size: usize) {
     for seq in 0..packets {
         send_all(peer, &packet(seq, size));
     }
 }
 
+/// Traffic pattern: one packet per millisecond.
 fn trickle(peer: RawFd, packets: usize, size: usize) {
     for seq in 0..packets {
         send_all(peer, &packet(seq, size));
@@ -505,6 +537,7 @@ fn trickle(peer: RawFd, packets: usize, size: usize) {
     }
 }
 
+/// Traffic pattern: bursts of ten packets separated by a short pause.
 fn bursts_with_gaps(peer: RawFd, packets: usize, size: usize) {
     for seq in 0..packets {
         send_all(peer, &packet(seq, size));
@@ -514,21 +547,25 @@ fn bursts_with_gaps(peer: RawFd, packets: usize, size: usize) {
     }
 }
 
+/// Back-to-back small packets do not make the reader spin.
 #[test]
 fn burst_does_not_spin() {
     assert_no_spin(500, 16, burst);
 }
 
+/// Slowly arriving packets do not make the reader spin.
 #[test]
 fn trickle_does_not_spin() {
     assert_no_spin(100, 8, trickle);
 }
 
+/// Bursts separated by pauses do not make the reader spin.
 #[test]
 fn bursts_with_gaps_do_not_spin() {
     assert_no_spin(200, 64, bursts_with_gaps);
 }
 
+/// Near-maximum-size packets do not make the reader spin.
 #[test]
 fn large_packets_do_not_spin() {
     assert_no_spin(64, 60_000, burst);
@@ -542,10 +579,12 @@ fn large_packets_do_not_spin() {
 //     -- --ignored privileged_ --test-threads=1
 // ---------------------------------------------------------------------------
 
+/// Tests that need CAP_NET_ADMIN and real TUN/TAP devices.
 mod privileged {
     use super::*;
     use crate::{DeviceBuilder, Layer};
 
+    /// Creates a disabled TUN/TAP device with the given name and layer.
     fn build(name: &str, layer: Layer, multi_queue: bool) -> AsyncDevice {
         DeviceBuilder::new()
             .name(name)
@@ -556,6 +595,7 @@ mod privileged {
             .expect("create the device (needs CAP_NET_ADMIN and /dev/net/tun)")
     }
 
+    /// Removes the network interface with `ip link del`.
     fn delete_link(name: &str) {
         let status = std::process::Command::new("ip")
             .args(["link", "del", name])
@@ -564,6 +604,8 @@ mod privileged {
         assert!(status.success(), "ip link del {name} failed");
     }
 
+    /// Deleting the link under a pending `recv` wakes it with an error; later
+    /// reads and sends keep failing.
     fn recv_fails_after_delete(name: &str, layer: Layer) {
         run("test", async {
             let dev = build(name, layer, false);
@@ -582,18 +624,22 @@ mod privileged {
         });
     }
 
+    /// Deleted TUN device.
     #[test]
     #[ignore = "needs CAP_NET_ADMIN, /dev/net/tun and the `ip` tool"]
     fn privileged_tun_recv_fails_after_link_delete() {
         recv_fails_after_delete("trs_aio_tun", Layer::L3);
     }
 
+    /// Deleted TAP device.
     #[test]
     #[ignore = "needs CAP_NET_ADMIN, /dev/net/tun and the `ip` tool"]
     fn privileged_tap_recv_fails_after_link_delete() {
         recv_fails_after_delete("trs_aio_tap", Layer::L2);
     }
 
+    /// `readable()` wakes when the link is deleted and `try_recv` reports the
+    /// error.
     #[test]
     #[ignore = "needs CAP_NET_ADMIN, /dev/net/tun and the `ip` tool"]
     fn privileged_readable_try_recv_fails_after_link_delete() {
@@ -609,6 +655,7 @@ mod privileged {
         });
     }
 
+    /// A pending `poll_recv` wakes with an error when the link is deleted.
     #[test]
     #[ignore = "needs CAP_NET_ADMIN, /dev/net/tun and the `ip` tool"]
     fn privileged_poll_recv_fails_after_link_delete() {
@@ -623,6 +670,8 @@ mod privileged {
         });
     }
 
+    /// Every queue of a multi-queue device wakes with an error when the link
+    /// is deleted.
     #[test]
     #[ignore = "needs CAP_NET_ADMIN, /dev/net/tun and the `ip` tool"]
     fn privileged_every_queue_fails_after_link_delete() {

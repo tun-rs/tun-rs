@@ -9,14 +9,17 @@ use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 
+/// Descriptor and waker helpers shared by the readiness tests.
 #[cfg(all(
     test,
     target_os = "linux",
     any(feature = "async_tokio", feature = "async_io")
 ))]
 mod test_util;
+/// Readiness tests for the tokio backend.
 #[cfg(all(test, feature = "async_tokio", target_os = "linux"))]
 mod tests;
+/// Readiness tests for the async-io backend.
 #[cfg(all(
     test,
     feature = "async_io",

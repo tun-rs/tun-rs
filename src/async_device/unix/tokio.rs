@@ -23,6 +23,8 @@ use bytes::buf::UninitSlice;
 /// `try_io` handle it correctly.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const READ_INTEREST: Interest = Interest::READABLE.add(Interest::ERROR);
+/// Interest used when waiting for the device to become readable; only
+/// `READABLE` where a deleted device is not reported as an error condition.
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 const READ_INTEREST: Interest = Interest::READABLE;
 
@@ -73,6 +75,7 @@ pub struct AsyncDevice(pub(crate) Arc<TokioAsyncFd<DeviceImpl>>, ErrorWait);
 /// polls to hold the task's waker. The future owns an `Arc` of the descriptor.
 type ErrorWait = Mutex<Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send>>>>;
 
+/// Readiness helpers for the poll-style read methods.
 impl AsyncDevice {
     /// Polls for an error condition on the device and consumes the parked wait
     /// once it fires. Never completes where `READ_INTEREST` has no `ERROR`.
@@ -92,6 +95,7 @@ impl AsyncDevice {
         }
         polled
     }
+    /// Platforms without error-only readiness have nothing to wait for.
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     fn poll_error_ready(&self, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Pending
@@ -178,6 +182,7 @@ impl AsyncDevice {
         self.poll_read_with(cx, |dev| dev.recv(buf))
     }
 
+    /// Like [`poll_recv`](Self::poll_recv) but reads into uninitialised memory.
     #[allow(dead_code)]
     pub(crate) fn poll_recv_uninit(
         &self,
@@ -246,10 +251,13 @@ impl AsyncDevice {
 }
 
 impl AsyncDevice {
+    /// Switches the device to non-blocking mode and registers it with tokio.
     pub(crate) fn new_dev(device: DeviceImpl) -> io::Result<Self> {
         device.set_nonblocking(true)?;
         Ok(Self(Arc::new(TokioAsyncFd::new(device)?), Mutex::new(None)))
     }
+    /// Deregisters and returns the device; fails if the descriptor is still
+    /// shared.
     pub(crate) fn into_device(self) -> io::Result<DeviceImpl> {
         // The parked error wait holds the only other reference.
         drop(self.1);
@@ -266,7 +274,6 @@ impl AsyncDevice {
     }
 
     /// Runs `op` once the device is readable (or, on Linux, in an error state).
-    ///
     pub(crate) async fn read_with<R>(
         &self,
         mut op: impl FnMut(&DeviceImpl) -> io::Result<R>,
@@ -282,6 +289,9 @@ impl AsyncDevice {
             .await
     }
 
+    /// Runs `f` if the device is currently readable (or in an error state),
+    /// clearing the readiness when `f` returns `WouldBlock`; otherwise returns
+    /// `WouldBlock` without waiting.
     pub(crate) fn try_read_io<R>(
         &self,
         f: impl FnOnce(&DeviceImpl) -> io::Result<R>,
