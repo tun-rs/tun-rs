@@ -11,7 +11,12 @@ unsafe fn sockaddr_to_rs_addr(sa: &sockaddr_union) -> Option<std::net::SocketAdd
             let sa_in6 = sa.addr6;
             let ip = std::net::Ipv6Addr::from(sa_in6.sin6_addr.s6_addr);
             let port = u16::from_be(sa_in6.sin6_port);
-            Some(std::net::SocketAddr::new(ip.into(), port))
+            Some(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+                ip,
+                port,
+                sa_in6.sin6_flowinfo,
+                sa_in6.sin6_scope_id,
+            )))
         }
         _ => None,
     }
@@ -49,13 +54,18 @@ fn rs_addr_to_sockaddr(addr: std::net::SocketAddr) -> sockaddr_union {
             addr.addr6.sin6_family = libc::AF_INET6 as libc::sa_family_t;
             addr.addr6.sin6_addr.s6_addr = ipv6.ip().octets();
             addr.addr6.sin6_port = ipv6.port().to_be();
+            addr.addr6.sin6_flowinfo = ipv6.flowinfo();
+            addr.addr6.sin6_scope_id = ipv6.scope_id();
             addr
         }
     }
 }
 
 /// # Safety
-/// Fill the `addr` with the `src_addr` and `src_port`, the `size` should be the size of overwriting
+/// `dst` must point to writable storage for at least
+/// `min(size, size_of::<sockaddr_union>())` bytes. The pointer must come from
+/// the complete backing object being overwritten, not a narrower field
+/// reference. The destination must not overlap the local source value.
 #[cfg(any(
     target_os = "linux",
     target_os = "macos",
@@ -67,17 +77,14 @@ fn rs_addr_to_sockaddr(addr: std::net::SocketAddr) -> sockaddr_union {
 pub(crate) unsafe fn ipaddr_to_sockaddr<T>(
     src_addr: T,
     src_port: u16,
-    addr: &mut libc::sockaddr,
+    dst: *mut libc::c_void,
     size: usize,
 ) where
     T: Into<std::net::IpAddr>,
 {
     let sa = rs_addr_to_sockaddr((src_addr.into(), src_port).into());
-    std::ptr::copy_nonoverlapping(
-        &sa as *const _ as *const libc::c_void,
-        addr as *mut _ as *mut libc::c_void,
-        size.min(std::mem::size_of::<sockaddr_union>()),
-    );
+    let copy_len = size.min(std::mem::size_of::<sockaddr_union>());
+    std::ptr::copy_nonoverlapping((&raw const sa).cast::<u8>(), dst.cast::<u8>(), copy_len);
 }
 
 #[repr(C)]
@@ -162,8 +169,35 @@ fn test_conversion() {
         let mut addr: sockaddr_union = unsafe { std::mem::zeroed() };
         let size = std::mem::size_of::<libc::sockaddr_in>();
 
-        unsafe { ipaddr_to_sockaddr(old, 0x0208, &mut addr.addr, size) };
+        unsafe { ipaddr_to_sockaddr(old, 0x0208, (&raw mut addr).cast(), size) };
         let ip = unsafe { sockaddr_to_rs_addr(&addr).unwrap() };
         assert_eq!(ip, std::net::SocketAddr::new(old, 0x0208));
     }
+}
+
+#[test]
+fn ipv6_conversion_preserves_flowinfo_and_scope_id() {
+    let old = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+        std::net::Ipv6Addr::LOCALHOST,
+        0x0208,
+        0x0123_4567,
+        17,
+    ));
+    let addr = rs_addr_to_sockaddr(old);
+    let actual = unsafe { sockaddr_to_rs_addr(&addr).unwrap() };
+    assert_eq!(actual, old);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn ipaddr_to_sockaddr_writes_through_complete_ifreq_union_storage() {
+    let old = std::net::IpAddr::V4([10, 26, 1, 100].into());
+    let mut ifru: libc::__c_anonymous_ifr_ifru = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::__c_anonymous_ifr_ifru>();
+
+    unsafe { ipaddr_to_sockaddr(old, 0x0208, (&raw mut ifru).cast(), size) };
+
+    let addr = sockaddr_union::from(unsafe { ifru.ifru_addr });
+    let actual = std::net::SocketAddr::try_from(addr).unwrap();
+    assert_eq!(actual, std::net::SocketAddr::new(old, 0x0208));
 }
