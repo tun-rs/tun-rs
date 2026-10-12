@@ -91,6 +91,12 @@ impl DeviceImpl {
             let iff_multi_queue = IFF_MULTI_QUEUE as c_short;
             let packet_information = config.packet_information.unwrap_or(false);
             let offload = config.offload.unwrap_or(false);
+            if packet_information && offload {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Linux packet_information and offload cannot be enabled together",
+                ));
+            }
             req.ifr_ifru.ifru_flags = device_type
                 | if packet_information { 0 } else { iff_no_pi }
                 | if multi_queue { iff_multi_queue } else { 0 }
@@ -109,16 +115,11 @@ impl DeviceImpl {
                 // tunTCPOffloads were added in Linux v2.6. We require their support if IFF_VNET_HDR is set.
                 let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
                 let tun_udp_offloads = libc::TUN_F_USO4 | libc::TUN_F_USO6;
-                if let Err(err) = tunsetoffload(tun_fd.inner, tun_tcp_offloads as _) {
-                    log::warn!("unsupported offload: {err:?}");
-                    (false, false)
-                } else {
-                    // tunUDPOffloads were added in Linux v6.2. We do not return an
-                    // error if they are unsupported at runtime.
-                    let rs =
-                        tunsetoffload(tun_fd.inner, (tun_tcp_offloads | tun_udp_offloads) as _);
-                    (true, rs.is_ok())
-                }
+                tunsetoffload(tun_fd.inner, tun_tcp_offloads as _).map_err(io::Error::from)?;
+                // tunUDPOffloads were added in Linux v6.2. We do not return an
+                // error if they are unsupported at runtime.
+                let rs = tunsetoffload(tun_fd.inner, (tun_tcp_offloads | tun_udp_offloads) as _);
+                (true, rs.is_ok())
             } else {
                 // The TUN_F_* offload mask is device-wide state, not
                 // per-fd. When attaching to a persistent TUN that a
@@ -129,12 +130,11 @@ impl DeviceImpl {
                 // unaware caller will read them as oversized single
                 // packets (ping survives, TCP bulk transfer fails).
                 // Explicitly reset the mask. No-op on a freshly
-                // created device (mask is already zero). Failure is
-                // logged but not propagated, mirroring the
-                // best-effort treatment of UDP offload above.
-                if let Err(err) = tunsetoffload(tun_fd.inner, 0 as _) {
-                    log::warn!("failed to clear TUN offload mask: {err:?}");
-                }
+                // created device (mask is already zero). If this fails we
+                // cannot safely expose the fd as an offload-unaware device:
+                // stale device-wide GSO state can otherwise deliver packets
+                // whose framing this instance does not understand.
+                tunsetoffload(tun_fd.inner, 0 as _).map_err(io::Error::from)?;
                 (false, false)
             };
 
