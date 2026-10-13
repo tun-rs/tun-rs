@@ -57,7 +57,7 @@ impl TunTap {
                 unsafe {
                     let fd = libc::socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
                     let tun = crate::platform::unix::Fd::new(fd)?;
-                    _ = tun.set_cloexec();
+                    tun.set_cloexec()?;
                     let mut info = ctl_info {
                         ctl_id: 0,
                         ctl_name: {
@@ -153,6 +153,14 @@ impl TunTap {
         match &self {
             TunTap::Tun(tun) => tun.set_nonblocking(nonblocking),
             TunTap::Tap(tap) => tap.set_nonblocking(nonblocking),
+        }
+    }
+    #[cfg(any(feature = "async_io", feature = "async_tokio"))]
+    #[inline]
+    pub(crate) fn writable_fd(&self) -> RawFd {
+        match self {
+            TunTap::Tun(tun) => tun.as_raw_fd(),
+            TunTap::Tap(tap) => tap.writable_fd(),
         }
     }
     #[inline]

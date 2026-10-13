@@ -90,6 +90,12 @@ impl DeviceImpl {
             let iff_multi_queue = IFF_MULTI_QUEUE as c_short;
             let packet_information = config.packet_information.unwrap_or(false);
             let offload = config.offload.unwrap_or(false);
+            if packet_information && offload {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Linux packet_information and offload cannot be enabled together",
+                ));
+            }
             req.ifr_ifru.ifru_flags = device_type
                 | if packet_information { 0 } else { iff_no_pi }
                 | if multi_queue { iff_multi_queue } else { 0 }
@@ -108,16 +114,11 @@ impl DeviceImpl {
                 // tunTCPOffloads were added in Linux v2.6. We require their support if IFF_VNET_HDR is set.
                 let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
                 let tun_udp_offloads = libc::TUN_F_USO4 | libc::TUN_F_USO6;
-                if let Err(err) = tunsetoffload(tun_fd.inner, tun_tcp_offloads as _) {
-                    log::warn!("unsupported offload: {err:?}");
-                    (false, false)
-                } else {
-                    // tunUDPOffloads were added in Linux v6.2. We do not return an
-                    // error if they are unsupported at runtime.
-                    let rs =
-                        tunsetoffload(tun_fd.inner, (tun_tcp_offloads | tun_udp_offloads) as _);
-                    (true, rs.is_ok())
-                }
+                tunsetoffload(tun_fd.inner, tun_tcp_offloads as _).map_err(io::Error::from)?;
+                // tunUDPOffloads were added in Linux v6.2. We do not return an
+                // error if they are unsupported at runtime.
+                let rs = tunsetoffload(tun_fd.inner, (tun_tcp_offloads | tun_udp_offloads) as _);
+                (true, rs.is_ok())
             } else {
                 // The TUN_F_* offload mask is device-wide state, not
                 // per-fd. When attaching to a persistent TUN that a
@@ -128,12 +129,11 @@ impl DeviceImpl {
                 // unaware caller will read them as oversized single
                 // packets (ping survives, TCP bulk transfer fails).
                 // Explicitly reset the mask. No-op on a freshly
-                // created device (mask is already zero). Failure is
-                // logged but not propagated, mirroring the
-                // best-effort treatment of UDP offload above.
-                if let Err(err) = tunsetoffload(tun_fd.inner, 0 as _) {
-                    log::warn!("failed to clear TUN offload mask: {err:?}");
-                }
+                // created device (mask is already zero). If this fails we
+                // cannot safely expose the fd as an offload-unaware device:
+                // stale device-wide GSO state can otherwise deliver packets
+                // whose framing this instance does not understand.
+                tunsetoffload(tun_fd.inner, 0 as _).map_err(io::Error::from)?;
                 (false, false)
             };
 
@@ -161,6 +161,14 @@ impl DeviceImpl {
             .map_err(|e| e.into())
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
+        let flags = tun_flags(tun.as_raw_fd())?;
+        validate_adopted_tun_flags(flags)?;
+
+        // TUNGETIFF cannot reliably recover IFF_NO_PI: Linux overlays the
+        // same returned bit as IFF_NOFILTER when no socket filter is attached.
+        // The public unsafe contract therefore requires adopted Linux fds to
+        // use plain IFF_NO_PI framing. Keep the legacy non-offload state here
+        // instead of guessing or mutating device-wide TUNSETOFFLOAD policy.
         Ok(Self {
             tun,
             vnet_hdr: false,
@@ -740,7 +748,7 @@ impl DeviceImpl {
     fn set_address_v4(&self, addr: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(addr, 0, &mut req.ifr_ifru.ifru_addr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(addr, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -750,7 +758,7 @@ impl DeviceImpl {
     fn set_netmask(&self, value: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_netmask, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifnetmask(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -761,7 +769,7 @@ impl DeviceImpl {
     fn set_destination(&self, value: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_dstaddr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifdstaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -934,7 +942,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_broadaddr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifbrdaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -1208,6 +1216,24 @@ impl DeviceImpl {
     }
 }
 
+fn tun_flags(fd: RawFd) -> io::Result<c_short> {
+    unsafe {
+        let mut req: ifreq = mem::zeroed();
+        tungetiff(fd, &mut req as *mut _ as *mut _).map_err(io::Error::from)?;
+        Ok(req.ifr_ifru.ifru_flags)
+    }
+}
+
+fn validate_adopted_tun_flags(flags: c_short) -> io::Result<()> {
+    if flags & (libc::IFF_VNET_HDR as c_short) != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Linux raw-fd adoption does not support IFF_VNET_HDR; use an explicitly configured device instead",
+        ));
+    }
+    Ok(())
+}
+
 unsafe fn name(fd: RawFd) -> io::Result<String> {
     let mut req: ifreq = mem::zeroed();
     if let Err(err) = tungetiff(fd, &mut req as *mut _ as *mut _) {
@@ -1234,5 +1260,20 @@ impl From<Layer> for c_short {
             Layer::L2 => IFF_TAP as c_short,
             Layer::L3 => IFF_TUN as c_short,
         }
+    }
+}
+
+#[cfg(test)]
+mod raw_fd_contract_tests {
+    use super::validate_adopted_tun_flags;
+    use std::io;
+
+    #[test]
+    fn adopted_raw_fd_rejects_virtio_header_framing() {
+        assert!(validate_adopted_tun_flags(0).is_ok());
+        assert!(matches!(
+            validate_adopted_tun_flags(libc::IFF_VNET_HDR as libc::c_short),
+            Err(error) if error.kind() == io::ErrorKind::InvalidInput
+        ));
     }
 }

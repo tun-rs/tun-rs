@@ -93,7 +93,7 @@ impl WriteOverlapped {
         self.submit(buf)
     }
     pub fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.finish_pending_blocking();
+        self.finish_pending_blocking()?;
         self.submit(buf)
     }
     pub fn write_interruptible(
@@ -141,23 +141,18 @@ impl WriteOverlapped {
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(false),
             Err(e) => {
                 inner.no_pending_io = true;
-                log::warn!("previous TAP write completed with error: {e}");
-                Ok(true)
+                Err(e)
             }
         }
     }
-    fn finish_pending_blocking(&mut self) {
+    fn finish_pending_blocking(&mut self) -> io::Result<()> {
         let inner = &mut self.inner;
         if inner.no_pending_io {
-            return;
+            return Ok(());
         }
-        match ffi::wait_io_overlapped(inner.file_handle.as_raw_handle(), &inner.overlapped) {
-            Ok(_) => {}
-            Err(e) => {
-                log::warn!("previous TAP write completed with error: {e}");
-            }
-        }
+        let result = ffi::wait_io_overlapped(inner.file_handle.as_raw_handle(), &inner.overlapped);
         inner.no_pending_io = true;
+        result.map(|_| ())
     }
     fn finish_pending_interruptible(&mut self, interrupt_event: &OwnedHandle) -> io::Result<()> {
         if self.inner.no_pending_io {
@@ -165,8 +160,7 @@ impl WriteOverlapped {
         }
         self.overlapped_event()
             .wait_interruptible(interrupt_event, None)?;
-        self.finish_pending_blocking();
-        Ok(())
+        self.finish_pending_blocking()
     }
     pub fn overlapped_event(&self) -> OverlappedEvent {
         OverlappedEvent {

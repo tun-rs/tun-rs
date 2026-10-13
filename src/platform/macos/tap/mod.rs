@@ -101,7 +101,7 @@ impl Tap {
         unsafe {
             let s_ndrv_fd = libc::socket(libc::AF_NDRV, libc::SOCK_RAW, 0);
             let s_ndrv_fd = Fd::new(s_ndrv_fd)?;
-            _ = s_ndrv_fd.set_cloexec();
+            s_ndrv_fd.set_cloexec()?;
             let mut ifr = new_ifreq(config.dev_name.as_ref())?;
             if let Err(e) = siocifcreate(s_ndrv_fd.inner, &mut ifr) {
                 if e != Errno::EEXIST || !config.reuse_dev.unwrap_or(true) {
@@ -221,6 +221,11 @@ impl Tap {
         self.s_bpf_fd.set_nonblocking(nonblocking)?;
         self.s_ndrv_fd.set_nonblocking(nonblocking)?;
         Ok(())
+    }
+    #[cfg(any(feature = "async_io", feature = "async_tokio"))]
+    #[inline]
+    pub(crate) fn writable_fd(&self) -> RawFd {
+        self.s_ndrv_fd.as_raw_fd()
     }
     #[inline]
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
@@ -482,7 +487,7 @@ fn open_bpf() -> io::Result<Fd> {
         let bpf_fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR) };
         match Fd::new(bpf_fd) {
             Ok(fd) => {
-                _ = fd.set_cloexec();
+                fd.set_cloexec()?;
                 return Ok(fd);
             }
             Err(e) => {
