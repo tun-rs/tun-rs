@@ -1,6 +1,6 @@
 /// # Safety
 unsafe fn sockaddr_to_rs_addr(sa: &sockaddr_union) -> Option<std::net::SocketAddr> {
-    unsafe{
+    unsafe {
         match sa.addr_stor.ss_family as libc::c_int {
             libc::AF_INET => {
                 let sa_in = sa.addr4;
@@ -85,7 +85,9 @@ pub(crate) unsafe fn ipaddr_to_sockaddr<T>(
 {
     let sa = rs_addr_to_sockaddr((src_addr.into(), src_port).into());
     let copy_len = size.min(std::mem::size_of::<sockaddr_union>());
-    unsafe{ std::ptr::copy_nonoverlapping((&raw const sa).cast::<u8>(), dst.cast::<u8>(), copy_len); }
+    unsafe {
+        std::ptr::copy_nonoverlapping((&raw const sa).cast::<u8>(), dst.cast::<u8>(), copy_len);
+    }
 }
 
 #[repr(C)]
