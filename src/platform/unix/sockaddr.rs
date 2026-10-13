@@ -1,5 +1,7 @@
 /// # Safety
 unsafe fn sockaddr_to_rs_addr(sa: &sockaddr_union) -> Option<std::net::SocketAddr> {
+    // SAFETY: `sa` contains initialized address data, and its family selects
+    // the matching initialized union member.
     unsafe {
         match sa.addr_stor.ss_family as libc::c_int {
             libc::AF_INET => {
@@ -86,6 +88,7 @@ pub(crate) unsafe fn ipaddr_to_sockaddr<T>(
 {
     let sa = rs_addr_to_sockaddr((src_addr.into(), src_port).into());
     let copy_len = size.min(std::mem::size_of::<sockaddr_union>());
+    // SAFETY: `dst` is writable for `copy_len` bytes and does not overlap `sa`.
     unsafe {
         std::ptr::copy_nonoverlapping((&raw const sa).cast::<u8>(), dst.cast::<u8>(), copy_len);
     }
