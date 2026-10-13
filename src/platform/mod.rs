@@ -167,7 +167,8 @@ impl SyncDevice {
     /// arbitrary packet-information/offload framing safely from an adopted fd.
     #[cfg(unix)]
     pub unsafe fn from_fd(fd: RawFd) -> std::io::Result<Self> {
-        Ok(SyncDevice(DeviceImpl::from_fd(fd)?))
+        // SAFETY: from_fd forwards its documented ownership and descriptor-validity contract.
+        unsafe { Ok(SyncDevice(DeviceImpl::from_fd(fd)?)) }
     }
     /// # Safety
     /// The fd passed in must be a valid, open file descriptor.
@@ -176,7 +177,8 @@ impl SyncDevice {
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
     #[cfg(unix)]
     pub(crate) unsafe fn borrow_raw(fd: RawFd) -> std::io::Result<Self> {
-        Ok(SyncDevice(DeviceImpl::borrow_raw(fd)?))
+        // SAFETY: borrow_raw forwards its documented borrowed-descriptor lifetime contract.
+        unsafe { Ok(SyncDevice(DeviceImpl::borrow_raw(fd)?)) }
     }
     /// Receives data from the device into the provided buffer.
     ///
@@ -812,10 +814,13 @@ impl FromRawFd for SyncDevice {
     /// # Panics
     /// Panics if the descriptor is invalid or violates the platform-specific adoption contract.
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        SyncDevice::from_fd(fd).expect(
-            "Failed to create device from file descriptor. \
-             The provided fd must be a valid, open file descriptor for a TUN/TAP device.",
-        )
+        // SAFETY: FromRawFd transfers ownership of a valid open descriptor to this object.
+        unsafe {
+            SyncDevice::from_fd(fd).expect(
+                "Failed to create device from file descriptor. \
+                 The provided fd must be a valid, open file descriptor for a TUN/TAP device.",
+            )
+        }
     }
 }
 #[cfg(unix)]

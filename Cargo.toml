@@ -12,6 +12,12 @@ documentation = "https://docs.rs/tun-rs"
 [lib]
 crate-type = ["staticlib", "cdylib", "lib"]
 
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+missing_safety_doc = "deny"
+
 [dependencies]
 bytes = { version = "1" }
 log = "0.4"

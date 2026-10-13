@@ -70,7 +70,8 @@ impl AsyncModel {
 }
 impl FromRawFd for AsyncDevice {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        AsyncDevice::from_fd(fd).unwrap()
+        // SAFETY: FromRawFd transfers ownership of a valid open descriptor to this object.
+        unsafe { AsyncDevice::from_fd(fd) }.unwrap()
     }
 }
 impl IntoRawFd for AsyncDevice {
@@ -92,7 +93,8 @@ impl AsyncDevice {
     /// This method is safe if the provided fd is valid
     /// Construct a AsyncDevice from an existing file descriptor
     pub unsafe fn from_fd(fd: RawFd) -> io::Result<AsyncDevice> {
-        AsyncDevice::new_dev(DeviceImpl::from_fd(fd)?)
+        // SAFETY: from_fd forwards its documented ownership and descriptor-validity contract.
+        AsyncDevice::new_dev(unsafe { DeviceImpl::from_fd(fd)? })
     }
 
     /// # Safety
@@ -101,7 +103,8 @@ impl AsyncDevice {
     /// and therefore will not close it when dropped.  
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
     pub(crate) unsafe fn borrow_raw(fd: RawFd) -> io::Result<Self> {
-        AsyncDevice::new_dev(DeviceImpl::borrow_raw(fd)?)
+        // SAFETY: borrow_raw forwards its documented borrowed-descriptor lifetime contract.
+        AsyncDevice::new_dev(unsafe { DeviceImpl::borrow_raw(fd)? })
     }
     pub fn into_fd(self) -> io::Result<RawFd> {
         match self.async_model {

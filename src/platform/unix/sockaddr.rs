@@ -1,24 +1,28 @@
 /// # Safety
 unsafe fn sockaddr_to_rs_addr(sa: &sockaddr_union) -> Option<std::net::SocketAddr> {
-    match sa.addr_stor.ss_family as libc::c_int {
-        libc::AF_INET => {
-            let sa_in = sa.addr4;
-            let ip = std::net::Ipv4Addr::from(sa_in.sin_addr.s_addr.to_ne_bytes());
-            let port = u16::from_be(sa_in.sin_port);
-            Some(std::net::SocketAddr::new(ip.into(), port))
+    // SAFETY: `sa` contains initialized address data, and its family selects
+    // the matching initialized union member.
+    unsafe {
+        match sa.addr_stor.ss_family as libc::c_int {
+            libc::AF_INET => {
+                let sa_in = sa.addr4;
+                let ip = std::net::Ipv4Addr::from(sa_in.sin_addr.s_addr.to_ne_bytes());
+                let port = u16::from_be(sa_in.sin_port);
+                Some(std::net::SocketAddr::new(ip.into(), port))
+            }
+            libc::AF_INET6 => {
+                let sa_in6 = sa.addr6;
+                let ip = std::net::Ipv6Addr::from(sa_in6.sin6_addr.s6_addr);
+                let port = u16::from_be(sa_in6.sin6_port);
+                Some(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+                    ip,
+                    port,
+                    sa_in6.sin6_flowinfo,
+                    sa_in6.sin6_scope_id,
+                )))
+            }
+            _ => None,
         }
-        libc::AF_INET6 => {
-            let sa_in6 = sa.addr6;
-            let ip = std::net::Ipv6Addr::from(sa_in6.sin6_addr.s6_addr);
-            let port = u16::from_be(sa_in6.sin6_port);
-            Some(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
-                ip,
-                port,
-                sa_in6.sin6_flowinfo,
-                sa_in6.sin6_scope_id,
-            )))
-        }
-        _ => None,
     }
 }
 
@@ -84,7 +88,10 @@ pub(crate) unsafe fn ipaddr_to_sockaddr<T>(
 {
     let sa = rs_addr_to_sockaddr((src_addr.into(), src_port).into());
     let copy_len = size.min(std::mem::size_of::<sockaddr_union>());
-    std::ptr::copy_nonoverlapping((&raw const sa).cast::<u8>(), dst.cast::<u8>(), copy_len);
+    // SAFETY: `dst` is writable for `copy_len` bytes and does not overlap `sa`.
+    unsafe {
+        std::ptr::copy_nonoverlapping((&raw const sa).cast::<u8>(), dst.cast::<u8>(), copy_len);
+    }
 }
 
 #[repr(C)]
