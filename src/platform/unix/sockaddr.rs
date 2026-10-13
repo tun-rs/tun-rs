@@ -19,6 +19,7 @@ unsafe fn sockaddr_to_rs_addr(sa: &sockaddr_union) -> Option<std::net::SocketAdd
                     sa_in6.sin6_scope_id,
                 )))
             }
+            _ => None,
         }
     }
 }
