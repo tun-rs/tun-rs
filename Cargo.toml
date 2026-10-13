@@ -21,7 +21,6 @@ missing_safety_doc = "deny"
 [dependencies]
 bytes = { version = "1" }
 log = "0.4"
-blocking = { version = "1.6", optional = true }
 tokio = { version = "1.49", features = [
     "net",
     "macros",
@@ -31,7 +30,6 @@ tokio = { version = "1.49", features = [
 async-io = { version = "2.3", optional = true }
 
 ipnet = "2"
-byteorder = "1.5.0"
 getifaddrs = "0.6.0"
 
 futures-core = { version = "0.3", optional = true }
@@ -42,6 +40,9 @@ libc = { version = "0.2", features = ["extra_traits"] }
 nix = { version = "0.31", features = ["ioctl", "net"] }
 
 
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+blocking = { version = "1.6", optional = true }
 
 [target.'cfg(any(target_os = "linux",target_os = "windows"))'.dependencies]
 netconfig-rs = "0.1.5"
