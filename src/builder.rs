@@ -1325,9 +1325,9 @@ impl DeviceBuilder {
             let prefix = prefix?;
             let address = address?;
             let destination = destination.transpose()?;
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", not(feature = "address-management")))]
             device.configure_initial_ipv4(address, prefix, destination)?;
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(any(not(target_os = "linux"), feature = "address-management"))]
             device.set_network_address(address, prefix, destination)?;
         }
         if let Some(ipv6) = self.ipv6 {
