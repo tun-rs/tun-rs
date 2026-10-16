@@ -38,6 +38,7 @@ async fn main() -> std::io::Result<()> {
     );
 
     println!("name:{:?}", dev.name()?);
+    #[cfg(any(not(target_os = "linux"), feature = "address-management"))]
     println!("addresses:{:?}", dev.addresses()?);
     let size = dev.mtu()? as usize;
     println!("mtu:{size:?}",);
