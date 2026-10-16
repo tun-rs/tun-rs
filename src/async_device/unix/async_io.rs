@@ -184,6 +184,12 @@ impl AsyncDevice {
         self.0.into_inner()
     }
 
+    /// Waits until the device is readable; `async-io` also reports an error
+    /// condition as readable.
+    pub(crate) async fn wait_readable(&self) -> io::Result<()> {
+        self.0.readable().await
+    }
+
     pub(crate) async fn read_with<R>(
         &self,
         op: impl FnMut(&DeviceImpl) -> io::Result<R>,
