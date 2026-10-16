@@ -124,6 +124,10 @@ tun-rs = { version = "2", features = ["async_io"] }
 
 # For framed codec support (with tokio)
 tun-rs = { version = "2", features = ["async", "async_framed"] }
+
+# Minimal Linux build: initial builder address configuration still works,
+# but address enumeration and post-creation address management are omitted.
+tun-rs = { version = "2", default-features = false }
 ```
 
 ---

@@ -51,6 +51,7 @@ pub use self::windows::DeviceImpl;
 #[cfg(target_vendor = "apple")]
 pub mod apple;
 
+#[cfg(any(not(target_os = "linux"), feature = "address-management"))]
 use getifaddrs::Interface;
 #[cfg(unix)]
 use std::io::{IoSlice, IoSliceMut};
@@ -61,6 +62,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
 #[allow(dead_code)]
 pub(crate) const ETHER_ADDR_LEN: u8 = 6;
 
+#[cfg(any(not(target_os = "linux"), feature = "address-management"))]
 #[allow(dead_code)]
 pub(crate) fn get_if_addrs_by_name(if_name: String) -> std::io::Result<Vec<Interface>> {
     let addrs = getifaddrs::getifaddrs()?;
