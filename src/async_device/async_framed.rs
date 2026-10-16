@@ -532,15 +532,15 @@ where
 fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
     // The interface MTU covers only the L3 payload. In TAP (Layer::L2) mode the
     // device delivers complete Ethernet frames, which exceed the MTU by the
-    // Ethernet header (14 bytes) — plus 4 bytes when the frame carries an
-    // IEEE 802.1Q VLAN tag (double-tagged QinQ frames would need 8). Sizing the
-    // buffer to the raw MTU would reject almost every TAP packet ("receive
-    // buffer too small"); always add the header + VLAN overhead so the same
-    // default works for both TUN and TAP (for TUN this only costs a few extra
-    // bytes).
+    // Ethernet header (14 bytes) plus up to two 4-byte VLAN tags. Two tags
+    // cover IEEE 802.1ad QinQ frames; TAP delivers those tag bytes in-band, so
+    // sizing for only one tag can truncate an otherwise MTU-sized double-tagged
+    // frame. The same conservative default is used for TUN, where the extra
+    // bytes are harmless.
     const ETHERNET_HEADER_LEN: usize = 14;
     const VLAN_TAG_LEN: usize = 4;
-    const FRAME_OVERHEAD: usize = ETHERNET_HEADER_LEN + VLAN_TAG_LEN;
+    const MAX_VLAN_TAGS: usize = 2;
+    const FRAME_OVERHEAD: usize = ETHERNET_HEADER_LEN + VLAN_TAG_LEN * MAX_VLAN_TAGS;
 
     #[cfg(any(
         target_os = "windows",
