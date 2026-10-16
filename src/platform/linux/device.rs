@@ -409,7 +409,7 @@ impl DeviceImpl {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.offload(true) // Enable offload for GRO
+    ///         builder.offload(true); // Enable offload for GRO
     ///     })
     ///     .build_sync()?;
     ///
@@ -538,7 +538,7 @@ impl DeviceImpl {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.offload(true) // Enable offload for GSO
+    ///         builder.offload(true); // Enable offload for GSO
     ///     })
     ///     .build_sync()?;
     ///
