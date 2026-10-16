@@ -58,7 +58,11 @@ impl NonBlockingDevice {
         device_events: libc::c_short,
         cancel_event: Option<libc::c_int>,
     ) -> io::Result<()> {
-        let fd = self.device.as_raw_fd();
+        let fd = if device_events & libc::POLLOUT != 0 {
+            self.device.writable_fd()
+        } else {
+            self.device.as_raw_fd()
+        };
         let event_fd = self.shutdown_event.as_event_fd();
         let mut fds = Vec::with_capacity(if cancel_event.is_some() { 3 } else { 2 });
         fds.push(libc::pollfd {

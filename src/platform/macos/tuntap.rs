@@ -155,6 +155,14 @@ impl TunTap {
             TunTap::Tap(tap) => tap.set_nonblocking(nonblocking),
         }
     }
+    #[cfg(any(feature = "async_io", feature = "async_tokio"))]
+    #[inline]
+    pub(crate) fn writable_fd(&self) -> RawFd {
+        match self {
+            TunTap::Tun(tun) => tun.as_raw_fd(),
+            TunTap::Tap(tap) => tap.writable_fd(),
+        }
+    }
     #[inline]
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
         match &self {

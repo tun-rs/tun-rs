@@ -9,6 +9,24 @@ use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 
+/// Descriptor and waker helpers shared by the readiness tests.
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(feature = "async_tokio", feature = "async_io")
+))]
+mod test_util;
+/// Readiness tests for the tokio backend.
+#[cfg(all(test, feature = "async_tokio", target_os = "linux"))]
+mod tests;
+/// Readiness tests for the async-io backend.
+#[cfg(all(
+    test,
+    feature = "async_io",
+    not(feature = "async_tokio"),
+    target_os = "linux"
+))]
+mod tests_async_io;
 #[cfg(feature = "async_tokio")]
 mod tokio;
 #[cfg(feature = "async_tokio")]
@@ -27,7 +45,8 @@ impl FromRawFd for AsyncDevice {
     /// # Panics
     /// Panics if the descriptor is invalid or violates the platform-specific adoption contract.
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        AsyncDevice::from_fd(fd).expect("failed to adopt TUN/TAP file descriptor")
+        // SAFETY: FromRawFd transfers ownership of a valid open descriptor to this object.
+        unsafe { AsyncDevice::from_fd(fd) }.expect("failed to adopt TUN/TAP file descriptor")
     }
 }
 impl IntoRawFd for AsyncDevice {
@@ -60,7 +79,8 @@ impl AsyncDevice {
     /// On Linux, it must use `IFF_NO_PI` framing and must not use `IFF_VNET_HDR`.
     /// Construct an AsyncDevice from an existing file descriptor.
     pub unsafe fn from_fd(fd: RawFd) -> io::Result<AsyncDevice> {
-        AsyncDevice::new_dev(DeviceImpl::from_fd(fd)?)
+        // SAFETY: from_fd forwards its documented ownership and descriptor-validity contract.
+        AsyncDevice::new_dev(unsafe { DeviceImpl::from_fd(fd)? })
     }
 
     /// # Safety
@@ -71,7 +91,8 @@ impl AsyncDevice {
     /// The caller is responsible for ensuring the lifetime and eventual closure of `fd`.
     #[allow(dead_code)]
     pub(crate) unsafe fn borrow_raw(fd: RawFd) -> io::Result<Self> {
-        AsyncDevice::new_dev(DeviceImpl::borrow_raw(fd)?)
+        // SAFETY: borrow_raw forwards its documented borrowed-descriptor lifetime contract.
+        AsyncDevice::new_dev(unsafe { DeviceImpl::borrow_raw(fd)? })
     }
 
     pub fn into_fd(self) -> io::Result<RawFd> {
@@ -84,6 +105,11 @@ impl AsyncDevice {
     /// The function may complete without the device being readable. This is a
     /// false-positive and attempting a `try_recv()` will return with
     /// `io::ErrorKind::WouldBlock`.
+    ///
+    /// On Linux with the tokio backend this also completes when the kernel
+    /// reports an error condition for the device (for example the interface
+    /// was deleted with `ip link del`); the following `try_recv()` then
+    /// returns that error instead of `WouldBlock`.
     ///
     /// # Cancel safety
     ///
@@ -119,7 +145,7 @@ impl AsyncDevice {
     /// # }
     /// ```
     pub async fn readable(&self) -> io::Result<()> {
-        self.0.readable().await.map(|_| ())
+        self.wait_readable().await
     }
     /// Waits for the device to become writable.
     ///

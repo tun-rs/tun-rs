@@ -7,6 +7,7 @@ use crate::platform::ETHER_ADDR_LEN;
 use crate::{Layer, ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask};
 use bytes::buf::UninitSlice;
 use getifaddrs::Interface;
+#[cfg(feature = "address-management")]
 use ipnet::IpNet;
 use std::collections::HashSet;
 use std::io;
@@ -355,6 +356,7 @@ impl DeviceImpl {
     /// # Platform
     ///
     /// Windows only. Requires administrator privileges.
+    #[cfg(feature = "address-management")]
     pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,

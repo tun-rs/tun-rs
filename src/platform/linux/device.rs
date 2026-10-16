@@ -12,8 +12,11 @@ use crate::{
         unix::{ipaddr_to_sockaddr, sockaddr_union, Fd, Tun},
         ETHER_ADDR_LEN,
     },
-    ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask,
+    ToIpv6Address, ToIpv6Netmask,
 };
+#[cfg(feature = "address-management")]
+use crate::{ToIpv4Address, ToIpv4Netmask};
+#[cfg(feature = "address-management")]
 use ipnet::IpNet;
 use libc::{
     self, c_char, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI, IFF_RUNNING,
@@ -91,6 +94,12 @@ impl DeviceImpl {
             let iff_multi_queue = IFF_MULTI_QUEUE as c_short;
             let packet_information = config.packet_information.unwrap_or(false);
             let offload = config.offload.unwrap_or(false);
+            if packet_information && offload {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Linux packet_information and offload cannot be enabled together",
+                ));
+            }
             req.ifr_ifru.ifru_flags = device_type
                 | if packet_information { 0 } else { iff_no_pi }
                 | if multi_queue { iff_multi_queue } else { 0 }
@@ -109,16 +118,11 @@ impl DeviceImpl {
                 // tunTCPOffloads were added in Linux v2.6. We require their support if IFF_VNET_HDR is set.
                 let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
                 let tun_udp_offloads = libc::TUN_F_USO4 | libc::TUN_F_USO6;
-                if let Err(err) = tunsetoffload(tun_fd.inner, tun_tcp_offloads as _) {
-                    log::warn!("unsupported offload: {err:?}");
-                    (false, false)
-                } else {
-                    // tunUDPOffloads were added in Linux v6.2. We do not return an
-                    // error if they are unsupported at runtime.
-                    let rs =
-                        tunsetoffload(tun_fd.inner, (tun_tcp_offloads | tun_udp_offloads) as _);
-                    (true, rs.is_ok())
-                }
+                tunsetoffload(tun_fd.inner, tun_tcp_offloads as _).map_err(io::Error::from)?;
+                // tunUDPOffloads were added in Linux v6.2. We do not return an
+                // error if they are unsupported at runtime.
+                let rs = tunsetoffload(tun_fd.inner, (tun_tcp_offloads | tun_udp_offloads) as _);
+                (true, rs.is_ok())
             } else {
                 // The TUN_F_* offload mask is device-wide state, not
                 // per-fd. When attaching to a persistent TUN that a
@@ -129,12 +133,11 @@ impl DeviceImpl {
                 // unaware caller will read them as oversized single
                 // packets (ping survives, TCP bulk transfer fails).
                 // Explicitly reset the mask. No-op on a freshly
-                // created device (mask is already zero). Failure is
-                // logged but not propagated, mirroring the
-                // best-effort treatment of UDP offload above.
-                if let Err(err) = tunsetoffload(tun_fd.inner, 0 as _) {
-                    log::warn!("failed to clear TUN offload mask: {err:?}");
-                }
+                // created device (mask is already zero). If this fails we
+                // cannot safely expose the fd as an offload-unaware device:
+                // stale device-wide GSO state can otherwise deliver packets
+                // whose framing this instance does not understand.
+                tunsetoffload(tun_fd.inner, 0 as _).map_err(io::Error::from)?;
                 (false, false)
             };
 
@@ -150,16 +153,31 @@ impl DeviceImpl {
     }
     unsafe fn set_tcp_offloads(&self) -> io::Result<()> {
         let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
-        tunsetoffload(self.as_raw_fd(), tun_tcp_offloads as _)
+        // SAFETY: self owns a live TUN descriptor and the offload mask is composed of TUN_F_* flags.
+        unsafe { tunsetoffload(self.as_raw_fd(), tun_tcp_offloads as _) }
             .map(|_| ())
             .map_err(|e| e.into())
     }
     unsafe fn set_tcp_udp_offloads(&self) -> io::Result<()> {
         let tun_tcp_offloads = libc::TUN_F_CSUM | libc::TUN_F_TSO4 | libc::TUN_F_TSO6;
         let tun_udp_offloads = libc::TUN_F_USO4 | libc::TUN_F_USO6;
-        tunsetoffload(self.as_raw_fd(), (tun_tcp_offloads | tun_udp_offloads) as _)
+        // SAFETY: self owns a live TUN descriptor and the offload mask is composed of TUN_F_* flags.
+        unsafe { tunsetoffload(self.as_raw_fd(), (tun_tcp_offloads | tun_udp_offloads) as _) }
             .map(|_| ())
             .map_err(|e| e.into())
+    }
+    /// Wraps an arbitrary owned descriptor (socketpair, pipe) without the
+    /// `TUNGETIFF` validation so readiness behaviour can be tested without
+    /// privileges. The descriptor is closed when the device is dropped.
+    #[cfg(all(test, any(feature = "async_tokio", feature = "async_io")))]
+    pub(crate) fn from_fd_for_test(fd: RawFd) -> Self {
+        Self {
+            tun: Tun::new(unsafe { Fd::new_unchecked(fd) }),
+            vnet_hdr: false,
+            udp_gso: false,
+            flags: 0,
+            op_lock: Arc::new(RwLock::new(())),
+        }
     }
     pub(crate) fn from_tun(tun: Tun) -> io::Result<Self> {
         let flags = tun_flags(tun.as_raw_fd())?;
@@ -759,12 +777,13 @@ impl DeviceImpl {
 impl DeviceImpl {
     /// Prepare a new request.
     unsafe fn request(&self) -> io::Result<ifreq> {
-        request(&self.name_impl()?)
+        // SAFETY: this method forwards the same interface-name validity contract to request().
+        unsafe { request(&self.name_impl()?) }
     }
     fn set_address_v4(&self, addr: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(addr, 0, &mut req.ifr_ifru.ifru_addr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(addr, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -774,7 +793,7 @@ impl DeviceImpl {
     fn set_netmask(&self, value: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_netmask, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifnetmask(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -785,12 +804,38 @@ impl DeviceImpl {
     fn set_destination(&self, value: Ipv4Addr) -> io::Result<()> {
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_dstaddr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifdstaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
             Ok(())
         }
+    }
+
+    #[cfg(not(feature = "address-management"))]
+    pub(crate) fn configure_initial_ipv4(
+        &self,
+        address: Ipv4Addr,
+        prefix: u8,
+        destination: Option<Ipv4Addr>,
+    ) -> io::Result<()> {
+        if prefix > 32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "IPv4 prefix length exceeds 32",
+            ));
+        }
+        let mask = if prefix == 0 {
+            0
+        } else {
+            u32::MAX << (32 - u32::from(prefix))
+        };
+        self.set_address_v4(address)?;
+        self.set_netmask(Ipv4Addr::from(mask))?;
+        if let Some(destination) = destination {
+            self.set_destination(destination)?;
+        }
+        Ok(())
     }
 
     /// Retrieves the name of the network interface.
@@ -810,6 +855,7 @@ impl DeviceImpl {
         }
     }
 
+    #[cfg(feature = "address-management")]
     fn remove_all_address_v4(&self) -> io::Result<()> {
         let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
             .map_err(io::Error::from)?;
@@ -958,7 +1004,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut req = self.request()?;
-            ipaddr_to_sockaddr(value, 0, &mut req.ifr_ifru.ifru_broadaddr, OVERWRITE_SIZE);
+            ipaddr_to_sockaddr(value, 0, (&raw mut req.ifr_ifru).cast(), OVERWRITE_SIZE);
             if let Err(err) = siocsifbrdaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -985,6 +1031,7 @@ impl DeviceImpl {
     /// # }
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    #[cfg(feature = "address-management")]
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -1022,6 +1069,7 @@ impl DeviceImpl {
     /// # }
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    #[cfg(feature = "address-management")]
     pub fn add_address_v4<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
         &self,
         address: IPv4,
@@ -1062,6 +1110,7 @@ impl DeviceImpl {
     /// # }
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    #[cfg(feature = "address-management")]
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
         let _guard = self.op_lock.write().unwrap();
         match addr {
@@ -1251,22 +1300,29 @@ fn validate_adopted_tun_flags(flags: c_short) -> io::Result<()> {
 }
 
 unsafe fn name(fd: RawFd) -> io::Result<String> {
-    let mut req: ifreq = mem::zeroed();
-    if let Err(err) = tungetiff(fd, &mut req as *mut _ as *mut _) {
+    // SAFETY: ifreq is C request storage that is initialized by TUNGETIFF below.
+    let mut req: ifreq = unsafe { mem::zeroed() };
+    // SAFETY: the caller provides a live TUN fd and req is writable request storage.
+    if let Err(err) = unsafe { tungetiff(fd, &mut req as *mut _ as *mut _) } {
         return Err(io::Error::from(err));
     }
-    let c_str = std::ffi::CStr::from_ptr(req.ifr_name.as_ptr() as *const c_char);
+    // SAFETY: successful TUNGETIFF initializes ifr_name as a NUL-terminated interface name.
+    let c_str = unsafe { std::ffi::CStr::from_ptr(req.ifr_name.as_ptr() as *const c_char) };
     let tun_name = c_str.to_string_lossy().into_owned();
     Ok(tun_name)
 }
 
 unsafe fn request(name: &str) -> io::Result<ifreq> {
-    let mut req: ifreq = mem::zeroed();
-    ptr::copy_nonoverlapping(
-        name.as_ptr() as *const c_char,
-        req.ifr_name.as_mut_ptr(),
-        name.len(),
-    );
+    // SAFETY: ifreq is C request storage and callers guarantee name fits ifr_name.
+    let mut req: ifreq = unsafe { mem::zeroed() };
+    // SAFETY: source and destination are non-overlapping and the caller guarantees the copy fits.
+    unsafe {
+        ptr::copy_nonoverlapping(
+            name.as_ptr() as *const c_char,
+            req.ifr_name.as_mut_ptr(),
+            name.len(),
+        );
+    }
     Ok(req)
 }
 
