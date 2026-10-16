@@ -1928,6 +1928,28 @@ fn checked_segment_lengths(
     Ok((total_len, checksum_len, ip_len))
 }
 
+/// Internal capacity hint for the framed reader; the public error text is unchanged.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(
+    not(all(
+        feature = "async_framed",
+        any(feature = "async_io", feature = "async_tokio")
+    )),
+    allow(dead_code)
+)]
+pub(crate) struct GsoOutputCapacity {
+    pub(crate) segments: usize,
+    pub(crate) segment_len: usize,
+}
+
+impl std::fmt::Display for GsoOutputCapacity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("too many GSO segments")
+    }
+}
+
+impl std::error::Error for GsoOutputCapacity {}
+
 pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
     input: &mut [u8],
     hdr: VirtioNetHdr,
@@ -2052,16 +2074,19 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
     } else {
         (payload_len - 1) / gso_size + 1
     };
-    if segment_count > out_bufs.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "too many GSO segments",
-        ));
-    }
-
     let max_segment_data_len = payload_len.min(gso_size);
     let (max_total_len, _, _) =
         checked_segment_lengths(hdr_len, csum_start, max_segment_data_len, is_v6)?;
+    if segment_count > out_bufs.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            GsoOutputCapacity {
+                segments: segment_count,
+                segment_len: max_total_len,
+            },
+        ));
+    }
+
     for out_buf in &out_bufs[..segment_count] {
         let out_len = out_buf.as_ref().len();
         if out_offset > out_len || out_len - out_offset < max_total_len {
