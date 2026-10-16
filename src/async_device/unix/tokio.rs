@@ -254,7 +254,10 @@ impl AsyncDevice {
     /// Switches the device to non-blocking mode and registers it with tokio.
     pub(crate) fn new_dev(device: DeviceImpl) -> io::Result<Self> {
         device.set_nonblocking(true)?;
-        Ok(Self(Arc::new(TokioAsyncFd::new(device)?), Mutex::new(None)))
+        // SAFETY: `device` owns its descriptor, which stays open and unchanged
+        // for as long as the `AsyncFd` owns the device.
+        let fd = unsafe { TokioAsyncFd::register(device) }.map_err(|e| e.into_parts().1)?;
+        Ok(Self(Arc::new(fd), Mutex::new(None)))
     }
     /// Deregisters and returns the device; fails if the descriptor is still
     /// shared.

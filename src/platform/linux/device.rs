@@ -812,6 +812,7 @@ impl DeviceImpl {
         }
     }
 
+    #[cfg(not(feature = "address-management"))]
     pub(crate) fn configure_initial_ipv4(
         &self,
         address: Ipv4Addr,

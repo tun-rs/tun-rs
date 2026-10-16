@@ -21,7 +21,7 @@ missing_safety_doc = "deny"
 [dependencies]
 bytes = { version = "1" }
 log = "0.4"
-tokio = { version = "1.49", features = [
+tokio = { version = "1.53", features = [
     "net",
     "macros",
     "io-util",
