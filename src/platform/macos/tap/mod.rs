@@ -407,7 +407,10 @@ impl Tap {
             )?;
             match self.recv(buf) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if timeout.map(|limit| started.elapsed() >= limit).unwrap_or(false) {
+                    if timeout
+                        .map(|limit| started.elapsed() >= limit)
+                        .unwrap_or(false)
+                    {
                         return Err(io::Error::from(io::ErrorKind::TimedOut));
                     }
                 }
@@ -431,7 +434,10 @@ impl Tap {
             )?;
             match self.recv_vectored(bufs) {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if timeout.map(|limit| started.elapsed() >= limit).unwrap_or(false) {
+                    if timeout
+                        .map(|limit| started.elapsed() >= limit)
+                        .unwrap_or(false)
+                    {
                         return Err(io::Error::from(io::ErrorKind::TimedOut));
                     }
                 }
