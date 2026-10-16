@@ -45,10 +45,9 @@ let dev = DeviceBuilder::new()
         builder
             .offload(true)        // Enable TSO/GSO offload
             .multi_queue(true)    // Enable multi-queue support
-            .tx_queue_len(1000)   // Set transmit queue length
+            .tx_queue_len(1000);  // Set transmit queue length
     })
-    .build_sync()?;
-# Ok::<(), std::io::Error>(())
+    .build_sync().unwrap();
 # }
 ```
 
@@ -529,7 +528,7 @@ impl DeviceBuilderGuard<'_> {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.tx_queue_len(1000) // Set queue length to 1000 packets
+    ///         builder.tx_queue_len(1000); // Set queue length to 1000 packets
     ///     })
     ///     .build_sync()?;
     /// # }
@@ -567,7 +566,7 @@ impl DeviceBuilderGuard<'_> {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.offload(true) // Enable TSO/GSO/GRO
+    ///         builder.offload(true); // Enable TSO/GSO/GRO
     ///     })
     ///     .build_sync()?;
     ///
@@ -616,7 +615,7 @@ impl DeviceBuilderGuard<'_> {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.multi_queue(true) // Enable multi-queue
+    ///         builder.multi_queue(true); // Enable multi-queue
     ///     })
     ///     .build_sync()?;
     ///
