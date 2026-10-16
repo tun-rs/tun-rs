@@ -616,7 +616,7 @@ impl TcpGROTable {
                     .expect("gso_size exceeds u16::MAX"),
                 iph_len: tcph_offset.try_into().expect("iph_len exceeds u8::MAX"),
                 tcph_len: tcph_len.try_into().expect("tcph_len exceeds u8::MAX"),
-                sent_seq: BigEndian::read_u32(&pkt[tcph_offset + 4..tcph_offset + 8]),
+                sent_seq: read_be_u32(&pkt[tcph_offset + 4..tcph_offset + 8]),
                 psh_set: pkt[tcph_offset + TCP_FLAGS_OFFSET] & TCP_FLAG_PSH != 0,
             })
     }
