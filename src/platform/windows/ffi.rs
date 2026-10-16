@@ -14,7 +14,7 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
     MIB_UNICASTIPADDRESS_TABLE,
 };
 use windows_sys::Win32::Networking::WinSock::{
-    NlroManual, AF_INET, AF_INET6, MIB_IPPROTO_NETMGMT, SOCKADDR_INET,
+    IpDadStatePreferred, NlroManual, AF_INET, AF_INET6, MIB_IPPROTO_NETMGMT, SOCKADDR_INET,
 };
 use windows_sys::Win32::System::Threading::{ResetEvent, SetEvent};
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
@@ -718,6 +718,9 @@ pub fn add_address(
     row.InterfaceIndex = index;
     row.Address = sockaddr_inet_from_ip(address);
     row.OnLinkPrefixLength = prefix;
+    // Mark the address preferred so it is usable immediately instead of waiting for
+    // duplicate address detection, which would make `bind` fail for a few seconds.
+    row.DadState = IpDadStatePreferred;
 
     let code = unsafe { CreateUnicastIpAddressEntry(&row) };
     if code != ERROR_OBJECT_ALREADY_EXISTS {
