@@ -699,7 +699,9 @@ impl DeviceImpl {
                     "tcp header len is invalid: {tcp_h_len}"
                 )))?
             }
-            hdr.hdr_len = hdr.csum_start + tcp_h_len
+            hdr.hdr_len = hdr.csum_start.checked_add(tcp_h_len).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "TCP header length overflow")
+            })?;
         }
         if len < hdr.hdr_len as usize {
             Err(io::Error::other(format!(
@@ -713,12 +715,15 @@ impl DeviceImpl {
                 hdr.hdr_len, hdr.csum_start
             )))?
         }
-        let c_sum_at = (hdr.csum_start + hdr.csum_offset) as usize;
-        if c_sum_at + 1 >= len {
-            Err(io::Error::other(format!(
-                "end of checksum offset ({}) exceeds packet length ({len})",
-                c_sum_at + 1,
-            )))?
+        let c_sum_at = usize::from(hdr.csum_start) + usize::from(hdr.csum_offset);
+        if c_sum_at
+            .checked_add(1)
+            .is_none_or(|csum_end| csum_end > len)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "checksum field exceeds packet length",
+            ));
         }
         gso_split(input, hdr, bufs, sizes, offset, is_v6)
     }

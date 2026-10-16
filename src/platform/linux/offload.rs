@@ -1745,6 +1745,7 @@ pub fn handle_gro<B: ExpandBuffer>(
 /// - Context switches
 ///
 /// Typical performance improvement: 2-5x for bulk transfers.
+/// Validate the GSO base type and TCP ECN modifier against the IP version.
 pub(super) fn gso_transport_protocol(gso_type: u8, is_v6: bool) -> io::Result<i32> {
     let has_ecn = gso_type & VIRTIO_NET_HDR_GSO_ECN != 0;
     let base_type = gso_type & !VIRTIO_NET_HDR_GSO_ECN;
@@ -1841,6 +1842,14 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
         ));
     }
     let protocol = gso_transport_protocol(hdr.gso_type, is_v6)?;
+    let expected_csum_offset = if protocol == IPPROTO_TCP { 16 } else { 6 };
+
+    if hdr.csum_offset != expected_csum_offset {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "checksum offset does not match transport protocol",
+        ));
+    }
     if hdr.hdr_len < hdr.csum_start {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -2029,6 +2038,12 @@ pub fn gso_split<B: AsRef<[u8]> + AsMut<[u8]>>(
             &out[hdr.csum_start as usize..total_len],
             transport_csum_no_fold,
         );
+
+        let transport_csum = if protocol == IPPROTO_UDP && transport_csum == 0 {
+            u16::MAX
+        } else {
+            transport_csum
+        };
         write_be_u16(
             &mut out[transport_csum_at..transport_csum_end],
             transport_csum,
