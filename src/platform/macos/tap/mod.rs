@@ -399,10 +399,21 @@ impl Tap {
         event: &crate::InterruptEvent,
         timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
+        let started = std::time::Instant::now();
         loop {
-            self.wait_readable_interruptible(event, timeout)?;
+            self.wait_readable_interruptible(
+                event,
+                timeout.map(|limit| limit.saturating_sub(started.elapsed())),
+            )?;
             match self.recv(buf) {
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if timeout
+                        .map(|limit| started.elapsed() >= limit)
+                        .unwrap_or(false)
+                    {
+                        return Err(io::Error::from(io::ErrorKind::TimedOut));
+                    }
+                }
                 rs => return rs,
             }
         }
@@ -415,10 +426,21 @@ impl Tap {
         event: &crate::InterruptEvent,
         timeout: Option<std::time::Duration>,
     ) -> io::Result<usize> {
+        let started = std::time::Instant::now();
         loop {
-            self.wait_readable_interruptible(event, timeout)?;
+            self.wait_readable_interruptible(
+                event,
+                timeout.map(|limit| limit.saturating_sub(started.elapsed())),
+            )?;
             match self.recv_vectored(bufs) {
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if timeout
+                        .map(|limit| started.elapsed() >= limit)
+                        .unwrap_or(false)
+                    {
+                        return Err(io::Error::from(io::ErrorKind::TimedOut));
+                    }
+                }
                 rs => return rs,
             }
         }
