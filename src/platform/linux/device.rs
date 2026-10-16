@@ -1,7 +1,6 @@
 use crate::platform::linux::offload::{
-    gso_none_checksum, gso_split, handle_gro, VirtioNetHdr, VIRTIO_NET_HDR_F_NEEDS_CSUM,
-    VIRTIO_NET_HDR_GSO_NONE, VIRTIO_NET_HDR_GSO_TCPV4, VIRTIO_NET_HDR_GSO_TCPV6,
-    VIRTIO_NET_HDR_GSO_UDP_L4, VIRTIO_NET_HDR_LEN,
+    gso_none_checksum, gso_split, gso_transport_protocol, handle_gro, VirtioNetHdr,
+    VIRTIO_NET_HDR_F_NEEDS_CSUM, VIRTIO_NET_HDR_GSO_NONE, VIRTIO_NET_HDR_LEN,
 };
 use crate::platform::unix::device::{ctl, ctl_v6};
 use crate::platform::{ExpandBuffer, GROTable};
@@ -680,47 +679,32 @@ impl DeviceImpl {
                 "virtioNetHdr.gsoSize must be non-zero",
             ));
         }
-        if hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV4
-            && hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV6
-            && hdr.gso_type != VIRTIO_NET_HDR_GSO_UDP_L4
-        {
-            Err(io::Error::other(format!(
-                "unsupported virtio GSO type: {}",
-                hdr.gso_type
-            )))?
-        }
-        let ip_version = input[0] >> 4;
-        match ip_version {
-            4 => {
-                if hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV4
-                    && hdr.gso_type != VIRTIO_NET_HDR_GSO_UDP_L4
-                {
-                    Err(io::Error::other(format!(
-                        "ip header version: 4, GSO type: {}",
-                        hdr.gso_type
-                    )))?
-                }
+        let Some(first_byte) = input.first() else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "GSO packet is empty",
+            ));
+        };
+        let ip_version = first_byte >> 4;
+        let is_v6 = match ip_version {
+            4 => false,
+            6 => true,
+            ip_version => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("invalid ip header version: {ip_version}"),
+                ));
             }
-            6 => {
-                if hdr.gso_type != VIRTIO_NET_HDR_GSO_TCPV6
-                    && hdr.gso_type != VIRTIO_NET_HDR_GSO_UDP_L4
-                {
-                    Err(io::Error::other(format!(
-                        "ip header version: 6, GSO type: {}",
-                        hdr.gso_type
-                    )))?
-                }
-            }
-            ip_version => Err(io::Error::other(format!(
-                "invalid ip header version: {ip_version}"
-            )))?,
-        }
+        };
+        let transport_protocol = gso_transport_protocol(hdr.gso_type, is_v6)?;
         // Don't trust hdr.hdrLen from the kernel as it can be equal to the length
         // of the entire first packet when the kernel is handling it as part of a
         // FORWARD path. Instead, parse the transport header length and add it onto
         // csumStart, which is synonymous for IP header length.
-        if hdr.gso_type == VIRTIO_NET_HDR_GSO_UDP_L4 {
-            hdr.hdr_len = hdr.csum_start + 8
+        if transport_protocol == libc::IPPROTO_UDP {
+            hdr.hdr_len = hdr.csum_start.checked_add(8).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "UDP header length overflow")
+            })?;
         } else {
             if len <= hdr.csum_start as usize + 12 {
                 Err(io::Error::other("packet is too short"))?
@@ -733,7 +717,9 @@ impl DeviceImpl {
                     "tcp header len is invalid: {tcp_h_len}"
                 )))?
             }
-            hdr.hdr_len = hdr.csum_start + tcp_h_len
+            hdr.hdr_len = hdr.csum_start.checked_add(tcp_h_len).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "TCP header length overflow")
+            })?;
         }
         if len < hdr.hdr_len as usize {
             Err(io::Error::other(format!(
@@ -747,14 +733,17 @@ impl DeviceImpl {
                 hdr.hdr_len, hdr.csum_start
             )))?
         }
-        let c_sum_at = (hdr.csum_start + hdr.csum_offset) as usize;
-        if c_sum_at + 1 >= len {
-            Err(io::Error::other(format!(
-                "end of checksum offset ({}) exceeds packet length ({len})",
-                c_sum_at + 1,
-            )))?
+        let c_sum_at = usize::from(hdr.csum_start) + usize::from(hdr.csum_offset);
+        if c_sum_at
+            .checked_add(1)
+            .is_none_or(|csum_end| csum_end > len)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "checksum field exceeds packet length",
+            ));
         }
-        gso_split(input, hdr, bufs, sizes, offset, ip_version == 6)
+        gso_split(input, hdr, bufs, sizes, offset, is_v6)
     }
     pub fn remove_address_v6_impl(&self, addr: Ipv6Addr, prefix: u8) -> io::Result<()> {
         unsafe {
