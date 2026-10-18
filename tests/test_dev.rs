@@ -685,20 +685,18 @@ fn test_offload_mask_cleared_on_reattach_without_offload() {
 
     const NAME: &str = "tunoffldclr";
 
-    struct TunLinkGuard(String);
+    struct TunLinkGuard<'a>(&'a str);
 
-    impl TunLinkGuard {
-        fn new(name: &str) -> Self {
+    impl<'a> TunLinkGuard<'a> {
+        fn new(name: &'a str) -> Self {
             let _ = Command::new("ip").args(["link", "delete", name]).status();
-            Self(name.to_owned())
+            Self(name)
         }
     }
 
-    impl Drop for TunLinkGuard {
+    impl Drop for TunLinkGuard<'_> {
         fn drop(&mut self) {
-            let _ = Command::new("ip")
-                .args(["link", "delete", &self.0])
-                .status();
+            let _ = Command::new("ip").args(["link", "delete", self.0]).status();
         }
     }
 
