@@ -1204,3 +1204,49 @@ where
         Poll::Ready(Ok(()))
     }
 }
+
+#[cfg(all(
+    test,
+    target_os = "linux",
+    not(target_env = "ohos"),
+    feature = "async_tokio"
+))]
+mod framed_buffer_tests {
+    use super::{BytesCodec, DeviceFramedRead};
+    use crate::platform::DeviceImpl;
+    use crate::AsyncDevice;
+    use futures::StreamExt;
+    use std::os::fd::IntoRawFd;
+    use std::os::unix::net::UnixDatagram;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn qinq_mtu_boundary_is_not_truncated() {
+        // A test descriptor has no interface MTU, so the framed reader takes
+        // compute_buffer_size's 4096-byte fallback. Add exactly the L2 bytes
+        // required by an Ethernet frame carrying two VLAN tags. If the QinQ
+        // allowance regresses from 22 to the old 18 bytes, recv truncates this
+        // datagram and the byte-for-byte assertion below fails.
+        const FALLBACK_MTU: usize = 4096;
+        const QINQ_FRAME_LEN: usize = FALLBACK_MTU + 14 + 2 * 4;
+
+        let (device_socket, peer) = UnixDatagram::pair().expect("create datagram pair");
+        let device =
+            AsyncDevice::new_dev(DeviceImpl::from_fd_for_test(device_socket.into_raw_fd()))
+                .expect("register async device");
+        let mut framed = DeviceFramedRead::new(device, BytesCodec::new());
+        let frame = vec![0x5a; QINQ_FRAME_LEN];
+
+        assert_eq!(
+            peer.send(&frame).expect("send QinQ-sized frame"),
+            frame.len()
+        );
+        let received = framed
+            .next()
+            .await
+            .expect("framed stream ended")
+            .expect("read framed packet");
+
+        assert_eq!(received.len(), QINQ_FRAME_LEN);
+        assert_eq!(&received[..], &frame);
+    }
+}
