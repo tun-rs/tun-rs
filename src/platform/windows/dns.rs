@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "runtime DNS API loading and invocation crosses the Win32 FFI boundary"
+)]
+
 //! Interface DNS configuration via `SetInterfaceDnsSettings`.
 //!
 //! [`SetInterfaceDnsSettings`] requires Windows 10, build 19041 (version 2004) or newer, so

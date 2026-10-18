@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "macOS async raw-fd constructors are the explicit descriptor ownership boundary"
+)]
+
 use crate::async_device::unix;
 use crate::{DeviceImpl, SyncDevice};
 use bytes::buf::UninitSlice;

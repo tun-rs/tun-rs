@@ -1,3 +1,12 @@
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        reason = "assertive failure is appropriate in test code"
+    )
+)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 /*!

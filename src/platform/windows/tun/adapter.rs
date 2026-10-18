@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "Wintun adapter setup crosses Win32 SetupAPI/registry FFI boundaries"
+)]
+
 use std::{io, mem, ptr};
 
 use crate::windows::{

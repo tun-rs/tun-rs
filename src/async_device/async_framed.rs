@@ -118,8 +118,7 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 /// use tun_rs::async_framed::{BytesCodec, DeviceFramed};
 /// use tun_rs::DeviceBuilder;
 ///
-/// #[tokio::main]
-/// async fn main() -> std::io::Result<()> {
+/// async fn run() -> std::io::Result<()> {
 ///     // Create a TUN device with IPv4 configuration
 ///     let dev = DeviceBuilder::new()
 ///         .name("tun0")
@@ -132,7 +131,7 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 ///
 ///     // Send a frame (Replace with real IP message)
 ///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, TUN!";
-///     framed.send(BytesMut::from(packet)).await?;
+///     framed.send(BytesMut::from(packet.as_slice())).await?;
 ///
 ///     // Receive frames
 ///     while let Some(frame) = framed.next().await {
@@ -220,7 +219,8 @@ where
 
     /// Sets the size of the read buffer in bytes.
     ///
-    /// Must be at least as large as the MTU to ensure complete packet reception.
+    /// Values below the minimum packet buffer derived from the device MTU are clamped
+    /// to that minimum. The initial minimum includes Layer-2/QinQ headroom.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.r_state.set_read_buffer_size(read_buffer_size);
     }
@@ -263,7 +263,7 @@ where
     /// Split the framed device to read-half and write-half
     ///
     /// # Example
-    /// ```
+    /// ```no_run
     /// use std::net::Ipv4Addr;
     /// use std::sync::Arc;
     /// use tun_rs::{
@@ -276,6 +276,7 @@ where
     ///         .build_async()?,
     /// );
     /// let (r, w) = DeviceFramed::new(dev, BytesCodec::new()).split();
+    /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn split(self) -> (DeviceFramedRead<C, T>, DeviceFramedWrite<C, T>) {
         let dev = self.dev;
@@ -304,8 +305,7 @@ where
 /// use tun_rs::async_framed::{BytesCodec, DeviceFramedRead};
 /// use tun_rs::DeviceBuilder;
 ///
-/// #[tokio::main]
-/// async fn main() -> std::io::Result<()> {
+/// async fn run() -> std::io::Result<()> {
 ///     // Create a TUN device with IPv4 configuration
 ///     let dev = DeviceBuilder::new()
 ///         .name("tun0")
@@ -341,7 +341,7 @@ where
     ///
     /// The read side of the framed device.
     /// # Example
-    /// ```
+    /// ```no_run
     /// use std::net::Ipv4Addr;
     /// use std::sync::Arc;
     /// use tun_rs::{
@@ -355,6 +355,7 @@ where
     /// );
     /// let mut w = DeviceFramedWrite::new(dev.clone(), BytesCodec::new());
     /// let mut r = DeviceFramedRead::new(dev, BytesCodec::new());
+    /// # Ok::<(), std::io::Error>(())
     /// ```
     /// # Note
     /// An efficient way is to directly use [`DeviceFramed::split`] if the device is cloneable
@@ -375,7 +376,8 @@ where
     }
     /// Sets the size of the read buffer in bytes.
     ///
-    /// Must be at least as large as the MTU to ensure complete packet reception.
+    /// Values below the minimum packet buffer derived from the device MTU are clamped
+    /// to that minimum. The initial minimum includes Layer-2/QinQ headroom.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.state.set_read_buffer_size(read_buffer_size);
     }
@@ -417,8 +419,7 @@ where
 /// use tun_rs::async_framed::{BytesCodec, DeviceFramedWrite};
 /// use tun_rs::DeviceBuilder;
 ///
-/// #[tokio::main]
-/// async fn main() -> std::io::Result<()> {
+/// async fn run() -> std::io::Result<()> {
 ///     // Create a TUN device with IPv4 configuration
 ///     let dev = DeviceBuilder::new()
 ///         .name("tun0")
@@ -431,7 +432,7 @@ where
 ///
 ///     // Send a frame (Replace with real IP message)
 ///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, TUN!";
-///     framed_write.send(BytesMut::from(packet)).await?;
+///     framed_write.send(BytesMut::from(packet.as_slice())).await?;
 ///
 ///     Ok(())
 /// }
@@ -449,7 +450,7 @@ where
     ///
     /// The write side of the framed device.
     /// # Example
-    /// ```
+    /// ```no_run
     /// use std::net::Ipv4Addr;
     /// use std::sync::Arc;
     /// use tun_rs::{
@@ -463,6 +464,7 @@ where
     /// );
     /// let mut w = DeviceFramedWrite::new(dev.clone(), BytesCodec::new());
     /// let mut r = DeviceFramedRead::new(dev, BytesCodec::new());
+    /// # Ok::<(), std::io::Error>(())
     /// ```
     /// # Note
     /// An efficient way is to directly use [`DeviceFramed::split`] if the device is cloneable
@@ -571,6 +573,7 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
 }
 struct ReadState {
     recv_buffer_size: usize,
+    min_recv_buffer_size: usize,
     rd: BytesMut,
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     packet_splitter: Option<PacketSplitter>,
@@ -586,6 +589,7 @@ impl ReadState {
 
         ReadState {
             recv_buffer_size,
+            min_recv_buffer_size: recv_buffer_size,
             rd: BytesMut::with_capacity(recv_buffer_size),
             #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
             packet_splitter,
@@ -597,10 +601,11 @@ impl ReadState {
     }
 
     pub(crate) fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
-        self.recv_buffer_size = read_buffer_size;
+        let effective_size = read_buffer_size.max(self.min_recv_buffer_size);
+        self.recv_buffer_size = effective_size;
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.packet_splitter {
-            packet_splitter.set_recv_buffer_size(read_buffer_size);
+            packet_splitter.set_recv_buffer_size(effective_size);
         }
     }
 }
@@ -1078,6 +1083,10 @@ where
         DeviceFramedReadInner { dev, codec, state }
     }
 
+    #[expect(
+        unsafe_code,
+        reason = "poll_recv_uninit initializes exactly the returned byte count; BytesMut::advance_mut exposes those initialized bytes without an extra memset"
+    )]
     fn poll_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<C::Item, C::Error>>> {
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.state.packet_splitter {
@@ -1202,5 +1211,29 @@ where
     {
         ready!(self.poll_flush(cx))?;
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod local_policy_tests {
+    use super::ReadState;
+    use bytes::BytesMut;
+
+    #[test]
+    fn read_buffer_size_never_shrinks_below_initial_packet_minimum() {
+        let mut state = ReadState {
+            recv_buffer_size: 1500,
+            min_recv_buffer_size: 1500,
+            rd: BytesMut::new(),
+            #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+            packet_splitter: None,
+        };
+
+        state.set_read_buffer_size(1200);
+        assert_eq!(state.read_buffer_size(), 1500);
+        state.set_read_buffer_size(9000);
+        assert_eq!(state.read_buffer_size(), 9000);
+        state.set_read_buffer_size(2000);
+        assert_eq!(state.read_buffer_size(), 2000);
     }
 }

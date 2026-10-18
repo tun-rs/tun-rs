@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "generated Wintun bindings mirror the C ABI and are isolated behind this include wrapper"
+)]
 #![allow(
     unsafe_op_in_unsafe_fn,
     clippy::missing_safety_doc,

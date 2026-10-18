@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "FreeBSD TUN/TAP configuration uses libc open/ioctl structures and borrowed raw descriptors"
+)]
+
 use crate::{
     builder::{DeviceConfig, Layer},
     platform::freebsd::sys::*,

@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "this module adapts raw Unix TUN/TAP descriptors and ioctl control sockets"
+)]
+
 use crate::platform::unix::{Fd, Tun};
 use crate::platform::DeviceImpl;
 use bytes::buf::UninitSlice;

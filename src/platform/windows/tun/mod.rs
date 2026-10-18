@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "the Wintun backend operates on opaque Wintun handles and Win32 wait APIs"
+)]
+
 use bytes::buf::UninitSlice;
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::sync::atomic::{AtomicBool, Ordering};

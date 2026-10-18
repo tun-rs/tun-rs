@@ -21,7 +21,7 @@ use std::task::{Context, Poll};
 /// ```no_run
 /// use tun_rs::{AsyncDevice, DeviceBuilder};
 ///
-/// #[tokio::main]
+/// #[async_std::main]
 /// async fn main() -> std::io::Result<()> {
 ///     // Create a TUN device with basic configuration
 ///     let dev = DeviceBuilder::new()

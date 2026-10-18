@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "the macOS select backend is a dedicated pipe/poll/fcntl libc FFI boundary"
+)]
+
 use crate::DeviceImpl;
 use bytes::buf::UninitSlice;
 use std::future::Future;

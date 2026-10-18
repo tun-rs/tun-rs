@@ -399,6 +399,10 @@ pub struct VirtioNetHdr {
     pub csum_offset: u16,
 }
 
+#[expect(
+    unsafe_code,
+    reason = "virtio header decoding and encoding copy a validated fixed-size POD header across byte-slice boundaries"
+)]
 impl VirtioNetHdr {
     /// Decode a virtio network header from a byte buffer.
     ///

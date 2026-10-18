@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "Windows 7 Wintun adapter cleanup crosses Win32 process and SetupAPI FFI boundaries"
+)]
+
 use std::{mem, ptr};
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
     SetupDiGetClassDevsExW, SetupDiGetDevicePropertyW,

@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "macOS interface configuration uses libc ioctl structures and raw socket FFI"
+)]
+
 use crate::{
     builder::DeviceConfig,
     platform::{macos::sys::*, unix::sockaddr_union},

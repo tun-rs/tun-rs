@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "socket address conversion is the dedicated libc union/FFI boundary"
+)]
+
 /// # Safety
 unsafe fn sockaddr_to_rs_addr(sa: &sockaddr_union) -> Option<std::net::SocketAddr> {
     // SAFETY: `sa` contains initialized address data, and its family selects

@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "macOS TUN/TAP creation and configuration uses system-control and ioctl FFI"
+)]
+
 use crate::builder::DeviceConfig;
 use crate::platform::macos::sys::{
     ctl_info, ctliocginfo, in6_ifreq, siocgiflladdr, siocsiflladdr, siocsifmtu, IN6_IFF_NODAD,

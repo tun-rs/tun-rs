@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "the TAP backend owns Windows handles and explicitly asserts thread-safety for overlapped I/O"
+)]
+
 use crate::platform::windows::tap::overlapped::{ReadOverlapped, WriteOverlapped};
 use crate::platform::windows::{ffi, netsh};
 use bytes::buf::UninitSlice;

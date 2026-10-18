@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "runtime-dispatched SIMD intrinsics require target-feature unsafe functions"
+)]
+
 /// A pure Rust scalar (non-SIMD) implementation for the checksum accumulation.
 ///
 /// It uses a simple loop instead of manual unrolling for better clarity and maintainability.

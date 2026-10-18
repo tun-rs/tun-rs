@@ -1,0 +1,26 @@
+name: Merge shared sccache L0
+
+on:
+  workflow_run:
+    workflows: ["Push or PR"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  id-token: write
+
+cache-mode: write
+
+jobs:
+  merge:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.event == 'push' ||
+      github.event.workflow_run.event == 'workflow_dispatch'
+    uses: codeandsolder/ci-workflows/.github/workflows/merge-sccache-l0.yml@67b13fe5fac98b5387cbbaa74ee4cff3013357c6 # main
+    with:
+      source-run-id: ${{ github.event_name == 'workflow_run' && format('{0}', github.event.workflow_run.id) || '0' }}
+      source-event: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || 'workflow_dispatch' }}
+      bootstrap-only: ${{ github.event_name == 'workflow_dispatch' }}

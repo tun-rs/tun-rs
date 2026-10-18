@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "Windows network/device configuration wrappers call Win32 APIs and own the raw handle/buffer invariants"
+)]
+
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
 use std::{io, mem, ptr};

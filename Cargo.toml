@@ -2,6 +2,7 @@
 name = "tun-rs"
 version = "2.8.13"
 edition = "2021"
+rust-version = "1.99"
 authors = ["xmh0511, vnt-dev"]
 license = "Apache-2.0"
 description = "Cross-platform TUN and TAP library"
@@ -13,6 +14,7 @@ documentation = "https://docs.rs/tun-rs"
 crate-type = ["staticlib", "cdylib", "lib"]
 
 [lints.rust]
+unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]
@@ -31,6 +33,8 @@ async-io = { version = "2.3", optional = true }
 
 futures-core = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
+
+[target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", features = ["extra_traits"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "android", target_os="freebsd", target_os="openbsd", target_os = "netbsd"))'.dependencies]
@@ -86,12 +90,12 @@ route_manager = "0.2.9"
 bindgen = { version = "0.73.1", optional = true }
 
 [dev-dependencies]
-criterion = "0.5"
-ctrlc2 = { version = "3.7", features = ["tokio", "termination"] }
+criterion = "0.8"
+ctrlc2 = { version = "4.0", features = ["termination"] }
 env_logger = "0.11"
 futures = "0.3"
 pnet_packet = "0.35.0"
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "signal"] }
 async-std = { version = "1", features = ["attributes", "unstable"] }
 async-ctrlc = "1.2.0"
 rand = "0.10"

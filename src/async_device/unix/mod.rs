@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "async raw-fd constructors are the explicit Unix ownership boundary"
+)]
+
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::platform::offload::{handle_gro, VirtioNetHdr, VIRTIO_NET_HDR_LEN};
 use crate::platform::DeviceImpl;

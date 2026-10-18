@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "this module is the dedicated POSIX raw-file-descriptor syscall boundary"
+)]
+
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
 use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
@@ -49,7 +54,7 @@ impl Fd {
             Ok((flags & O_NONBLOCK) != 0)
         }
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", feature = "interruptible"))]
     pub(crate) fn set_cloexec(&self) -> io::Result<()> {
         unsafe {
             let flags = fcntl(self.inner, libc::F_GETFD);

@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "Wintun logging calls an FFI callback API and decodes a foreign UTF-16 pointer"
+)]
 #![allow(dead_code)]
 use log::*;
 

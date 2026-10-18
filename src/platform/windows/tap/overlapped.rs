@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "Windows overlapped I/O requires raw OVERLAPPED pointers and wait APIs"
+)]
+
 use crate::platform::windows::ffi;
 use crate::platform::windows::tap::READ_BUFFER_SIZE;
 use bytes::buf::UninitSlice;

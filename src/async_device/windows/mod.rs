@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "the Windows async backend copies into caller-provided uninitialized storage after checked blocking I/O"
+)]
+
 use crate::platform::windows::{ffi, InterruptEvent};
 use crate::platform::DeviceImpl;
 use crate::SyncDevice;

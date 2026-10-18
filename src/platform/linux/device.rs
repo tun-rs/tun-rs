@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "Linux TUN/TAP configuration is implemented through libc and ioctl FFI"
+)]
+
 use crate::platform::linux::offload::{
     gso_none_checksum, gso_split, gso_transport_protocol, handle_gro, VirtioNetHdr,
     VIRTIO_NET_HDR_F_NEEDS_CSUM, VIRTIO_NET_HDR_GSO_NONE, VIRTIO_NET_HDR_LEN,

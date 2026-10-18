@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "TAP adapter discovery and setup crosses Win32 SetupAPI/handle FFI boundaries"
+)]
+
 use crate::platform::windows::device::GUID_NETWORK_ADAPTER;
 use crate::platform::windows::ffi;
 use crate::platform::windows::ffi::decode_utf16;

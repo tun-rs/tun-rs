@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "macOS TAP support uses BPF/NDRV libc calls and raw interface structures"
+)]
+
 /*
 link https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/sockio.h
 link https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_fake.c

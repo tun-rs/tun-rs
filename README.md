@@ -70,6 +70,8 @@
 
 tun-rs delivers **exceptional performance** compared to other TUN implementations. Benchmarks conducted on Linux (Ubuntu 20.04, i7-13700K, DDR5 32GB) using [tun-benchmark2](https://github.com/tun-rs/tun-benchmark2) show impressive results:
 
+This fork is also validated in the full `usque-rs-fast -> quiche-fast -> tun-rs-fast` tunnel. That benchmark measures whole-host CPU per useful inner-L3 traffic and is deliberately not comparable to the synthetic throughput numbers below. See [Downstream performance validation with usque](docs/usque-performance-validation.md) for the methodology and results.
+
 ### 🏆 Highlights
 
 - **Peak Performance**: Up to **70.6 Gbps** with concurrent sync operations + offload
@@ -611,7 +613,8 @@ tokio::select! {
 - **API Documentation**: [docs.rs/tun-rs](https://docs.rs/tun-rs)
 - **iOS/tvOS Integration**: [docs/iOS-Integration.md](docs/iOS-Integration.md)
 - **Examples**: [github.com/tun-rs/tun-rs/tree/main/examples](https://github.com/tun-rs/tun-rs/tree/main/examples)
-- **Benchmark Details**: [github.com/tun-rs/tun-benchmark2](https://github.com/tun-rs/tun-benchmark2)
+- **Synthetic Benchmark Details**: [github.com/tun-rs/tun-benchmark2](https://github.com/tun-rs/tun-benchmark2)
+- **Downstream usque Validation**: [docs/usque-performance-validation.md](docs/usque-performance-validation.md)
 
 ---
 

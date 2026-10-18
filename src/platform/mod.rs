@@ -104,6 +104,13 @@ pub(crate) fn get_if_addrs_by_name(if_name: String) -> std::io::Result<Vec<Inter
 #[repr(transparent)]
 pub struct SyncDevice(pub(crate) DeviceImpl);
 
+#[cfg_attr(
+    unix,
+    expect(
+        unsafe_code,
+        reason = "raw-fd constructors are the explicit Unix ownership boundary"
+    )
+)]
 impl SyncDevice {
     /// Creates a `SyncDevice` from a raw file descriptor.
     ///
@@ -808,6 +815,10 @@ impl Deref for SyncDevice {
 }
 
 #[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "required by the standard raw-fd ownership-transfer trait"
+)]
 impl FromRawFd for SyncDevice {
     /// # Safety
     /// The fd must be valid, open, and refer to a TUN/TAP device.
@@ -832,6 +843,10 @@ impl AsRawFd for SyncDevice {
     }
 }
 #[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "BorrowedFd construction is tied to the lifetime of &self"
+)]
 impl AsFd for SyncDevice {
     fn as_fd(&self) -> BorrowedFd<'_> {
         unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
@@ -857,6 +872,10 @@ impl Deref for BorrowedSyncDevice<'_> {
     }
 }
 #[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "this impl is the explicit borrowed raw-fd lifetime boundary"
+)]
 impl BorrowedSyncDevice<'_> {
     /// # Safety
     /// The fd passed in must be a valid, open file descriptor.

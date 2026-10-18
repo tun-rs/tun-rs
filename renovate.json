@@ -1,0 +1,68 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices"
+  ],
+  "forkProcessing": "enabled",
+  "dependencyDashboard": true,
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "separateMultipleMajor": true,
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "rebaseWhen": "behind-base-branch",
+  "packageRules": [
+    {
+      "description": "Keep Cargo manifest requirements semver-ranged; Cargo.lock provides reproducibility",
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchUpdateTypes": [
+        "pin"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Automerge ordinary compatible updates after CI",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Potentially breaking pre-1.0 updates stay open for the maintenance agent",
+      "matchCurrentVersion": "/^0\\./",
+      "automerge": false
+    },
+    {
+      "description": "Major updates are always attempted but stay open for the maintenance agent",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Package replacements stay open for the maintenance agent",
+      "matchUpdateTypes": [
+        "replacement"
+      ],
+      "minimumReleaseAge": null,
+      "automerge": false
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 5am on monday"
+    ],
+    "automerge": true,
+    "automergeType": "pr"
+  }
+}
