@@ -156,6 +156,52 @@ jobs:
             cargo build --verbose --examples --tests --features async_io
             cargo build --verbose --examples --tests --features async_tokio
 
+  build_n_test_openbsd:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test x86_64-OpenBSD natively
+        uses: cross-platform-actions/action@v1.6.0
+        with:
+          operating_system: openbsd
+          architecture: x86-64
+          version: '7.9'
+          shell: bash
+          memory: 5G
+          cpu_count: 4
+          run: |
+            set -euo pipefail
+            sudo pkg_add rust git jq
+            rustc --version
+            cargo --version
+            export CARGO_TERM_COLOR=always
+
+            cargo check --all-targets
+            cargo check --all-targets --features async_tokio,async_framed,interruptible,experimental
+            cargo check --all-targets --features async_io,async_framed,interruptible,experimental
+            cargo test --lib -- --test-threads=1
+            cargo test --lib --features async_tokio,async_framed,interruptible,experimental -- --test-threads=1
+            cargo test --lib --features async_io,async_framed,interruptible,experimental -- --test-threads=1
+            cargo test --doc
+
+            run_integration() {
+              local features="$1"
+              local -a command=(cargo test --test test_dev --no-run --message-format=json)
+              if [[ -n "$features" ]]; then
+                command+=(--features "$features")
+              fi
+              local executable
+              executable="$("${command[@]}" |
+                jq -r 'select(.executable != null and .target.name == "test_dev") | .executable' |
+                tail -n1)"
+              test -n "$executable"
+              sudo "$executable" --test-threads=1
+            }
+
+            run_integration ""
+            run_integration "async_tokio,async_framed,interruptible,experimental"
+
   build_n_test_android:
     runs-on: ubuntu-latest
 
