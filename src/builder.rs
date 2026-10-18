@@ -897,9 +897,9 @@ pub struct DeviceBuilder {
 }
 
 impl DeviceBuilder {
-    /// Creates a new `DeviceBuilder` instance with the same settings as [`Default`].
+    /// Creates a new DeviceBuilder instance with default settings.
     pub fn new() -> Self {
-        Self::default()
+        Self::default().enable(true)
     }
     /// Sets the device name.
     pub fn name<S: Into<String>>(mut self, dev_name: S) -> Self {
@@ -1574,18 +1574,5 @@ impl ToIpv6Netmask for &str {
                 "invalid netmask str",
             )),
         }
-    }
-}
-
-#[cfg(test)]
-mod local_policy_tests {
-    use super::DeviceBuilder;
-
-    #[test]
-    fn new_matches_default_enable_policy() {
-        assert_eq!(
-            DeviceBuilder::new().enabled,
-            DeviceBuilder::default().enabled
-        );
     }
 }

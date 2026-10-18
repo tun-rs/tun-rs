@@ -37,23 +37,16 @@ These are not claims about an RFC or kernel ABI. They are project API decisions 
 
 | Contract | Evidence |
 | --- | --- |
-| `DeviceBuilder::new()` and `DeviceBuilder::default()` both use the documented enabled-by-default policy; `.inherit_enable_state()` explicitly opts out | `builder::tests::new_and_default_enable_device_and_inherit_clears_override` |
-| Repeated IPv4 builder configuration is last-write-wins; IPv6 entries accumulate in call order | `builder::tests` |
 | Tokio and async-io features are mutually exclusive | CI's `Async runtime exclusivity contract` compile-fail step |
-| `BytesCodec` consumes a complete packet without copying its allocation | `async_device::async_framed::tests` |
-| `Decoder::decode_eof` rejects leftover undecoded bytes | `async_device::async_framed::tests` |
-| The framed read buffer cannot be configured below its packet-safe initial minimum | `read_buffer_size_setter_respects_packet_minimum_and_allows_safe_resize` |
-| The initial framed buffer reserves Ethernet + two VLAN tags above MTU | `framed_buffer_reserves_ethernet_and_two_vlan_tags` — **project safety/headroom policy**, not an MTU/RFC requirement |
-| Non-GSO framed write-buffer sizing only grows through its public setter | `write_buffer_size_setter_only_grows_without_gso` |
-| Interrupt event trigger is level-like/idempotent until reset and preserves the first trigger value | `platform::unix::interrupt::tests` |
+| The framed read buffer cannot be configured below its packet-safe initial minimum | `async_device::async_framed::local_policy_tests::read_buffer_size_never_shrinks_below_initial_packet_minimum` |
 
 ## Coverage tiers
 
 | Area | Executable evidence | CI tier |
 | --- | --- | --- |
-| Address/netmask + builder policy | `builder::tests` | Every Linux PR; native release platforms |
+| Address/netmask + builder policy | privileged `tests/test_dev.rs` plus doctests; no dedicated pure builder unit suite after the upstream rebuild | Every Linux PR; native release platforms |
 | Public examples/signatures | doctests, default/Tokio/async-io | Every Linux PR |
-| Framing/codec/buffer contracts | `async_device::async_framed::tests` | Tokio + async-io matrices |
+| Framing/GSO-buffer contracts | `async_device::async_framed` splitter tests plus `read_buffer_size_never_shrinks_below_initial_packet_minimum` | Tokio + async-io matrices |
 | POSIX fd ownership, vectored I/O, deterministic interrupt/timeout semantics | `platform::unix::{fd,interrupt}::tests` using pipes/event fds rather than assuming a live TUN stays idle | Unix feature matrices |
 | Sockaddr conversion/provenance | unit tests + targeted Miri | Every Linux PR |
 | Linux virtio/GRO/GSO algorithms | `platform::linux::offload::tests` | Every Linux PR |

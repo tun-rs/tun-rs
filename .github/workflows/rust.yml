@@ -329,7 +329,7 @@ jobs:
         run: |
           set -eu
           # OpenBSD 7.9 ships Rust 1.94.1. The crate deliberately requires
-          # 1.98, so ignore only Cargo's version gate here: this job validates
+          # 1.99, so ignore only Cargo's version gate here: this job validates
           # the native OpenBSD ABI/runtime, not the declared MSRV.
           cargo check --ignore-rust-version --lib
           cargo check --ignore-rust-version --lib --features async_tokio,async_framed,interruptible,experimental
