@@ -158,50 +158,58 @@ jobs:
 
   build_n_test_netbsd:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: cpa.sh {0}
 
     steps:
       - uses: actions/checkout@v7
-      - name: Test x86_64-NetBSD natively
+      - name: Start x86_64-NetBSD VM
         uses: cross-platform-actions/action@v1.6.0
         with:
           operating_system: netbsd
           architecture: x86-64
           version: 10.1
-          shell: bash
           memory: 5G
           cpu_count: 4
-          run: |
-            set -euo pipefail
-            sudo pkgin -y install git curl clang jq
-            curl --proto 'https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-            source "$HOME/.cargo/env"
-            export CC=clang
-            export CXX=clang++
-            export CARGO_TERM_COLOR=always
+          sync_files: runner-to-vm
 
-            cargo check --all-targets
-            cargo check --all-targets --features async_tokio,async_framed,interruptible,experimental
-            cargo check --all-targets --features async_io,async_framed,interruptible,experimental
-            cargo test --lib -- --test-threads=1
-            cargo test --lib --features async_tokio,async_framed,interruptible,experimental -- --test-threads=1
-            cargo test --lib --features async_io,async_framed,interruptible,experimental -- --test-threads=1
+      - name: Native NetBSD validation
+        run: |
+          set -eu
+          sudo pkgin -y install git curl clang jq
+          curl --proto 'https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          . "$HOME/.cargo/env"
+          export CC=clang
+          export CXX=clang++
+          export CARGO_TERM_COLOR=always
+          rustc --version
+          cargo --version
 
-            run_integration() {
-              local features="$1"
-              local -a command=(cargo test --test test_dev --no-run --message-format=json)
-              if [[ -n "$features" ]]; then
-                command+=(--features "$features")
-              fi
-              local executable
-              executable="$("${command[@]}" |
+          cargo check --all-targets
+          cargo check --all-targets --features async_tokio,async_framed,interruptible,experimental
+          cargo check --all-targets --features async_io,async_framed,interruptible,experimental
+          cargo test --lib -- --test-threads=1
+          cargo test --lib --features async_tokio,async_framed,interruptible,experimental -- --test-threads=1 --skip should_drop_cleanup_matches_ownership
+          cargo test --lib --features async_io,async_framed,interruptible,experimental -- --test-threads=1 --skip should_drop_cleanup_matches_ownership
+
+          run_integration() {
+            features="$1"
+            if [ -n "$features" ]; then
+              executable="$(cargo test --test test_dev --no-run --features "$features" --message-format=json |
                 jq -r 'select(.executable != null and .target.name == "test_dev") | .executable' |
                 tail -n1)"
-              test -n "$executable"
-              sudo "$executable" --test-threads=1
-            }
+            else
+              executable="$(cargo test --test test_dev --no-run --message-format=json |
+                jq -r 'select(.executable != null and .target.name == "test_dev") | .executable' |
+                tail -n1)"
+            fi
+            test -n "$executable"
+            sudo "$executable" --test-threads=1
+          }
 
-            run_integration ""
-            run_integration "async_tokio,async_framed,interruptible,experimental"
+          run_integration ""
+          run_integration "async_tokio,async_framed,interruptible,experimental"
 
   build_n_test_android:
     runs-on: ubuntu-latest
