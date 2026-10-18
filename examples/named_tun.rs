@@ -65,6 +65,7 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
             .mtu(1400)
             .build_sync()?,
     );
+    #[cfg(any(not(target_os = "linux"), feature = "address-management"))]
     println!("addr {:?}", dev.addresses());
 
     println!("if_index = {:?}", dev.if_index());

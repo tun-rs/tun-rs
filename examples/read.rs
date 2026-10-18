@@ -76,6 +76,7 @@ fn main_entry(quit: Receiver<()>) -> Result<(), std::io::Error> {
     // // linux multi queue
     // let device = dev.try_clone().unwrap();
     // println!("clone {:?}", device.name());
+    #[cfg(any(not(target_os = "linux"), feature = "address-management"))]
     println!("addr {:?}", dev.addresses());
 
     println!("if_index = {:?}", dev.if_index());

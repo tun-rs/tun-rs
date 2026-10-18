@@ -315,47 +315,50 @@ fn test_op() {
     #[cfg(target_os = "macos")]
     assert!(device.associate_route());
 
-    let vec = device.addresses().unwrap();
-    assert!(vec
-        .iter()
-        .any(|ip| *ip == "10.26.2.100".parse::<std::net::Ipv4Addr>().unwrap()));
-    assert!(vec.iter().any(|ip| *ip
-        == "fd12:3456:789a:5555:2222:3333:4444:5555"
-            .parse::<std::net::Ipv6Addr>()
-            .unwrap()));
+    #[cfg(feature = "address-management")]
+    {
+        let vec = device.addresses().unwrap();
+        assert!(vec
+            .iter()
+            .any(|ip| *ip == "10.26.2.100".parse::<std::net::Ipv4Addr>().unwrap()));
+        assert!(vec.iter().any(|ip| *ip
+            == "fd12:3456:789a:5555:2222:3333:4444:5555"
+                .parse::<std::net::Ipv6Addr>()
+                .unwrap()));
 
-    device.set_network_address("10.26.3.200", 24, None).unwrap();
-    let vec = device.addresses().unwrap();
-    assert!(vec
-        .iter()
-        .any(|ip| *ip == "10.26.3.200".parse::<std::net::Ipv4Addr>().unwrap()));
-    assert!(vec.iter().any(|ip| *ip
-        == "fd12:3456:789a:5555:2222:3333:4444:5555"
-            .parse::<std::net::Ipv6Addr>()
-            .unwrap()));
-    assert!(!vec.contains(&"10.26.2.100".parse::<std::net::IpAddr>().unwrap()));
+        device.set_network_address("10.26.3.200", 24, None).unwrap();
+        let vec = device.addresses().unwrap();
+        assert!(vec
+            .iter()
+            .any(|ip| *ip == "10.26.3.200".parse::<std::net::Ipv4Addr>().unwrap()));
+        assert!(vec.iter().any(|ip| *ip
+            == "fd12:3456:789a:5555:2222:3333:4444:5555"
+                .parse::<std::net::Ipv6Addr>()
+                .unwrap()));
+        assert!(!vec.contains(&"10.26.2.100".parse::<std::net::IpAddr>().unwrap()));
 
-    device.add_address_v4("10.6.0.1", 24).unwrap();
-    let vec = device.addresses().unwrap();
-    assert!(vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
-    assert!(vec.contains(&"10.26.3.200".parse::<std::net::IpAddr>().unwrap()));
+        device.add_address_v4("10.6.0.1", 24).unwrap();
+        let vec = device.addresses().unwrap();
+        assert!(vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
+        assert!(vec.contains(&"10.26.3.200".parse::<std::net::IpAddr>().unwrap()));
 
-    device
-        .remove_address("10.6.0.1".parse::<std::net::IpAddr>().unwrap())
-        .unwrap();
-    let vec = device.addresses().unwrap();
-    assert!(!vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
-    assert!(vec.contains(&"10.26.3.200".parse::<std::net::IpAddr>().unwrap()));
+        device
+            .remove_address("10.6.0.1".parse::<std::net::IpAddr>().unwrap())
+            .unwrap();
+        let vec = device.addresses().unwrap();
+        assert!(!vec.contains(&"10.6.0.1".parse::<std::net::IpAddr>().unwrap()));
+        assert!(vec.contains(&"10.26.3.200".parse::<std::net::IpAddr>().unwrap()));
 
-    device
-        .add_address_v6("fdab:cdef:1234:5678:9abc:def0:1234:5678", 64)
-        .unwrap();
-    let vec = device.addresses().unwrap();
-    assert!(vec.contains(
-        &"fdab:cdef:1234:5678:9abc:def0:1234:5678"
-            .parse::<std::net::IpAddr>()
-            .unwrap()
-    ));
+        device
+            .add_address_v6("fdab:cdef:1234:5678:9abc:def0:1234:5678", 64)
+            .unwrap();
+        let vec = device.addresses().unwrap();
+        assert!(vec.contains(
+            &"fdab:cdef:1234:5678:9abc:def0:1234:5678"
+                .parse::<std::net::IpAddr>()
+                .unwrap()
+        ));
+    }
 
     device.enabled(true).unwrap();
 
