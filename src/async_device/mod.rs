@@ -34,6 +34,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 Example:
 
 ```no_run
+# #[cfg(feature = "async_tokio")]
+# {
 use tun_rs::DeviceBuilder;
 
 #[tokio::main]
@@ -51,6 +53,7 @@ async fn main() -> std::io::Result<()> {
         dev.send(&buf[..len]).await?;
     }
 }
+# }
 ```
 
 ## Usage with async-std
@@ -66,6 +69,8 @@ async-std = { version = "1", features = ["attributes"] }
 Example:
 
 ```no_run
+# #[cfg(all(feature = "async_io", not(feature = "async_tokio")))]
+# {
 use tun_rs::DeviceBuilder;
 
 #[async_std::main]
@@ -80,6 +85,7 @@ async fn main() -> std::io::Result<()> {
         println!("Received {} bytes", len);
     }
 }
+# }
 ```
 
 ## Device Types
