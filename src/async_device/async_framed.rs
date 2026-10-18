@@ -8,7 +8,7 @@ use futures::Sink;
 use futures_core::Stream;
 
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-use crate::platform::offload::VirtioNetHdr;
+use crate::platform::offload::{GsoOutputCapacity, VirtioNetHdr};
 use crate::AsyncDevice;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::{GROTable, IDEAL_BATCH_SIZE, VIRTIO_NET_HDR_LEN};
@@ -693,6 +693,11 @@ struct PacketSplitter {
     recv_num: usize,
     recv_buffer_size: usize,
 }
+// Keep the normal 128-packet pool. Additional segment data is temporary and bounded
+// independently of MTU, so small gso_size values do not allocate an MTU per segment.
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+const MAX_GSO_OVERFLOW_BYTES: usize = 8 * 1024 * 1024;
+
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 impl PacketSplitter {
     fn new(recv_buffer_size: usize) -> PacketSplitter {
@@ -707,6 +712,24 @@ impl PacketSplitter {
         }
     }
     fn handle(&mut self, dev: &AsyncDevice, input: &mut [u8]) -> io::Result<()> {
+        self.handle_with(input, |hdr, input, bufs, sizes| {
+            dev.handle_virtio_read(hdr, input, bufs, sizes, 0)
+        })
+    }
+    fn handle_with(
+        &mut self,
+        input: &mut [u8],
+        mut split: impl FnMut(
+            VirtioNetHdr,
+            &mut [u8],
+            &mut [BytesMut],
+            &mut [usize],
+        ) -> io::Result<usize>,
+    ) -> io::Result<()> {
+        self.recv_index = 0;
+        self.recv_num = 0;
+        self.bufs.truncate(IDEAL_BATCH_SIZE);
+        self.sizes.truncate(IDEAL_BATCH_SIZE);
         if input.len() <= VIRTIO_NET_HDR_LEN {
             Err(io::Error::other(format!(
                 "length of packet ({}) <= VIRTIO_NET_HDR_LEN ({VIRTIO_NET_HDR_LEN})",
@@ -717,13 +740,52 @@ impl PacketSplitter {
             buf.resize(self.recv_buffer_size, 0);
         }
         let hdr = VirtioNetHdr::decode(&input[..VIRTIO_NET_HDR_LEN])?;
-        let num = dev.handle_virtio_read(
+        let result = split(
             hdr,
             &mut input[VIRTIO_NET_HDR_LEN..],
             &mut self.bufs,
             &mut self.sizes,
-            0,
-        )?;
+        );
+        let num = match result {
+            Ok(num) => num,
+            Err(error) => {
+                let Some(capacity) = error
+                    .get_ref()
+                    .and_then(|error| error.downcast_ref::<GsoOutputCapacity>())
+                    .copied()
+                else {
+                    return Err(error);
+                };
+                if capacity.segments > usize::from(u16::MAX)
+                    || capacity.segment_len > self.recv_buffer_size
+                {
+                    return Err(error);
+                }
+                let extra = capacity.segments - self.bufs.len();
+                let bytes = extra
+                    .checked_mul(capacity.segment_len)
+                    .filter(|&bytes| bytes <= MAX_GSO_OVERFLOW_BYTES)
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "GSO output exceeds framed reader overflow budget",
+                        )
+                    })?;
+                // gso_split reports capacity only after validating the metadata,
+                // before modifying either input or output. Retry that record once.
+                let mut overflow = BytesMut::zeroed(bytes);
+                for _ in 0..extra {
+                    self.bufs.push(overflow.split_to(capacity.segment_len));
+                }
+                self.sizes.resize(capacity.segments, 0);
+                split(
+                    hdr,
+                    &mut input[VIRTIO_NET_HDR_LEN..],
+                    &mut self.bufs,
+                    &mut self.sizes,
+                )?
+            }
+        };
 
         for i in 0..num {
             self.bufs[i].truncate(self.sizes[i]);
@@ -734,6 +796,8 @@ impl PacketSplitter {
     }
     fn next(&mut self) -> Option<&mut BytesMut> {
         if self.recv_index >= self.recv_num {
+            self.bufs.truncate(IDEAL_BATCH_SIZE);
+            self.sizes.truncate(IDEAL_BATCH_SIZE);
             None
         } else {
             let buf = &mut self.bufs[self.recv_index];
@@ -743,6 +807,170 @@ impl PacketSplitter {
     }
     fn set_recv_buffer_size(&mut self, recv_buffer_size: usize) {
         self.recv_buffer_size = recv_buffer_size;
+    }
+}
+
+#[cfg(all(test, target_os = "linux", not(target_env = "ohos")))]
+mod splitter_tests {
+    use super::*;
+    use crate::platform::offload::VIRTIO_NET_HDR_F_NEEDS_CSUM;
+    use crate::{gso_split, VIRTIO_NET_HDR_GSO_TCPV6};
+
+    fn record(segments: usize, size: u16) -> Vec<u8> {
+        let payload_len = segments * usize::from(size);
+        let mut input = vec![0; VIRTIO_NET_HDR_LEN + 60 + payload_len];
+        VirtioNetHdr {
+            flags: VIRTIO_NET_HDR_F_NEEDS_CSUM,
+            gso_type: VIRTIO_NET_HDR_GSO_TCPV6,
+            hdr_len: 60,
+            gso_size: size,
+            csum_start: 40,
+            csum_offset: 16,
+        }
+        .encode(&mut input[..VIRTIO_NET_HDR_LEN])
+        .unwrap();
+        let packet = &mut input[VIRTIO_NET_HDR_LEN..];
+        packet[0] = 0x60;
+        packet[4..6].copy_from_slice(&u16::try_from(20 + payload_len).unwrap().to_be_bytes());
+        packet[6] = 6;
+        packet[7] = 64;
+        packet[8] = 0xfd;
+        packet[23] = 1;
+        packet[24] = 0xfd;
+        packet[39] = 2;
+        packet[40..42].copy_from_slice(&10000u16.to_be_bytes());
+        packet[42..44].copy_from_slice(&22u16.to_be_bytes());
+        packet[44..48].copy_from_slice(&1u32.to_be_bytes());
+        packet[52] = 0x50;
+        packet[53] = 0x19;
+        packet[54..56].copy_from_slice(&65535u16.to_be_bytes());
+        packet[60..].fill(0x5a);
+        input
+    }
+
+    fn split(
+        hdr: VirtioNetHdr,
+        input: &mut [u8],
+        bufs: &mut [BytesMut],
+        sizes: &mut [usize],
+    ) -> io::Result<usize> {
+        gso_split(input, hdr, bufs, sizes, 0, true)
+    }
+
+    fn verify(splitter: &mut PacketSplitter, segments: usize, size: u16) {
+        for index in 0..segments {
+            let packet = splitter.next().expect("missing segment");
+            assert_eq!(packet.len(), 60 + usize::from(size));
+            assert_eq!(u16::from_be_bytes([packet[4], packet[5]]), 20 + size);
+            assert_eq!(
+                u32::from_be_bytes(packet[44..48].try_into().unwrap()),
+                1 + (index * usize::from(size)) as u32
+            );
+            assert_eq!(
+                packet[53] & 0x09,
+                if index + 1 == segments { 0x09 } else { 0 }
+            );
+            assert!(packet[60..].iter().all(|&byte| byte == 0x5a));
+        }
+        assert!(splitter.next().is_none());
+        assert_eq!(splitter.bufs.len(), IDEAL_BATCH_SIZE);
+        assert_eq!(splitter.sizes.len(), IDEAL_BATCH_SIZE);
+    }
+
+    #[test]
+    fn framed_splitter_accepts_more_than_128_segments() {
+        for segments in [128, 129, 1300] {
+            let mut splitter = PacketSplitter::new(1500);
+            splitter
+                .handle_with(&mut record(segments, 48), split)
+                .unwrap();
+            verify(&mut splitter, segments, 48);
+            splitter.handle_with(&mut record(2, 1440), split).unwrap();
+            verify(&mut splitter, 2, 1440);
+        }
+    }
+
+    #[test]
+    fn framed_splitter_keeps_mtu_limit_and_can_read_next_record() {
+        let mut splitter = PacketSplitter::new(100);
+        assert!(splitter.handle_with(&mut record(129, 48), split).is_err());
+        assert!(splitter.next().is_none());
+        splitter.handle_with(&mut record(2, 32), split).unwrap();
+        verify(&mut splitter, 2, 32);
+    }
+
+    #[test]
+    fn framed_splitter_rejects_invalid_metadata_without_growing() {
+        let mut splitter = PacketSplitter::new(1500);
+        let mut input = record(129, 48);
+        let mut hdr = VirtioNetHdr::decode(&input[..VIRTIO_NET_HDR_LEN]).unwrap();
+        hdr.gso_size = 0;
+        hdr.encode(&mut input[..VIRTIO_NET_HDR_LEN]).unwrap();
+        let before = input.clone();
+        assert!(splitter.handle_with(&mut input, split).is_err());
+        assert_eq!(input, before);
+        assert_eq!(splitter.bufs.len(), IDEAL_BATCH_SIZE);
+        assert!(splitter.next().is_none());
+    }
+
+    #[test]
+    fn framed_splitter_bounds_overflow_before_allocation() {
+        let mut splitter = PacketSplitter::new(4096);
+        let error = splitter
+            .handle_with(&mut record(2, 48), |_, _, _, _| {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    GsoOutputCapacity {
+                        segments: 5000,
+                        segment_len: 2049,
+                    },
+                ))
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("overflow budget"));
+        assert_eq!(splitter.bufs.len(), IDEAL_BATCH_SIZE);
+        assert!(splitter.next().is_none());
+        splitter.handle_with(&mut record(2, 48), split).unwrap();
+        verify(&mut splitter, 2, 48);
+    }
+
+    #[test]
+    fn framed_splitter_preserves_unrelated_errors() {
+        let mut splitter = PacketSplitter::new(1500);
+        let mut calls = 0;
+        let error = splitter
+            .handle_with(&mut record(2, 48), |_, _, _, _| {
+                calls += 1;
+                Err(io::Error::new(io::ErrorKind::InvalidInput, "bad record"))
+            })
+            .unwrap_err();
+        assert_eq!(calls, 1);
+        assert_eq!(error.to_string(), "bad record");
+        assert_eq!(splitter.bufs.len(), IDEAL_BATCH_SIZE);
+        assert!(splitter.next().is_none());
+    }
+
+    #[test]
+    fn gso_capacity_hint_preserves_input_and_output() {
+        let mut record = record(129, 48);
+        let hdr = VirtioNetHdr::decode(&record[..VIRTIO_NET_HDR_LEN]).unwrap();
+        let input = &mut record[VIRTIO_NET_HDR_LEN..];
+        let original = input.to_vec();
+        let mut bufs = vec![BytesMut::zeroed(1500); IDEAL_BATCH_SIZE];
+        let mut sizes = vec![0; IDEAL_BATCH_SIZE];
+        let error = split(hdr, input, &mut bufs, &mut sizes).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "too many GSO segments");
+        let capacity = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<GsoOutputCapacity>()
+            .unwrap();
+        assert_eq!(capacity.segments, 129);
+        assert_eq!(capacity.segment_len, 108);
+        assert_eq!(input, original);
+        assert!(bufs.iter().all(|buf| buf.iter().all(|&byte| byte == 0)));
+        assert!(sizes.iter().all(|&size| size == 0));
     }
 }
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
