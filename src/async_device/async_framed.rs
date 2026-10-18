@@ -220,7 +220,8 @@ where
 
     /// Sets the size of the read buffer in bytes.
     ///
-    /// Must be at least as large as the MTU to ensure complete packet reception.
+    /// Values smaller than the automatically computed initial receive size are clamped
+    /// to that size. The initial size is derived from the device MTU and includes framing headroom.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.r_state.set_read_buffer_size(read_buffer_size);
     }
@@ -375,7 +376,8 @@ where
     }
     /// Sets the size of the read buffer in bytes.
     ///
-    /// Must be at least as large as the MTU to ensure complete packet reception.
+    /// Values smaller than the automatically computed initial receive size are clamped
+    /// to that size. The initial size is derived from the device MTU and includes framing headroom.
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
         self.state.set_read_buffer_size(read_buffer_size);
     }
@@ -571,6 +573,7 @@ fn compute_buffer_size<T: Borrow<AsyncDevice>>(_dev: &T) -> usize {
 }
 struct ReadState {
     recv_buffer_size: usize,
+    min_recv_buffer_size: usize,
     rd: BytesMut,
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     packet_splitter: Option<PacketSplitter>,
@@ -586,6 +589,7 @@ impl ReadState {
 
         ReadState {
             recv_buffer_size,
+            min_recv_buffer_size: recv_buffer_size,
             rd: BytesMut::with_capacity(recv_buffer_size),
             #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
             packet_splitter,
@@ -597,10 +601,11 @@ impl ReadState {
     }
 
     pub(crate) fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
-        self.recv_buffer_size = read_buffer_size;
+        let effective_size = read_buffer_size.max(self.min_recv_buffer_size);
+        self.recv_buffer_size = effective_size;
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         if let Some(packet_splitter) = &mut self.packet_splitter {
-            packet_splitter.set_recv_buffer_size(read_buffer_size);
+            packet_splitter.set_recv_buffer_size(effective_size);
         }
     }
 }
@@ -1202,5 +1207,50 @@ where
     {
         ready!(self.poll_flush(cx))?;
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod read_buffer_size_tests {
+    #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+    use super::PacketSplitter;
+    use super::{BytesMut, ReadState};
+
+    fn state_with_minimum(minimum: usize) -> ReadState {
+        ReadState {
+            recv_buffer_size: minimum,
+            min_recv_buffer_size: minimum,
+            rd: BytesMut::new(),
+            #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+            packet_splitter: Some(PacketSplitter::new(minimum)),
+        }
+    }
+
+    #[test]
+    fn read_buffer_size_clamps_below_initial_minimum() {
+        let mut state = state_with_minimum(1_522);
+
+        state.set_read_buffer_size(1_500);
+
+        assert_eq!(state.read_buffer_size(), 1_522);
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+        assert_eq!(
+            state
+                .packet_splitter
+                .as_ref()
+                .map(|splitter| splitter.recv_buffer_size),
+            Some(1_522)
+        );
+    }
+
+    #[test]
+    fn read_buffer_size_accepts_growth_and_later_shrink_to_minimum() {
+        let mut state = state_with_minimum(1_522);
+
+        state.set_read_buffer_size(9_000);
+        assert_eq!(state.read_buffer_size(), 9_000);
+
+        state.set_read_buffer_size(1_522);
+        assert_eq!(state.read_buffer_size(), 1_522);
     }
 }
