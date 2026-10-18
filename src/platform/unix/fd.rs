@@ -50,7 +50,19 @@ impl Fd {
         }
     }
     /// Adds `FD_CLOEXEC` while preserving the descriptor's existing flags.
-    #[cfg(any(target_os = "macos", feature = "interruptible"))]
+    #[cfg(any(
+        target_os = "macos",
+        all(
+            feature = "interruptible",
+            not(any(
+                target_os = "linux",
+                target_os = "android",
+                target_os = "freebsd",
+                target_os = "openbsd",
+                target_os = "netbsd",
+            ))
+        )
+    ))]
     pub(crate) fn set_cloexec(&self) -> io::Result<()> {
         // SAFETY: `self.inner` is a live descriptor tracked by `Fd`; F_GETFD only
         // reads descriptor flags and has no pointer arguments.
