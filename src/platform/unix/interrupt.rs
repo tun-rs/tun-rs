@@ -454,25 +454,54 @@ impl InterruptEvent {
     pub fn new() -> io::Result<Self> {
         let mut fds: [libc::c_int; 2] = [0; 2];
 
-        unsafe {
-            if libc::pipe(fds.as_mut_ptr()) == -1 {
-                return Err(io::Error::last_os_error());
-            }
-            let read_fd = Fd::new_unchecked(fds[0]);
-            let write_fd = Fd::new_unchecked(fds[1]);
-            #[cfg(target_os = "macos")]
-            {
-                read_fd.set_cloexec()?;
-                write_fd.set_cloexec()?;
-            }
-            write_fd.set_nonblocking(true)?;
-            read_fd.set_nonblocking(true)?;
-            Ok(Self {
-                state: Mutex::new(0),
-                read_fd,
-                write_fd,
-            })
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+        ))]
+        // SAFETY: `fds` points to storage for exactly two `c_int`s, as required by `pipe2`.
+        // O_CLOEXEC makes descriptor inheritance atomic with creation on these targets.
+        let pipe_result = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
+
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+        )))]
+        // SAFETY: `fds` points to storage for exactly two `c_int`s, as required by `pipe`.
+        let pipe_result = unsafe { libc::pipe(fds.as_mut_ptr()) };
+
+        if pipe_result == -1 {
+            return Err(io::Error::last_os_error());
         }
+
+        // SAFETY: a successful pipe creation initializes both entries with distinct live
+        // descriptors. Ownership of each descriptor is transferred exactly once to `Fd`.
+        let (read_fd, write_fd) = unsafe { (Fd::new_unchecked(fds[0]), Fd::new_unchecked(fds[1])) };
+
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+        )))]
+        {
+            // Targets without a libc `pipe2` binding fall back to setting CLOEXEC after creation.
+            read_fd.set_cloexec()?;
+            write_fd.set_cloexec()?;
+        }
+        write_fd.set_nonblocking(true)?;
+        read_fd.set_nonblocking(true)?;
+        Ok(Self {
+            state: Mutex::new(0),
+            read_fd,
+            write_fd,
+        })
     }
 
     /// Triggers the interrupt event with value 1.

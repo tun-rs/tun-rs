@@ -90,6 +90,7 @@ jobs:
         run: |
           cargo test --lib --features async_tokio -- --skip should_drop_cleanup_matches_ownership
           cargo test --lib --features async_io -- --skip should_drop_cleanup_matches_ownership
+          cargo test --lib --features interruptible interrupt_pipe_is_close_on_exec
       # The `privileged_` tests remove real TUN/TAP devices from under pending
       # readers; they need root, /dev/net/tun and the `ip` tool, so they are
       # #[ignore]d elsewhere.

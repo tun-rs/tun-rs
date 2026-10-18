@@ -49,18 +49,22 @@ impl Fd {
             Ok((flags & O_NONBLOCK) != 0)
         }
     }
-    #[cfg(target_os = "macos")]
+    /// Adds `FD_CLOEXEC` while preserving the descriptor's existing flags.
+    #[cfg(any(target_os = "macos", feature = "interruptible"))]
     pub(crate) fn set_cloexec(&self) -> io::Result<()> {
-        unsafe {
-            let flags = fcntl(self.inner, libc::F_GETFD);
-            if flags < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            if fcntl(self.inner, libc::F_SETFD, flags | libc::FD_CLOEXEC) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
+        // SAFETY: `self.inner` is a live descriptor tracked by `Fd`; F_GETFD only
+        // reads descriptor flags and has no pointer arguments.
+        let flags = unsafe { fcntl(self.inner, libc::F_GETFD) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
         }
+
+        // SAFETY: the same live descriptor is used, and F_SETFD consumes only the
+        // integer flag value returned by F_GETFD with FD_CLOEXEC added.
+        if unsafe { fcntl(self.inner, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
     }
     /// Enable non-blocking mode
     pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
