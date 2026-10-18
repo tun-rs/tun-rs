@@ -452,12 +452,9 @@ impl VirtioNetHdr {
     /// ```no_run
     /// # #[cfg(target_os = "linux")]
     /// # {
-    /// use tun_rs::{VirtioNetHdr, VIRTIO_NET_HDR_GSO_NONE, VIRTIO_NET_HDR_LEN};
+    /// use tun_rs::{VirtioNetHdr, VIRTIO_NET_HDR_LEN};
     ///
-    /// let header = VirtioNetHdr {
-    ///     gso_type: VIRTIO_NET_HDR_GSO_NONE,
-    ///     ..Default::default()
-    /// };
+    /// let header = VirtioNetHdr::default();
     ///
     /// let mut buffer = vec![0u8; VIRTIO_NET_HDR_LEN + 1500];
     /// header.encode(&mut buffer)?;
@@ -1702,7 +1699,7 @@ fn udp_gro<B: ExpandBuffer>(
 ///
 /// let mut gro_table = GROTable::default();
 /// let mut bufs = vec![vec![0u8; 1500]; 128];
-/// let mut to_write = Vec::new();
+/// let mut to_write: Vec<usize> = Vec::new();
 ///
 /// // After receiving packets into bufs with recv_multiple:
 /// // handle_gro(

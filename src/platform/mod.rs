@@ -739,7 +739,7 @@ impl SyncDevice {
     /// let dev = DeviceBuilder::new()
     ///     .ipv4("10.0.0.1", 24, None)
     ///     .with(|builder| {
-    ///         builder.multi_queue(true) // Enable multi-queue support
+    ///         builder.multi_queue(true); // Enable multi-queue support
     ///     })
     ///     .build_sync()?;
     ///
