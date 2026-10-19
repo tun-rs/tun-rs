@@ -193,7 +193,7 @@ async fn test_udp_v4() {
     });
     tokio::time::sleep(Duration::from_secs(6)).await;
 
-    let udp_socket = tokio::net::UdpSocket::bind("10.26.1.200:0").await.unwrap();
+    let udp_socket = tokio::net::UdpSocket::bind("10.26.1.100:0").await.unwrap();
     udp_socket
         .send_to(test_msg.as_bytes(), "10.26.1.101:8080")
         .await

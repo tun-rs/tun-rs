@@ -1219,7 +1219,7 @@ impl DeviceBuilder {
     /// # Example
     ///
     /// ```no_run
-    /// # #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+    /// # #[cfg(any(target_os = "macos", target_os = "windows", target_os = "netbsd"))]
     /// # {
     /// use tun_rs::DeviceBuilder;
     ///
@@ -1227,7 +1227,9 @@ impl DeviceBuilder {
     /// let dev = DeviceBuilder::new()
     ///     .name("tun0")
     ///     .ipv4("10.0.0.1", 24, None)
-    ///     .with(|builder| builder.reuse_dev(true))
+    ///     .with(|builder| {
+    ///         builder.reuse_dev(true);
+    ///     })
     ///     .inherit_enable_state() // Don't change the existing enable state
     ///     .build_sync()?;
     /// # }

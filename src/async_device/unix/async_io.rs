@@ -21,8 +21,7 @@ use std::task::{Context, Poll};
 /// ```no_run
 /// use tun_rs::{AsyncDevice, DeviceBuilder};
 ///
-/// #[tokio::main]
-/// async fn main() -> std::io::Result<()> {
+/// # async fn example() -> std::io::Result<()> {
 ///     // Create a TUN device with basic configuration
 ///     let dev = DeviceBuilder::new()
 ///         .name("tun0")
@@ -40,7 +39,7 @@ use std::task::{Context, Poll};
 ///     println!("Received {} bytes: {:?}", n, &buf[..n]);
 ///
 ///     Ok(())
-/// }
+/// # }
 /// ```
 pub struct AsyncDevice(pub(crate) Async<DeviceImpl>);
 impl AsyncDevice {

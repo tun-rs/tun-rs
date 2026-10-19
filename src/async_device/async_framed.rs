@@ -118,8 +118,7 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 /// use tun_rs::async_framed::{BytesCodec, DeviceFramed};
 /// use tun_rs::DeviceBuilder;
 ///
-/// #[tokio::main]
-/// async fn main() -> std::io::Result<()> {
+/// # async fn example() -> std::io::Result<()> {
 ///     // Create a TUN device with IPv4 configuration
 ///     let dev = DeviceBuilder::new()
 ///         .name("tun0")
@@ -132,7 +131,7 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 ///
 ///     // Send a frame (Replace with real IP message)
 ///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, TUN!";
-///     framed.send(BytesMut::from(packet)).await?;
+///     framed.send(BytesMut::from(packet.as_slice())).await?;
 ///
 ///     // Receive frames
 ///     while let Some(frame) = framed.next().await {
@@ -142,7 +141,7 @@ impl<T: Encoder<Item>, Item> Encoder<Item> for &mut T {
 ///         }
 ///     }
 ///     Ok(())
-/// }
+/// # }
 /// ```
 pub struct DeviceFramed<C, T = AsyncDevice> {
     dev: T,
@@ -264,7 +263,7 @@ where
     /// Split the framed device to read-half and write-half
     ///
     /// # Example
-    /// ```
+    /// ```no_run
     /// use std::net::Ipv4Addr;
     /// use std::sync::Arc;
     /// use tun_rs::{
@@ -277,6 +276,7 @@ where
     ///         .build_async()?,
     /// );
     /// let (r, w) = DeviceFramed::new(dev, BytesCodec::new()).split();
+    /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn split(self) -> (DeviceFramedRead<C, T>, DeviceFramedWrite<C, T>) {
         let dev = self.dev;
@@ -305,8 +305,7 @@ where
 /// use tun_rs::async_framed::{BytesCodec, DeviceFramedRead};
 /// use tun_rs::DeviceBuilder;
 ///
-/// #[tokio::main]
-/// async fn main() -> std::io::Result<()> {
+/// # async fn example() -> std::io::Result<()> {
 ///     // Create a TUN device with IPv4 configuration
 ///     let dev = DeviceBuilder::new()
 ///         .name("tun0")
@@ -325,7 +324,7 @@ where
 ///         }
 ///     }
 ///     Ok(())
-/// }
+/// # }
 /// ```
 ///
 /// See [`DeviceFramed`] for a unified read/write interface.
@@ -342,7 +341,7 @@ where
     ///
     /// The read side of the framed device.
     /// # Example
-    /// ```
+    /// ```no_run
     /// use std::net::Ipv4Addr;
     /// use std::sync::Arc;
     /// use tun_rs::{
@@ -356,6 +355,7 @@ where
     /// );
     /// let mut w = DeviceFramedWrite::new(dev.clone(), BytesCodec::new());
     /// let mut r = DeviceFramedRead::new(dev, BytesCodec::new());
+    /// # Ok::<(), std::io::Error>(())
     /// ```
     /// # Note
     /// An efficient way is to directly use [`DeviceFramed::split`] if the device is cloneable
@@ -419,8 +419,7 @@ where
 /// use tun_rs::async_framed::{BytesCodec, DeviceFramedWrite};
 /// use tun_rs::DeviceBuilder;
 ///
-/// #[tokio::main]
-/// async fn main() -> std::io::Result<()> {
+/// # async fn example() -> std::io::Result<()> {
 ///     // Create a TUN device with IPv4 configuration
 ///     let dev = DeviceBuilder::new()
 ///         .name("tun0")
@@ -433,10 +432,10 @@ where
 ///
 ///     // Send a frame (Replace with real IP message)
 ///     let packet = b"[IP Packet: 10.0.0.1 -> 10.0.0.2] Hello, TUN!";
-///     framed_write.send(BytesMut::from(packet)).await?;
+///     framed_write.send(BytesMut::from(packet.as_slice())).await?;
 ///
 ///     Ok(())
-/// }
+/// # }
 /// ```
 pub struct DeviceFramedWrite<C, T = AsyncDevice> {
     dev: T,
@@ -451,7 +450,7 @@ where
     ///
     /// The write side of the framed device.
     /// # Example
-    /// ```
+    /// ```no_run
     /// use std::net::Ipv4Addr;
     /// use std::sync::Arc;
     /// use tun_rs::{
@@ -465,6 +464,7 @@ where
     /// );
     /// let mut w = DeviceFramedWrite::new(dev.clone(), BytesCodec::new());
     /// let mut r = DeviceFramedRead::new(dev, BytesCodec::new());
+    /// # Ok::<(), std::io::Error>(())
     /// ```
     /// # Note
     /// An efficient way is to directly use [`DeviceFramed::split`] if the device is cloneable
@@ -1253,4 +1253,50 @@ mod read_buffer_size_tests {
         state.set_read_buffer_size(1_522);
         assert_eq!(state.read_buffer_size(), 1_522);
     }
+}
+
+#[cfg(all(
+    test,
+    target_os = "linux",
+    not(target_env = "ohos"),
+    feature = "async_tokio"
+))]
+mod framed_buffer_tests {
+    use super::{BytesCodec, DeviceFramedRead};
+    use crate::platform::DeviceImpl;
+    use crate::AsyncDevice;
+    use futures::StreamExt;
+    use std::os::fd::IntoRawFd;
+    use std::os::unix::net::UnixDatagram;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn qinq_mtu_boundary_is_not_truncated() {
+        // A test descriptor has no interface MTU, so the framed reader takes
+        // compute_buffer_size's 4096-byte fallback. Add exactly the L2 bytes
+        // required by an Ethernet frame carrying two VLAN tags. If the QinQ
+        // allowance regresses from 22 to the old 18 bytes, recv truncates this
+        // datagram and the byte-for-byte assertion below fails.
+        const FALLBACK_MTU: usize = 4096;
+        const QINQ_FRAME_LEN: usize = FALLBACK_MTU + 14 + 2 * 4;
+
+        let (device_socket, peer) = UnixDatagram::pair().expect("create datagram pair");
+        let device =
+            AsyncDevice::new_dev(DeviceImpl::from_fd_for_test(device_socket.into_raw_fd()))
+                .expect("register async device");
+        let mut framed = DeviceFramedRead::new(device, BytesCodec::new());
+        let frame = vec![0x5a; QINQ_FRAME_LEN];
+
+        assert_eq!(
+            peer.send(&frame).expect("send QinQ-sized frame"),
+            frame.len()
+        );
+        let received = framed
+            .next()
+            .await
+            .expect("framed stream ended")
+            .expect("read framed packet");
+
+        assert_eq!(received.len(), QINQ_FRAME_LEN);
+        assert_eq!(&received[..], &frame);
+  }
 }

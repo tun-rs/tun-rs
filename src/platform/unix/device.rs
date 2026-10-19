@@ -199,6 +199,13 @@ impl DeviceImpl {
     /// the IP addresses into a vector.
     #[cfg(any(not(target_os = "linux"), feature = "address-management"))]
     pub fn addresses(&self) -> io::Result<Vec<std::net::IpAddr>> {
+        // OpenBSD reports netmasks with a truncated sockaddr that generic parsers may
+        // reject, dropping the whole entry; read the addresses directly instead.
+        #[cfg(target_os = "openbsd")]
+        {
+            return openbsd_addresses(&self.name_impl()?);
+        }
+        #[cfg(not(target_os = "openbsd"))]
         Ok(crate::platform::get_if_addrs_by_name(self.name_impl()?)?
             .iter()
             .filter_map(|v| v.address.ip_addr())
@@ -367,4 +374,41 @@ mod if_index_tests {
     fn missing_interface_is_an_error_not_index_zero() {
         assert!(if_name_to_index(c"tun-rs/definitely-invalid").is_err());
     }
+}
+
+#[cfg(target_os = "openbsd")]
+fn openbsd_addresses(name: &str) -> io::Result<Vec<std::net::IpAddr>> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    let mut result = Vec::new();
+    unsafe {
+        let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
+        if libc::getifaddrs(&mut head) < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut cur = head;
+        while !cur.is_null() {
+            let ifa = &*cur;
+            cur = ifa.ifa_next;
+            if ifa.ifa_addr.is_null()
+                || std::ffi::CStr::from_ptr(ifa.ifa_name).to_bytes() != name.as_bytes()
+            {
+                continue;
+            }
+            match (*ifa.ifa_addr).sa_family as libc::c_int {
+                libc::AF_INET => {
+                    let sin = &*(ifa.ifa_addr as *const libc::sockaddr_in);
+                    result.push(IpAddr::V4(Ipv4Addr::from(u32::from_be(
+                        sin.sin_addr.s_addr,
+                    ))));
+                }
+                libc::AF_INET6 => {
+                    let sin6 = &*(ifa.ifa_addr as *const libc::sockaddr_in6);
+                    result.push(IpAddr::V6(Ipv6Addr::from(sin6.sin6_addr.s6_addr)));
+                }
+                _ => {}
+            }
+        }
+        libc::freeifaddrs(head);
+    }
+    Ok(result)
 }
