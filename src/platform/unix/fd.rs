@@ -49,7 +49,6 @@ impl Fd {
             Ok((flags & O_NONBLOCK) != 0)
         }
     }
-    #[cfg(target_os = "macos")]
     pub(crate) fn set_cloexec(&self) -> io::Result<()> {
         unsafe {
             let flags = fcntl(self.inner, libc::F_GETFD);
