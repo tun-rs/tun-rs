@@ -181,14 +181,21 @@ impl DeviceImpl {
     pub fn enabled(&self, up: bool) -> io::Result<()> {
         let name = self.ifname()?;
         let flag = if up { "up" } else { "down" };
-        // Only touch the address families that are actually plumbed, so an
-        // IPv6-only device does not print an `inet` error.
-        let v4 = Command::new("/sbin/ifconfig")
+        // The IPv4 side exists on every freshly plumbed device, but it only
+        // accepts `up` once an address is configured. Use inet only then.
+        let v4_configured = Command::new("/sbin/ifconfig")
             .args([name, "inet"])
             .output()
-            .map(|o| o.status.success())
+            .map(|o| {
+                o.status.success()
+                    && String::from_utf8_lossy(&o.stdout)
+                        .split_whitespace()
+                        .skip_while(|w| *w != "inet")
+                        .nth(1)
+                        .is_some_and(|a| a != "0.0.0.0")
+            })
             .unwrap_or(false);
-        if v4 {
+        if v4_configured {
             ifconfig(&[name, "inet", flag])
         } else {
             ifconfig(&[name, "inet6", flag])
