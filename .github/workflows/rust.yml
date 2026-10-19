@@ -215,6 +215,59 @@ jobs:
           run_integration ""
           run_integration "async_tokio,async_framed,interruptible,experimental"
 
+  build_n_test_netbsd:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Build and test x86_64-NetBSD
+        uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
+        with:
+          operating_system: netbsd
+          architecture: x86-64
+          version: 10.1
+          shell: bash
+          memory: 5G
+          cpu_count: 4
+          run: |
+            set -euo pipefail
+            uname -a
+            sudo pkgin -y install git curl clang jq
+            curl --proto 'https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+              sh -s -- -y --default-toolchain 1.99.1 --profile minimal
+            source "$HOME/.cargo/env"
+            export CC=clang
+            export CXX=clang++
+            export CARGO_TERM_COLOR=always
+
+            cargo +1.99.1 check --all-targets
+            cargo +1.99.1 check --all-targets --features async_tokio,async_framed,interruptible,experimental
+            cargo +1.99.1 check --all-targets --features async_io,async_framed,interruptible,experimental
+            cargo +1.99.1 test --lib
+            cargo +1.99.1 test --lib --features async_tokio,async_framed,interruptible,experimental
+            cargo +1.99.1 test --lib --features async_io,async_framed,interruptible,experimental
+
+            run_privileged() {
+              local features="$1"
+              local -a cmd=(cargo +1.99.1 test --test test_dev --no-run --message-format=json)
+              if [[ -n "$features" ]]; then
+                cmd+=(--features "$features")
+              fi
+              local exe
+              exe="$("${cmd[@]}" |
+                jq -r 'select(.executable != null and .target.name == "test_dev") | .executable' |
+                tail -n1)"
+              test -n "$exe"
+              sudo "$exe" --test-threads=1
+            }
+
+            run_privileged ""
+            run_privileged "async_tokio,async_framed,interruptible,experimental"
+            run_privileged "async_io,async_framed,interruptible,experimental"
+
   build_n_test_android:
     runs-on: ubuntu-latest
 
