@@ -181,10 +181,17 @@ impl DeviceImpl {
     pub fn enabled(&self, up: bool) -> io::Result<()> {
         let name = self.ifname()?;
         let flag = if up { "up" } else { "down" };
-        // Try IPv4 first; if only IPv6 is plumbed, fall back to inet6.
-        match ifconfig(&[name, "inet", flag]) {
-            Ok(()) => Ok(()),
-            Err(_) => ifconfig(&[name, "inet6", flag]),
+        // Only touch the address families that are actually plumbed, so an
+        // IPv6-only device does not print an `inet` error.
+        let v4 = Command::new("/sbin/ifconfig")
+            .args([name, "inet"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if v4 {
+            ifconfig(&[name, "inet", flag])
+        } else {
+            ifconfig(&[name, "inet6", flag])
         }
     }
 
