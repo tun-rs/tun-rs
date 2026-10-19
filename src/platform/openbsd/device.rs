@@ -310,6 +310,26 @@ impl DeviceImpl {
     pub(crate) fn name_impl(&self) -> io::Result<String> {
         Ok(self.name.clone())
     }
+    fn name_from_dev_dir(rdev: libc::dev_t, typ: libc::mode_t) -> io::Result<String> {
+        use std::os::unix::fs::MetadataExt;
+        for entry in std::fs::read_dir("/dev")?.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !(name.starts_with("tun") || name.starts_with("tap")) {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                if meta.rdev() as libc::dev_t == rdev
+                    && (meta.mode() as libc::mode_t & libc::S_IFMT) == typ
+                {
+                    return Ok(name);
+                }
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "unknown device name (\"??\")",
+        ))
+    }
     fn name_of_fd(tun: &Tun) -> io::Result<String> {
         unsafe {
             let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
@@ -329,10 +349,9 @@ impl DeviceImpl {
             if !p.is_null() {
                 let name = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
                 if name == "??" {
-                    return Err(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "unknown device name (\"??\")",
-                    ));
+                    // devname(3) cannot resolve dynamically created tun/tap nodes,
+                    // so look the node up in /dev by its device number.
+                    return Self::name_from_dev_dir(st.st_rdev, typ);
                 }
                 Ok(name)
             } else {
