@@ -89,12 +89,9 @@ fn ifconfig(args: &[&str]) -> io::Result<()> {
 
 impl DeviceImpl {
     fn ifname(&self) -> io::Result<&str> {
-        self.illumos
-            .get()
-            .map(|s| s.name.as_str())
-            .ok_or_else(|| {
-                io::Error::new(ErrorKind::NotConnected, "illumos device not initialised")
-            })
+        self.illumos.get().map(|s| s.name.as_str()).ok_or_else(|| {
+            io::Error::new(ErrorKind::NotConnected, "illumos device not initialised")
+        })
     }
 
     pub(crate) fn new(config: DeviceConfig) -> io::Result<Self> {
@@ -139,13 +136,27 @@ impl DeviceImpl {
         )?;
         drop(if_fd);
 
-        // 4. record muxid on the interface
+        // The link is persistent: from here on, any early return must unlink
+        // it. `State::drop` does the I_PUNLINK, so build it immediately.
         let name = format!("tun{ppa}");
+        let state = State {
+            name: name.clone(),
+            ctl_fd: ctl,
+            muxid,
+        };
+
+        // 4. record muxid on the interface
         let mut req = LifReq::new(&name);
         req.set_ip_muxid(muxid);
         step(
             "SIOCSLIFMUXID",
-            cvt(unsafe { libc::ioctl(ctl.as_raw_fd(), SIOCSLIFMUXID, &mut req as *mut LifReq) }),
+            cvt(unsafe {
+                libc::ioctl(
+                    state.ctl_fd.as_raw_fd(),
+                    SIOCSLIFMUXID,
+                    &mut req as *mut LifReq,
+                )
+            }),
         )?;
 
         // 5. one packet per read (non fatal if it fails)
@@ -155,7 +166,7 @@ impl DeviceImpl {
         let raw = data.into_raw_fd();
         let tun = Tun::new(unsafe { Fd::new_unchecked(raw) });
         let dev = Self::from_tun(tun)?;
-        let _ = dev.illumos.set(State { name, ctl_fd: ctl, muxid });
+        let _ = dev.illumos.set(state);
         Ok(dev)
     }
 
