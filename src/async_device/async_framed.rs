@@ -1298,5 +1298,5 @@ mod framed_buffer_tests {
 
         assert_eq!(received.len(), QINQ_FRAME_LEN);
         assert_eq!(&received[..], &frame);
-  }
+    }
 }
