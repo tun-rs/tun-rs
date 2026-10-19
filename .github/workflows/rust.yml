@@ -83,6 +83,12 @@ jobs:
           cargo build --verbose --examples --tests
           cargo build --verbose --examples --tests --features async_io
           cargo build --verbose --examples --tests --features async_tokio
+      - name: Documentation tests (Linux)
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
+        run: |
+          cargo test --doc
+          cargo test --doc --features async_tokio,async_framed
+          cargo test --doc --features async_io,async_framed
       # The readiness unit tests run on pipes and socketpairs (Linux only).
       - name: Readiness tests (Linux)
         if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
