@@ -40,7 +40,12 @@ impl AsFd for DeviceImpl {
         unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
     }
 }
-#[cfg(not(any(target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
+#[cfg(not(any(
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "illumos"
+)))]
 impl std::os::unix::io::IntoRawFd for DeviceImpl {
     fn into_raw_fd(self) -> RawFd {
         self.tun.into_raw_fd()

@@ -55,8 +55,10 @@ use getifaddrs::Interface;
 #[cfg(unix)]
 use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
+#[cfg(not(target_os = "illumos"))]
+use std::os::fd::IntoRawFd;
 #[cfg(unix)]
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
 
 #[allow(dead_code)]
 pub(crate) const ETHER_ADDR_LEN: u8 = 6;
@@ -830,7 +832,7 @@ impl AsFd for SyncDevice {
         unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
     }
 }
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "illumos")))]
 impl IntoRawFd for SyncDevice {
     fn into_raw_fd(self) -> RawFd {
         self.0.into_raw_fd()
