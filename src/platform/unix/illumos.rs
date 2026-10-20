@@ -182,7 +182,7 @@ impl DeviceImpl {
         let name = self.ifname()?;
         let flag = if up { "up" } else { "down" };
         // The IPv4 side exists on every freshly plumbed device, but it only
-        // accepts `up` once an address is configured. Use inet only then.
+        // accepts `up` once an address is configured.
         let v4_configured = Command::new("/sbin/ifconfig")
             .args([name, "inet"])
             .output()
@@ -195,11 +195,24 @@ impl DeviceImpl {
                         .is_some_and(|a| a != "0.0.0.0")
             })
             .unwrap_or(false);
+        let v6_configured = Command::new("/sbin/ifconfig")
+            .args([name, "inet6"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        // Apply the state to every configured family and report the first failure.
+        let mut result = Ok(());
         if v4_configured {
-            ifconfig(&[name, "inet", flag])
-        } else {
-            ifconfig(&[name, "inet6", flag])
+            result = ifconfig(&[name, "inet", flag]);
         }
+        if v6_configured || !v4_configured {
+            let r6 = ifconfig(&[name, "inet6", flag]);
+            if result.is_ok() {
+                result = r6;
+            }
+        }
+        result
     }
 
     pub fn set_network_address<IPv4: ToIpv4Address, Netmask: ToIpv4Netmask>(
@@ -218,11 +231,17 @@ impl DeviceImpl {
             None => {
                 // Point-to-point needs a peer distinct from our own address.
                 // Use the network address + 1, or + 2 if that is us.
+                let no_peer = || {
+                    io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "cannot derive a default peer address",
+                    )
+                };
                 let m = u32::from(mask);
                 let base = u32::from(addr) & m;
-                let mut peer = base + 1;
+                let mut peer = base.checked_add(1).ok_or_else(no_peer)?;
                 if peer == u32::from(addr) {
-                    peer = base + 2;
+                    peer = base.checked_add(2).ok_or_else(no_peer)?;
                 }
                 std::net::Ipv4Addr::from(peer)
             }
