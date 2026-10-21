@@ -55,7 +55,7 @@ use getifaddrs::Interface;
 #[cfg(unix)]
 use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
-#[cfg(not(target_os = "illumos"))]
+#[cfg(all(unix, not(target_os = "illumos")))]
 use std::os::fd::IntoRawFd;
 #[cfg(unix)]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
