@@ -126,6 +126,15 @@ impl DeviceImpl {
             "TUNNEWPPA",
             cvt(unsafe { libc::ioctl(data.as_raw_fd(), I_STR, &mut sio as *mut StrIoctl) }),
         )?;
+        // The driver only returns a ppa with no live data stream, so any
+        // existing tun<ppa> plumbing is left over from a process that died
+        // without running Drop (kill -9, crash). Remove it before linking.
+        let stale = format!("tun{ppa}");
+        for family in ["inet6", "inet"] {
+            let _ = Command::new("/sbin/ifconfig")
+                .args([stale.as_str(), family, "unplumb"])
+                .output();
+        }
 
         // 2. IP-side stream
         let if_fd = step("open /dev/tun (ip side)", open_rw("/dev/tun"))?;
