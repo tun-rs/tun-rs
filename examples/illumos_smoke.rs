@@ -50,7 +50,13 @@ fn main() -> std::io::Result<()> {
                 sum = (sum & 0xffff) + (sum >> 16);
             }
             r[10..12].copy_from_slice(&(!(sum as u16)).to_be_bytes());
-            dev.send(&r)?;
+            let n = dev.send(&r)?;
+            if n != r.len() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "short write of ICMP reply",
+                ));
+            }
         }
     }
 }
