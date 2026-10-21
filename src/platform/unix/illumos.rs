@@ -6,6 +6,7 @@ use std::ffi::CString;
 use std::io::{self, ErrorKind};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // Values verified on this machine (headers + C program)
 const STR: c_int = (b'S' as c_int) << 8;
@@ -49,10 +50,19 @@ pub(crate) struct State {
     pub name: String,
     pub ctl_fd: OwnedFd,
     pub muxid: c_int,
+    /// Set once this device has plumbed the IPv6 stream, so `Drop` removes it.
+    pub v6_plumbed: AtomicBool,
 }
 
 impl Drop for State {
     fn drop(&mut self) {
+        // The IPv6 stream is plumbed separately via ifconfig and is not
+        // removed by I_PUNLINK, so unplumb it first.
+        if self.v6_plumbed.load(Ordering::Relaxed) {
+            let _ = Command::new("/sbin/ifconfig")
+                .args([self.name.as_str(), "inet6", "unplumb"])
+                .output();
+        }
         unsafe { libc::ioctl(self.ctl_fd.as_raw_fd(), I_PUNLINK, self.muxid) };
     }
 }
@@ -143,6 +153,7 @@ impl DeviceImpl {
             name: name.clone(),
             ctl_fd: ctl,
             muxid,
+            v6_plumbed: AtomicBool::new(false),
         };
 
         // 4. record muxid on the interface
@@ -279,6 +290,11 @@ impl DeviceImpl {
         let a = addr.ipv6()?.to_string();
         let prefix = u128::from(netmask.netmask()?).leading_ones().to_string();
         // plumb may already have been done; ignore its error
+        // Mark before plumbing: if plumb fails because a stale stream already
+        // exists, or the address step fails afterwards, Drop still cleans up.
+        if let Some(s) = self.illumos.get() {
+            s.v6_plumbed.store(true, Ordering::Relaxed);
+        }
         let _ = ifconfig(&[name, "inet6", "plumb"]);
         // point-to-point: address is its own destination, as tailscale's tun0 does
         ifconfig(&[name, "inet6", &format!("{a}/{prefix}"), &a, "up"])
