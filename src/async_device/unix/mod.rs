@@ -7,7 +7,9 @@ use crate::SyncDevice;
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
 use std::ops::Deref;
-use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+#[cfg(not(target_os = "illumos"))]
+use std::os::fd::IntoRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 
 #[cfg(feature = "async_tokio")]
 mod tokio;
@@ -30,6 +32,7 @@ impl FromRawFd for AsyncDevice {
         AsyncDevice::from_fd(fd).expect("failed to adopt TUN/TAP file descriptor")
     }
 }
+#[cfg(not(target_os = "illumos"))]
 impl IntoRawFd for AsyncDevice {
     fn into_raw_fd(self) -> RawFd {
         self.into_fd().unwrap()
@@ -74,6 +77,7 @@ impl AsyncDevice {
         AsyncDevice::new_dev(DeviceImpl::borrow_raw(fd)?)
     }
 
+    #[cfg(not(target_os = "illumos"))]
     pub fn into_fd(self) -> io::Result<RawFd> {
         Ok(self.into_device()?.into_raw_fd())
     }
