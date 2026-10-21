@@ -201,12 +201,18 @@ impl DeviceImpl {
             .map(|o| o.status.success())
             .unwrap_or(false);
 
+        // Nothing plumbed or configured: there is nothing to bring down, and
+        // IPv6 would not even exist as a plumbed stream.
+        if !v4_configured && !v6_configured {
+            return Ok(());
+        }
+
         // Apply the state to every configured family and report the first failure.
         let mut result = Ok(());
         if v4_configured {
             result = ifconfig(&[name, "inet", flag]);
         }
-        if v6_configured || !v4_configured {
+        if v6_configured {
             let r6 = ifconfig(&[name, "inet6", flag]);
             if result.is_ok() {
                 result = r6;
@@ -229,8 +235,6 @@ impl DeviceImpl {
         let dest = match destination {
             Some(d) => d.ipv4()?,
             None => {
-                // Point-to-point needs a peer distinct from our own address.
-                // Use the network address + 1, or + 2 if that is us.
                 let no_peer = || {
                     io::Error::new(
                         ErrorKind::InvalidInput,
@@ -238,12 +242,19 @@ impl DeviceImpl {
                     )
                 };
                 let m = u32::from(mask);
-                let base = u32::from(addr) & m;
-                let mut peer = base.checked_add(1).ok_or_else(no_peer)?;
-                if peer == u32::from(addr) {
-                    peer = base.checked_add(2).ok_or_else(no_peer)?;
+                let a = u32::from(addr);
+                let base = a & m;
+                if m == 0xffff_fffe {
+                    // /31 (RFC 3021): the peer is the other address in the pair.
+                    std::net::Ipv4Addr::from(a ^ 1)
+                } else {
+                    // Point-to-point needs a peer distinct from our own address.
+                    let mut peer = base.checked_add(1).ok_or_else(no_peer)?;
+                    if peer == a {
+                        peer = base.checked_add(2).ok_or_else(no_peer)?;
+                    }
+                    std::net::Ipv4Addr::from(peer)
                 }
-                std::net::Ipv4Addr::from(peer)
             }
         };
 
