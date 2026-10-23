@@ -213,6 +213,7 @@ Common error scenarios include:
     target_os = "freebsd",
     target_os = "openbsd",
     target_os = "netbsd",
+    target_os = "illumos",
 ))]
 pub use crate::builder::*;
 pub use crate::platform::*;
@@ -232,6 +233,7 @@ pub use async_device::*;
     target_os = "freebsd",
     target_os = "openbsd",
     target_os = "netbsd",
+    target_os = "illumos",
 ))]
 mod builder;
 mod platform;
