@@ -45,11 +45,11 @@ mod illumos;
 ))]
 /// A TUN device for Android/iOS/illumos/...
 pub struct DeviceImpl {
+    #[cfg(target_os = "illumos")]
+    pub(crate) illumos: std::sync::OnceLock<illumos::State>,
     pub(crate) tun: Tun,
     #[allow(dead_code)]
     pub(crate) op_lock: std::sync::RwLock<()>,
-    #[cfg(target_os = "illumos")]
-    pub(crate) illumos: std::sync::OnceLock<illumos::State>,
 }
 
 #[cfg(all(

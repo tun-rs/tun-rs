@@ -199,30 +199,31 @@ impl DeviceImpl {
     }
 
     pub fn enabled(&self, up: bool) -> io::Result<()> {
+        // Hold the configuration lock for the whole function, so concurrent
+        // enabled() calls cannot interleave their ifconfig commands.
+        let _guard = self.op_lock.write().unwrap();
+
         let name = self.ifname()?;
         let flag = if up { "up" } else { "down" };
-        // The IPv4 side exists on every freshly plumbed device, but it only
-        // accepts `up` once an address is configured.
-        let v4_configured = Command::new("/sbin/ifconfig")
+
+        // Propagate a failure to run ifconfig instead of treating it
+        //  as "family not configured".
+        let v4_output = Command::new("/sbin/ifconfig")
             .args([name, "inet"])
-            .output()
-            .map(|o| {
-                o.status.success()
-                    && String::from_utf8_lossy(&o.stdout)
-                        .split_whitespace()
-                        .skip_while(|w| *w != "inet")
-                        .nth(1)
-                        .is_some_and(|a| a != "0.0.0.0")
-            })
-            .unwrap_or(false);
+            .output()?;
+        let v4_configured = v4_output.status.success()
+            && String::from_utf8_lossy(&v4_output.stdout)
+                .split_whitespace()
+                .skip_while(|w| *w != "inet")
+                .nth(1)
+                .is_some_and(|a| a != "0.0.0.0");
         let v6_configured = Command::new("/sbin/ifconfig")
             .args([name, "inet6"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+            .output()?
+            .status
+            .success();
 
-        // Nothing plumbed or configured: there is nothing to bring down, and
-        // IPv6 would not even exist as a plumbed stream.
+        // Nothing plumbed or configured: there is nothing to change.
         if !v4_configured && !v6_configured {
             return Ok(());
         }
@@ -285,7 +286,6 @@ impl DeviceImpl {
             &dest.to_string(),
             "netmask",
             &mask.to_string(),
-            "up",
         ])
     }
 
@@ -306,6 +306,6 @@ impl DeviceImpl {
         }
         let _ = ifconfig(&[name, "inet6", "plumb"]);
         // point-to-point: address is its own destination, as tailscale's tun0 does
-        ifconfig(&[name, "inet6", &format!("{a}/{prefix}"), &a, "up"])
+        ifconfig(&[name, "inet6", &format!("{a}/{prefix}"), &a])
     }
 }
