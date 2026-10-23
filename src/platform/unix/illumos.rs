@@ -52,6 +52,8 @@ pub(crate) struct State {
     pub muxid: c_int,
     /// Set once this device has plumbed the IPv6 stream, so `Drop` removes it.
     pub v6_plumbed: AtomicBool,
+    /// Last requested MTU, applied to IPv6 when it is plumbed later.
+    pub mtu: std::sync::atomic::AtomicU32,
 }
 
 impl Drop for State {
@@ -163,6 +165,7 @@ impl DeviceImpl {
             ctl_fd: ctl,
             muxid,
             v6_plumbed: AtomicBool::new(false),
+            mtu: std::sync::atomic::AtomicU32::new(0),
         };
 
         // 4. record muxid on the interface
@@ -179,8 +182,12 @@ impl DeviceImpl {
             }),
         )?;
 
-        // 5. one packet per read (non fatal if it fails)
-        unsafe { libc::ioctl(data.as_raw_fd(), I_SRDOPT, RMSGD) };
+        // 5. one packet per read: without message mode a read could merge
+        // queued packets, so a failure here is fatal.
+        step(
+            "I_SRDOPT RMSGD",
+            cvt(unsafe { libc::ioctl(data.as_raw_fd(), I_SRDOPT, RMSGD) }),
+        )?;
 
         // 6. wrap the data fd
         let raw = data.into_raw_fd();
@@ -195,7 +202,23 @@ impl DeviceImpl {
     }
 
     pub fn set_mtu(&self, mtu: u16) -> io::Result<()> {
-        ifconfig(&[self.ifname()?, "mtu", &mtu.to_string()])
+        let _guard = self.op_lock.write().unwrap();
+        let name = self.ifname()?;
+        let m = mtu.to_string();
+        if let Some(s) = self.illumos.get() {
+            s.mtu.store(u32::from(mtu), Ordering::Relaxed);
+        }
+        // With no address family, ifconfig only touches IPv4.
+        ifconfig(&[name, "inet", "mtu", &m])?;
+        // IPv6 may not be plumbed yet; add_address_v6 applies the MTU later.
+        let v6_plumbed = self
+            .illumos
+            .get()
+            .is_some_and(|s| s.v6_plumbed.load(Ordering::Relaxed));
+        if v6_plumbed {
+            ifconfig(&[name, "inet6", "mtu", &m])?;
+        }
+        Ok(())
     }
 
     pub fn enabled(&self, up: bool) -> io::Result<()> {
@@ -306,6 +329,13 @@ impl DeviceImpl {
         }
         let _ = ifconfig(&[name, "inet6", "plumb"]);
         // point-to-point: address is its own destination, as tailscale's tun0 does
-        ifconfig(&[name, "inet6", &format!("{a}/{prefix}"), &a])
+        ifconfig(&[name, "inet6", &format!("{a}/{prefix}"), &a])?;
+        if let Some(s) = self.illumos.get() {
+            let m = s.mtu.load(Ordering::Relaxed);
+            if m != 0 {
+                ifconfig(&[name, "inet6", "mtu", &m.to_string()])?;
+            }
+        }
+        Ok(())
     }
 }
