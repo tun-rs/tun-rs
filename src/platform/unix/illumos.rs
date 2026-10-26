@@ -205,9 +205,6 @@ impl DeviceImpl {
         let _guard = self.op_lock.write().unwrap();
         let name = self.ifname()?;
         let m = mtu.to_string();
-        if let Some(s) = self.illumos.get() {
-            s.mtu.store(u32::from(mtu), Ordering::Relaxed);
-        }
         // With no address family, ifconfig only touches IPv4.
         ifconfig(&[name, "inet", "mtu", &m])?;
         // IPv6 may not be plumbed yet; add_address_v6 applies the MTU later.
@@ -217,6 +214,10 @@ impl DeviceImpl {
             .is_some_and(|s| s.v6_plumbed.load(Ordering::Relaxed));
         if v6_plumbed {
             ifconfig(&[name, "inet6", "mtu", &m])?;
+        }
+        // Commit only after every command succeeded.
+        if let Some(s) = self.illumos.get() {
+            s.mtu.store(u32::from(mtu), Ordering::Relaxed);
         }
         Ok(())
     }
