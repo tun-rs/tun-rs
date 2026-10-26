@@ -104,8 +104,23 @@ jobs:
         if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
         timeout-minutes: 10
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ethtool iproute2 jq
           sudo modprobe tun || true
           ls -l /dev/net/tun
+      - name: Persistent offload reset regression (Linux)
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe="$(
+            cargo test --test test_dev --no-run --message-format=json |
+              jq -r 'select(.executable != null and .target.name == "test_dev") | .executable' |
+              tail -n1
+          )"
+          test -n "$exe"
+          sudo "$exe" --ignored --exact test_offload_mask_cleared_on_reattach_without_offload --test-threads=1
       - name: Deleted device wakes tokio readers (Linux)
         if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
         timeout-minutes: 10

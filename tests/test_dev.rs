@@ -685,6 +685,23 @@ fn test_offload_mask_cleared_on_reattach_without_offload() {
 
     const NAME: &str = "tunoffldclr";
 
+    struct TunLinkGuard<'a>(&'a str);
+
+    impl<'a> TunLinkGuard<'a> {
+        fn new(name: &'a str) -> Self {
+            let _ = Command::new("ip").args(["link", "delete", name]).status();
+            Self(name)
+        }
+    }
+
+    impl Drop for TunLinkGuard<'_> {
+        fn drop(&mut self) {
+            let _ = Command::new("ip").args(["link", "delete", self.0]).status();
+        }
+    }
+
+    let _cleanup = TunLinkGuard::new(NAME);
+
     // Parse `ethtool -k <name>` output for a single feature flag's state.
     // Lines look like:
     //   tx-tcp-segmentation: on
@@ -717,9 +734,6 @@ fn test_offload_mask_cleared_on_reattach_without_offload() {
         panic!("feature `{feature}` not found in `ethtool -k {name}` output:\n{stdout}");
     }
 
-    // Clean any leftover device from a previous failed run. Ignore errors.
-    let _ = Command::new("ip").args(["link", "delete", NAME]).status();
-
     // ── Attach #1: offload=true, persisted ──────────────────────────────
     // Raises the device-wide TUN_F_* mask via TUNSETOFFLOAD.
     let dev1 = DeviceBuilder::new()
@@ -750,9 +764,6 @@ fn test_offload_mask_cleared_on_reattach_without_offload() {
     let csum_after_clear = ethtool_feature(NAME, "tx-checksum-ip-generic");
 
     drop(dev2);
-
-    // Cleanup before asserting so a failed assert doesn't leak the device.
-    let _ = Command::new("ip").args(["link", "delete", NAME]).status();
 
     assert!(
         tso_after_offload,
