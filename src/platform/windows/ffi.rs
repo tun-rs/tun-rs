@@ -688,7 +688,10 @@ pub(crate) fn win_result(code: u32) -> io::Result<()> {
 /// returns `ERROR_NOT_FOUND` (1168), which previously caused the entire call to fail
 /// even though the IPv4 metric was set successfully. This function now skips address
 /// families whose interface row does not exist, so IPv4-only operation is not blocked.
+/// If neither address family has an interface row, an error is returned instead of a
+/// silent no-op.
 pub fn set_interface_metric(index: u32, metric: u32) -> io::Result<()> {
+    let mut updated = false;
     for family in [AF_INET, AF_INET6] {
         let mut row = MIB_IPINTERFACE_ROW {
             Family: family,
@@ -710,6 +713,10 @@ pub fn set_interface_metric(index: u32, metric: u32) -> io::Result<()> {
         // `SetIpInterfaceEntry` rejects when writing the row back.
         row.SitePrefixLength = 0;
         win_result(unsafe { SetIpInterfaceEntry(&mut row) })?;
+        updated = true;
+    }
+    if !updated {
+        return Err(io::Error::from_raw_os_error(ERROR_NOT_FOUND as i32));
     }
     Ok(())
 }
