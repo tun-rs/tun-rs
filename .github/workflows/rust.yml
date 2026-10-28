@@ -149,7 +149,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build x86_64-FreeBSD
-        uses: cross-platform-actions/action@v1.6.0
+        uses: cross-platform-actions/action@v1.7.0
         env:
           TARGET: x86_64-unknown-freebsd
         with:
@@ -193,7 +193,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Start x86_64-OpenBSD VM
-        uses: cross-platform-actions/action@v1.6.0
+        uses: cross-platform-actions/action@v1.7.0
         with:
           operating_system: openbsd
           architecture: x86-64
@@ -244,7 +244,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build and test x86_64-NetBSD
-        uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
+        uses: cross-platform-actions/action@82668f1fbd89d9c99487604f822cbf6716f124d3 # v1.7.0
         with:
           operating_system: netbsd
           architecture: x86-64
