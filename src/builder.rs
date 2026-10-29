@@ -322,6 +322,9 @@ pub(crate) struct DeviceConfig {
     /// Enable multi queue support
     #[cfg(target_os = "linux")]
     pub(crate) multi_queue: Option<bool>,
+    /// Enable IFF_BACKPRESSURE
+    #[cfg(target_os = "linux")]
+    pub(crate) backpressure: Option<bool>,
 }
 type IPV4 = (
     io::Result<Ipv4Addr>,
@@ -654,6 +657,24 @@ impl DeviceBuilderGuard<'_> {
         self.0.multi_queue = Some(multi_queue);
         self
     }
+    /// Enables qdisc backpressure on Linux via `IFF_BACKPRESSURE`.
+    ///
+    /// When the TUN/TAP ring is full, the kernel stops the TX queue instead of
+    /// dropping packets, so the qdisc can apply backpressure. This can reduce
+    /// throughput with many parallel senders.
+    ///
+    /// # Arguments
+    ///
+    /// * `backpressure` - `true` to enable backpressure (default: false)
+    ///
+    /// # Platform
+    ///
+    /// Linux only. Requires Linux 7.3+, older kernels ignore the flag.
+    #[cfg(target_os = "linux")]
+    pub fn backpressure(&mut self, backpressure: bool) -> &mut Self {
+        self.0.backpressure = Some(backpressure);
+        self
+    }
     /// Enables or disables packet information for the network driver(TUN)
     /// on macOS, Linux, freebsd, openbsd, netbsd.
     ///
@@ -894,6 +915,9 @@ pub struct DeviceBuilder {
     /// Enable multi queue support
     #[cfg(target_os = "linux")]
     multi_queue: Option<bool>,
+    /// Enable IFF_BACKPRESSURE
+    #[cfg(target_os = "linux")]
+    backpressure: Option<bool>,
 }
 
 impl DeviceBuilder {
@@ -1115,6 +1139,13 @@ impl DeviceBuilder {
         self.multi_queue = Some(multi_queue);
         self
     }
+    /// Enables qdisc backpressure on Linux via `IFF_BACKPRESSURE` (Linux 7.3+).
+    /// This can reduce throughput with many parallel senders.
+    #[cfg(target_os = "linux")]
+    pub fn backpressure(mut self, backpressure: bool) -> Self {
+        self.backpressure = Some(backpressure);
+        self
+    }
     /// Enables or disables packet information for the network driver(TUN)
     /// on macOS, Linux, freebsd, openbsd, netbsd.
     ///
@@ -1293,6 +1324,8 @@ impl DeviceBuilder {
             offload: self.offload.take(),
             #[cfg(target_os = "linux")]
             multi_queue: self.multi_queue.take(),
+            #[cfg(target_os = "linux")]
+            backpressure: self.backpressure.take(),
         }
     }
     pub(crate) fn config(self, device: &DeviceImpl) -> io::Result<()> {

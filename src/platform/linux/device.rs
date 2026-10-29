@@ -32,6 +32,7 @@ use std::{
 };
 
 const OVERWRITE_SIZE: usize = mem::size_of::<libc::__c_anonymous_ifr_ifru>();
+const IFF_BACKPRESSURE: c_short = 0x0080;
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
@@ -93,6 +94,7 @@ impl DeviceImpl {
             let iff_multi_queue = IFF_MULTI_QUEUE as c_short;
             let packet_information = config.packet_information.unwrap_or(false);
             let offload = config.offload.unwrap_or(false);
+            let backpressure = config.backpressure.unwrap_or(false);
             if packet_information && offload {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -102,7 +104,8 @@ impl DeviceImpl {
             req.ifr_ifru.ifru_flags = device_type
                 | if packet_information { 0 } else { iff_no_pi }
                 | if multi_queue { iff_multi_queue } else { 0 }
-                | if offload { iff_vnet_hdr } else { 0 };
+                | if offload { iff_vnet_hdr } else { 0 }
+                | if backpressure { IFF_BACKPRESSURE } else { 0 };
 
             let fd = libc::open(
                 c"/dev/net/tun".as_ptr() as *const _,
