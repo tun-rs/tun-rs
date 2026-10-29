@@ -193,6 +193,24 @@ pub(crate) const fn max_iov() -> usize {
     libc::UIO_MAXIOV as usize
 }
 
+// illumos has neither `IOV_MAX` nor `UIO_MAXIOV` as a compile-time constant in `libc` --
+// unlike Linux/BSD, it doesn't fix this value at build time, so it's only available via
+// `sysconf(_SC_IOV_MAX)` at runtime (this is itself standard POSIX behavior for platforms
+// that don't hardcode an IOV_MAX). Not `const fn` for this platform, since `sysconf` is a
+// real runtime call; none of the call sites require a compile-time constant. Falls back to
+// `_XOPEN_IOV_MAX` (16), the POSIX-mandated minimum, in the (unexpected) case the sysconf
+// query itself fails, rather than treating that as fatal.
+#[cfg(target_os = "illumos")]
+pub(crate) fn max_iov() -> usize {
+    const XOPEN_IOV_MAX_FALLBACK: usize = 16;
+    let n = unsafe { libc::sysconf(libc::_SC_IOV_MAX) };
+    if n > 0 {
+        n as usize
+    } else {
+        XOPEN_IOV_MAX_FALLBACK
+    }
+}
+
 impl AsRawFd for Fd {
     fn as_raw_fd(&self) -> RawFd {
         self.inner

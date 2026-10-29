@@ -29,6 +29,9 @@ pub(crate) use self::tun::Tun;
 
 pub(crate) mod device;
 
+#[cfg(target_os = "illumos")]
+mod illumos;
+
 #[cfg(all(
     unix,
     not(any(
@@ -40,12 +43,15 @@ pub(crate) mod device;
         target_os = "netbsd",
     ))
 ))]
-/// A TUN device for Android/iOS/...
+/// A TUN device for Android/iOS/illumos/...
 pub struct DeviceImpl {
+    #[cfg(target_os = "illumos")]
+    pub(crate) illumos: std::sync::OnceLock<illumos::State>,
     pub(crate) tun: Tun,
     #[allow(dead_code)]
     pub(crate) op_lock: std::sync::RwLock<()>,
 }
+
 #[cfg(all(
     unix,
     not(any(
@@ -62,6 +68,8 @@ impl DeviceImpl {
         Ok(Self {
             tun,
             op_lock: std::sync::RwLock::new(()),
+            #[cfg(target_os = "illumos")]
+            illumos: std::sync::OnceLock::new(),
         })
     }
 }

@@ -159,3 +159,7 @@ required-features = ["interruptible"]
 [[example]]
 name = "read_timeout"
 required-features = ["interruptible"]
+
+[[example]]
+name = "illumos_async"
+required-features = ["async_tokio"]
