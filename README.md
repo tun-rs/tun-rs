@@ -62,6 +62,7 @@
 | **iOS**      | ✅  | -   | Via NEPacketTunnelProvider |
 | **tvOS**     | ✅  | -   | Via NEPacketTunnelProvider |
 | **OpenHarmony** | ✅ | -  | TUN support |
+| **illumos** | ✅ | -  | TUN support |
 | **Other Unix*** | ✅ | -  | Via raw file descriptor |
 
 > **Note**: For unlisted Unix-like platforms, you can use the raw file descriptor API to integrate with platform-specific TUN implementations.
