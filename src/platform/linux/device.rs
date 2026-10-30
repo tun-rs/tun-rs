@@ -43,13 +43,10 @@ fn tx_queue_len_to_c_int(value: u32) -> io::Result<c_int> {
     })
 }
 
-fn tx_queue_len_from_c_int(value: c_int) -> io::Result<u32> {
-    u32::try_from(value).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "kernel returned a negative transmit queue length",
-        )
-    })
+fn tx_queue_len_from_c_int(value: c_int) -> u32 {
+    // SIOCGIFTXQLEN copies the kernel's unsigned tx_queue_len through the
+    // signed ifr_qlen ABI field, so preserve the field's 32-bit representation.
+    u32::from_ne_bytes(value.to_ne_bytes())
 }
 
 /// A TUN device using the TUN/TAP Linux driver.
@@ -300,7 +297,7 @@ impl DeviceImpl {
             if let Err(err) = tx_queue_len(ctl()?.as_raw_fd(), &mut ifreq) {
                 return Err(io::Error::from(err));
             }
-            tx_queue_len_from_c_int(ifreq.ifr_ifru.ifru_metric)
+            Ok(tx_queue_len_from_c_int(ifreq.ifr_ifru.ifru_metric))
         }
     }
     /// Make the device persistent.
@@ -1351,16 +1348,14 @@ mod raw_fd_contract_tests {
     use std::io;
 
     #[test]
-    fn tx_queue_len_rejects_values_outside_linux_signed_range() {
+    fn tx_queue_len_preserves_unsigned_getter_values() {
         assert!(tx_queue_len_to_c_int(i32::MAX.unsigned_abs()).is_ok_and(|value| value == i32::MAX));
         assert!(matches!(
             tx_queue_len_to_c_int(u32::MAX),
             Err(error) if error.kind() == io::ErrorKind::InvalidInput
         ));
-        assert!(matches!(
-            tx_queue_len_from_c_int(-1),
-            Err(error) if error.kind() == io::ErrorKind::InvalidData
-        ));
+        assert_eq!(tx_queue_len_from_c_int(-1), u32::MAX);
+        assert_eq!(tx_queue_len_from_c_int(i32::MIN), 1 << 31);
     }
 
     #[test]
