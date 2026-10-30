@@ -605,21 +605,17 @@ impl TcpGROTable {
         src_addr_offset: usize,
         dst_addr_offset: usize,
         tcph_offset: usize,
-        tcph_len: usize,
-        bufs_index: usize,
+        meta: TcpGroMetadata,
     ) -> Option<&mut Vec<TcpGROItem>> {
         let key = TcpFlowKey::new(pkt, src_addr_offset, dst_addr_offset, tcph_offset);
         self.items_by_flow
             .lookup_or_insert_with(key, || TcpGROItem {
                 key,
-                bufs_index: bufs_index.try_into().expect("bufs_index exceeds u16::MAX"),
+                bufs_index: meta.bufs_index,
                 num_merged: 0,
-                gso_size: pkt[tcph_offset + tcph_len..]
-                    .len()
-                    .try_into()
-                    .expect("gso_size exceeds u16::MAX"),
-                iph_len: tcph_offset.try_into().expect("iph_len exceeds u8::MAX"),
-                tcph_len: tcph_len.try_into().expect("tcph_len exceeds u8::MAX"),
+                gso_size: meta.gso_size,
+                iph_len: meta.iph_len,
+                tcph_len: meta.tcph_len,
                 sent_seq: read_be_u32(&pkt[tcph_offset + 4..tcph_offset + 8]),
                 psh_set: pkt[tcph_offset + TCP_FLAGS_OFFSET] & TCP_FLAG_PSH != 0,
             })
@@ -631,20 +627,16 @@ impl TcpGROTable {
         src_addr_offset: usize,
         dst_addr_offset: usize,
         tcph_offset: usize,
-        tcph_len: usize,
-        bufs_index: usize,
+        meta: TcpGroMetadata,
     ) {
         let key = TcpFlowKey::new(pkt, src_addr_offset, dst_addr_offset, tcph_offset);
         let item = TcpGROItem {
             key,
-            bufs_index: bufs_index.try_into().expect("bufs_index exceeds u16::MAX"),
+            bufs_index: meta.bufs_index,
             num_merged: 0,
-            gso_size: pkt[tcph_offset + tcph_len..]
-                .len()
-                .try_into()
-                .expect("gso_size exceeds u16::MAX"),
-            iph_len: tcph_offset.try_into().expect("iph_len exceeds u8::MAX"),
-            tcph_len: tcph_len.try_into().expect("tcph_len exceeds u8::MAX"),
+            gso_size: meta.gso_size,
+            iph_len: meta.iph_len,
+            tcph_len: meta.tcph_len,
             sent_seq: read_be_u32(&pkt[tcph_offset + 4..tcph_offset + 8]),
             psh_set: pkt[tcph_offset + TCP_FLAGS_OFFSET] & TCP_FLAG_PSH != 0,
         };
@@ -662,6 +654,33 @@ impl TcpGROTable {
 // 	items = append(items[:i], items[i+1:]...)
 // 	t.itemsByFlow[key] = items
 // }
+
+#[derive(Debug, Clone, Copy)]
+struct TcpGroMetadata {
+    bufs_index: u16,
+    gso_size: u16,
+    iph_len: u8,
+    tcph_len: u8,
+}
+
+impl TcpGroMetadata {
+    fn from_validated(bufs_index: usize, gso_size: usize, iph_len: usize, tcph_len: usize) -> Self {
+        Self {
+            bufs_index: bufs_index
+                .try_into()
+                .expect("handle_gro limits packet-buffer indices to u16"),
+            gso_size: gso_size
+                .try_into()
+                .expect("validated packet length keeps TCP GSO size within u16"),
+            iph_len: iph_len
+                .try_into()
+                .expect("validated IP header length fits u8"),
+            tcph_len: tcph_len
+                .try_into()
+                .expect("validated TCP header length fits u8"),
+        }
+    }
+}
 
 /// tcpGROItem represents bookkeeping data for a TCP packet during the lifetime
 /// of a GRO evaluation across a vector of packets.
@@ -752,18 +771,16 @@ impl UdpGROTable {
         src_addr_offset: usize,
         dst_addr_offset: usize,
         udph_offset: usize,
-        bufs_index: usize,
+        meta: UdpGroMetadata,
     ) -> Option<&mut Vec<UdpGROItem>> {
         let key = UdpFlowKey::new(pkt, src_addr_offset, dst_addr_offset, udph_offset);
         self.items_by_flow
             .lookup_or_insert_with(key, || UdpGROItem {
                 key,
-                bufs_index: bufs_index.try_into().expect("bufs_index exceeds u16::MAX"),
+                bufs_index: meta.bufs_index,
                 num_merged: 0,
-                gso_size: (pkt.len() - (udph_offset + UDP_H_LEN))
-                    .try_into()
-                    .expect("gso_size exceeds u16::MAX"),
-                iph_len: udph_offset.try_into().expect("iph_len exceeds u8::MAX"),
+                gso_size: meta.gso_size,
+                iph_len: meta.iph_len,
                 c_sum_known_invalid: false,
             })
     }
@@ -774,18 +791,16 @@ impl UdpGROTable {
         src_addr_offset: usize,
         dst_addr_offset: usize,
         udph_offset: usize,
-        bufs_index: usize,
+        meta: UdpGroMetadata,
         c_sum_known_invalid: bool,
     ) {
         let key = UdpFlowKey::new(pkt, src_addr_offset, dst_addr_offset, udph_offset);
         let item = UdpGROItem {
             key,
-            bufs_index: bufs_index.try_into().expect("bufs_index exceeds u16::MAX"),
+            bufs_index: meta.bufs_index,
             num_merged: 0,
-            gso_size: (pkt.len() - (udph_offset + UDP_H_LEN))
-                .try_into()
-                .expect("gso_size exceeds u16::MAX"),
-            iph_len: udph_offset.try_into().expect("iph_len exceeds u8::MAX"),
+            gso_size: meta.gso_size,
+            iph_len: meta.iph_len,
             c_sum_known_invalid,
         };
         self.items_by_flow.insert(key, item);
@@ -795,6 +810,29 @@ impl UdpGROTable {
 // 	items, _ := u.itemsByFlow[item.key]
 // 	items[i] = item
 // }
+
+#[derive(Debug, Clone, Copy)]
+struct UdpGroMetadata {
+    bufs_index: u16,
+    gso_size: u16,
+    iph_len: u8,
+}
+
+impl UdpGroMetadata {
+    fn from_validated(bufs_index: usize, gso_size: usize, iph_len: usize) -> Self {
+        Self {
+            bufs_index: bufs_index
+                .try_into()
+                .expect("handle_gro limits packet-buffer indices to u16"),
+            gso_size: gso_size
+                .try_into()
+                .expect("validated packet length keeps UDP GSO size within u16"),
+            iph_len: iph_len
+                .try_into()
+                .expect("validated IP header length fits u8"),
+        }
+    }
+}
 
 /// udpGROItem represents bookkeeping data for a UDP packet during the lifetime
 /// of a GRO evaluation across a vector of packets.
@@ -1228,11 +1266,15 @@ fn tcp_gro<B: ExpandBuffer>(
         psh_set = true;
     }
 
-    let gso_size = (pkt.len() - tcph_len - iph_len) as u16;
+    let meta =
+        TcpGroMetadata::from_validated(pkt_i, pkt.len() - tcph_len - iph_len, iph_len, tcph_len);
     // not a candidate if payload len is 0
-    if gso_size < 1 {
+    if meta.gso_size < 1 {
         return GroResult::Noop;
     }
+    let gso_size = meta.gso_size;
+    let iph_len_u8 = meta.iph_len;
+    let tcph_len_u8 = meta.tcph_len;
 
     let seq = u32::from_be_bytes([
         pkt[iph_len + 4],
@@ -1253,8 +1295,7 @@ fn tcp_gro<B: ExpandBuffer>(
         src_addr_offset,
         src_addr_offset + addr_len,
         iph_len,
-        tcph_len,
-        pkt_i,
+        meta,
     ) {
         items
     } else {
@@ -1273,8 +1314,8 @@ fn tcp_gro<B: ExpandBuffer>(
         let item = &mut items[i];
         let can = tcp_packets_can_coalesce(
             pkt,
-            iph_len as u8,
-            tcph_len as u8,
+            iph_len_u8,
+            tcph_len_u8,
             seq,
             psh_set,
             gso_size,
@@ -1320,8 +1361,7 @@ fn tcp_gro<B: ExpandBuffer>(
         src_addr_offset,
         src_addr_offset + addr_len,
         iph_len,
-        tcph_len,
-        pkt_i,
+        meta,
     );
     GroResult::TableInsert
 }
@@ -1599,10 +1639,12 @@ fn udp_gro<B: ExpandBuffer>(
         return GroResult::Noop;
     }
 
-    let gso_size = (pkt.len() - UDP_H_LEN - iph_len) as u16;
-    if gso_size < 1 {
+    let meta = UdpGroMetadata::from_validated(pkt_i, pkt.len() - UDP_H_LEN - iph_len, iph_len);
+    if meta.gso_size < 1 {
         return GroResult::Noop;
     }
+    let gso_size = meta.gso_size;
+    let iph_len_u8 = meta.iph_len;
 
     let (src_addr_offset, addr_len) = if is_v6 {
         (IPV6_SRC_ADDR_OFFSET, 16)
@@ -1615,7 +1657,7 @@ fn udp_gro<B: ExpandBuffer>(
         src_addr_offset,
         src_addr_offset + addr_len,
         iph_len,
-        pkt_i,
+        meta,
     );
 
     let items = if let Some(items) = items {
@@ -1627,7 +1669,7 @@ fn udp_gro<B: ExpandBuffer>(
     // Only check the last item to prevent reordering packets for a flow.
     let items_len = items.len();
     let item = &mut items[items_len - 1];
-    let can = udp_packets_can_coalesce(pkt, iph_len as u8, gso_size, item, bufs, offset);
+    let can = udp_packets_can_coalesce(pkt, iph_len_u8, gso_size, item, bufs, offset);
     let mut pkt_csum_known_invalid = false;
 
     if can == CanCoalesce::Append {
@@ -1655,7 +1697,7 @@ fn udp_gro<B: ExpandBuffer>(
         src_addr_offset,
         src_addr_offset + addr_len,
         iph_len,
-        pkt_i,
+        meta,
         pkt_csum_known_invalid,
     );
     GroResult::TableInsert
