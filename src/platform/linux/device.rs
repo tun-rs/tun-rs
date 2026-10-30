@@ -984,8 +984,10 @@ impl DeviceImpl {
             if let Err(err) = siocgifbrdaddr(ctl()?.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
-            let sa = sockaddr_union::from(req.ifr_ifru.ifru_broadaddr);
-            Ok(std::net::SocketAddr::try_from(sa)?.ip())
+            let raw = req.ifr_ifru.ifru_broadaddr;
+            crate::platform::unix::sockaddr_v4_to_rs_addr(&raw)
+                .map(|addr| addr.ip())
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
         }
     }
     /// Sets the broadcast address of the network interface.

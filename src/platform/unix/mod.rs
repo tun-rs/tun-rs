@@ -17,6 +17,8 @@ pub(crate) use sockaddr::sockaddr_union;
 ))]
 #[allow(unused_imports)]
 pub(crate) use sockaddr::ipaddr_to_sockaddr;
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+pub(crate) use sockaddr::sockaddr_v4_to_rs_addr;
 
 mod fd;
 pub(crate) use self::fd::Fd;
