@@ -2615,6 +2615,45 @@ mod tests {
         pkt
     }
 
+    fn make_ipv6_tcp_packet(seq: u32, payload_len: usize) -> Vec<u8> {
+        const IPH_LEN: usize = 40;
+        const TCPH_LEN: usize = 20;
+
+        let transport_len = TCPH_LEN + payload_len;
+        let total_len = IPH_LEN + transport_len;
+        let mut pkt = vec![0u8; total_len];
+
+        pkt[0] = 0x60;
+        pkt[4..6].copy_from_slice(&(transport_len as u16).to_be_bytes());
+        pkt[6] = IPPROTO_TCP as u8;
+        pkt[7] = 64;
+        pkt[8..24].copy_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+        pkt[24..40].copy_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+
+        pkt[IPH_LEN..IPH_LEN + 2].copy_from_slice(&10000u16.to_be_bytes());
+        pkt[IPH_LEN + 2..IPH_LEN + 4].copy_from_slice(&10001u16.to_be_bytes());
+        pkt[IPH_LEN + 4..IPH_LEN + 8].copy_from_slice(&seq.to_be_bytes());
+        pkt[IPH_LEN + 8..IPH_LEN + 12].copy_from_slice(&1u32.to_be_bytes());
+        pkt[IPH_LEN + 12] = 5 << 4;
+        pkt[IPH_LEN + 13] = TCP_FLAG_ACK;
+        pkt[IPH_LEN + 14..IPH_LEN + 16].copy_from_slice(&4096u16.to_be_bytes());
+
+        for (idx, byte) in pkt[IPH_LEN + TCPH_LEN..].iter_mut().enumerate() {
+            *byte = idx as u8;
+        }
+
+        let pseudo = pseudo_header_checksum_no_fold(
+            IPPROTO_TCP as u8,
+            &pkt[8..24],
+            &pkt[24..40],
+            transport_len as u16,
+        );
+        let tcp_checksum = !checksum(&pkt[IPH_LEN..], pseudo);
+        pkt[IPH_LEN + 16..IPH_LEN + 18].copy_from_slice(&tcp_checksum.to_be_bytes());
+
+        pkt
+    }
+
     #[test]
     fn wire_length_fields_allow_full_ipv6_payload_but_reject_overflow() {
         assert_eq!(
@@ -2633,6 +2672,46 @@ mod tests {
             wire_length_fields(41 + usize::from(u16::MAX), 40, true),
             None
         );
+    }
+
+    #[test]
+    fn ipv6_gro_coalesces_at_full_payload_length_boundary() -> io::Result<()> {
+        const FIRST_PAYLOAD_LEN: usize = 32_758;
+        const SECOND_PAYLOAD_LEN: usize = 32_757;
+        const IPV6_HEADER_LEN: usize = 40;
+        const TCP_HEADER_LEN: usize = 20;
+        const COALESCED_PACKET_LEN: usize = IPV6_HEADER_LEN + u16::MAX as usize;
+        const LARGE_CAPACITY: usize = 65_664;
+
+        assert_eq!(
+            TCP_HEADER_LEN + FIRST_PAYLOAD_LEN + SECOND_PAYLOAD_LEN,
+            usize::from(u16::MAX)
+        );
+
+        let mut first = Vec::with_capacity(LARGE_CAPACITY);
+        first.resize(VIRTIO_NET_HDR_LEN, 0);
+        first.extend_from_slice(&make_ipv6_tcp_packet(1, FIRST_PAYLOAD_LEN));
+
+        let mut second = Vec::with_capacity(LARGE_CAPACITY);
+        second.resize(VIRTIO_NET_HDR_LEN, 0);
+        second.extend_from_slice(&make_ipv6_tcp_packet(
+            1 + FIRST_PAYLOAD_LEN as u32,
+            SECOND_PAYLOAD_LEN,
+        ));
+
+        let mut bufs = vec![first, second];
+        let mut table = GROTable::new();
+        table.apply_gro(&mut bufs, VIRTIO_NET_HDR_LEN, false)?;
+
+        assert_eq!(table.to_write, vec![0]);
+        let hdr = VirtioNetHdr::decode(&bufs[0][..VIRTIO_NET_HDR_LEN])?;
+        assert_eq!(hdr.gso_type, VIRTIO_NET_HDR_GSO_TCPV6);
+        assert_eq!(hdr.gso_size, FIRST_PAYLOAD_LEN as u16);
+
+        let pkt = &bufs[0][VIRTIO_NET_HDR_LEN..];
+        assert_eq!(pkt.len(), COALESCED_PACKET_LEN);
+        assert_eq!(u16::from_be_bytes([pkt[4], pkt[5]]), u16::MAX);
+        Ok(())
     }
 
     #[test]
