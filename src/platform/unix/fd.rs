@@ -293,7 +293,8 @@ mod tests {
 
 #[cfg(test)]
 mod conversion_tests {
-    use super::{checked_iov_count, syscall_result_len};
+    use super::{checked_iov_count, syscall_result_len, Fd};
+    use std::io::{IoSlice, IoSliceMut};
 
     #[test]
     fn syscall_result_len_rejects_negative_results() {
@@ -305,5 +306,23 @@ mod conversion_tests {
     fn iov_count_rejects_values_outside_c_int_range() {
         assert!(matches!(checked_iov_count(0), Ok(0)));
         assert!(checked_iov_count(usize::MAX).is_err());
+    }
+
+    #[test]
+    fn vectored_io_transfers_nonempty_buffers() {
+        let mut pipe_fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(pipe_fds.as_mut_ptr()) }, 0);
+        let reader = unsafe { Fd::new_unchecked(pipe_fds[0]) };
+        let writer = unsafe { Fd::new_unchecked(pipe_fds[1]) };
+
+        let write_bufs = [IoSlice::new(b"ab"), IoSlice::new(b"cde")];
+        assert_eq!(writer.writev(&write_bufs).unwrap(), 5);
+
+        let mut first = [0u8; 2];
+        let mut second = [0u8; 3];
+        let mut read_bufs = [IoSliceMut::new(&mut first), IoSliceMut::new(&mut second)];
+        assert_eq!(reader.readv(&mut read_bufs).unwrap(), 5);
+        assert_eq!(&first, b"ab");
+        assert_eq!(&second, b"cde");
     }
 }
