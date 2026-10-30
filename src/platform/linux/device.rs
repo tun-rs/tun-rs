@@ -18,8 +18,8 @@ use crate::{ToIpv4Address, ToIpv4Netmask};
 #[cfg(feature = "address-management")]
 use ipnet::IpNet;
 use libc::{
-    self, c_char, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI, IFF_RUNNING,
-    IFF_TAP, IFF_TUN, IFF_UP, IFNAMSIZ, O_RDWR,
+    self, c_char, c_int, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI,
+    IFF_RUNNING, IFF_TAP, IFF_TUN, IFF_UP, IFNAMSIZ, O_RDWR,
 };
 use std::net::Ipv6Addr;
 use std::sync::{Arc, RwLock};
@@ -33,6 +33,21 @@ use std::{
 
 const OVERWRITE_SIZE: usize = mem::size_of::<libc::__c_anonymous_ifr_ifru>();
 const IFF_BACKPRESSURE: c_short = 0x0080;
+
+fn tx_queue_len_to_c_int(value: u32) -> io::Result<c_int> {
+    c_int::try_from(value).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "transmit queue length exceeds Linux signed integer range",
+        )
+    })
+}
+
+fn tx_queue_len_from_c_int(value: c_int) -> u32 {
+    // SIOCGIFTXQLEN copies the kernel's unsigned tx_queue_len through the
+    // signed ifr_qlen ABI field, so preserve the field's 32-bit representation.
+    u32::from_ne_bytes(value.to_ne_bytes())
+}
 
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
@@ -264,7 +279,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut ifreq = self.request()?;
-            ifreq.ifr_ifru.ifru_metric = tx_queue_len as _;
+            ifreq.ifr_ifru.ifru_metric = tx_queue_len_to_c_int(tx_queue_len)?;
             if let Err(err) = change_tx_queue_len(ctl()?.as_raw_fd(), &ifreq) {
                 return Err(io::Error::from(err));
             }
@@ -282,7 +297,7 @@ impl DeviceImpl {
             if let Err(err) = tx_queue_len(ctl()?.as_raw_fd(), &mut ifreq) {
                 return Err(io::Error::from(err));
             }
-            Ok(ifreq.ifr_ifru.ifru_metric as _)
+            Ok(tx_queue_len_from_c_int(ifreq.ifr_ifru.ifru_metric))
         }
     }
     /// Make the device persistent.
@@ -1329,8 +1344,19 @@ impl From<Layer> for c_short {
 
 #[cfg(test)]
 mod raw_fd_contract_tests {
-    use super::validate_adopted_tun_flags;
+    use super::{tx_queue_len_from_c_int, tx_queue_len_to_c_int, validate_adopted_tun_flags};
     use std::io;
+
+    #[test]
+    fn tx_queue_len_preserves_unsigned_getter_values() {
+        assert!(tx_queue_len_to_c_int(i32::MAX.unsigned_abs()).is_ok_and(|value| value == i32::MAX));
+        assert!(matches!(
+            tx_queue_len_to_c_int(u32::MAX),
+            Err(error) if error.kind() == io::ErrorKind::InvalidInput
+        ));
+        assert_eq!(tx_queue_len_from_c_int(-1), u32::MAX);
+        assert_eq!(tx_queue_len_from_c_int(i32::MIN), 1 << 31);
+    }
 
     #[test]
     fn adopted_raw_fd_rejects_virtio_header_framing() {
