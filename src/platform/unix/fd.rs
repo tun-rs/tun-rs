@@ -5,6 +5,22 @@ use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
 use bytes::buf::UninitSlice;
 use libc::{self, fcntl, F_GETFL, O_NONBLOCK};
 
+fn syscall_result_len(amount: libc::ssize_t) -> io::Result<usize> {
+    if amount < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    usize::try_from(amount).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "successful Unix I/O byte count does not fit usize",
+        )
+    })
+}
+
+fn checked_iov_count(len: usize) -> io::Result<libc::c_int> {
+    libc::c_int::try_from(len).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+}
+
 /// POSIX file descriptor support for `io` traits.
 pub(crate) struct Fd {
     pub(crate) inner: RawFd,
@@ -41,6 +57,7 @@ impl Fd {
         self.inner >= 0 && !self.borrow
     }
     pub(crate) fn is_nonblocking(&self) -> io::Result<bool> {
+        // SAFETY: self owns or validly borrows this live descriptor.
         unsafe {
             let flags = fcntl(self.inner, F_GETFL);
             if flags == -1 {
@@ -80,7 +97,8 @@ impl Fd {
     }
     /// Enable non-blocking mode
     pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-        let mut nonblocking = nonblocking as libc::c_int;
+        let mut nonblocking = libc::c_int::from(nonblocking);
+        // SAFETY: FIONBIO expects a pointer to an int and self provides a live descriptor.
         match unsafe { libc::ioctl(self.as_raw_fd(), libc::FIONBIO, &mut nonblocking) } {
             0 => Ok(()),
             _ => Err(io::Error::last_os_error()),
@@ -90,38 +108,34 @@ impl Fd {
     #[inline]
     pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
         let fd = self.as_raw_fd();
-        let amount = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };
-        if amount < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(amount as usize)
+        // SAFETY: buf provides writable storage for buf.len() bytes and fd is live.
+        let amount = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+        syscall_result_len(amount)
     }
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn read_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
         let fd = self.as_raw_fd();
-        let amount = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };
-        if amount < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(amount as usize)
+        // SAFETY: UninitSlice exposes writable storage for buf.len() bytes and fd is live.
+        let amount = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+        syscall_result_len(amount)
     }
     #[inline]
     pub fn readv(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
         if bufs.len() > max_iov() {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
+        let iov_count = checked_iov_count(bufs.len())?;
+        // SAFETY: IoSliceMut uses the platform iovec representation; bufs remains live for
+        // the duration of readv, and iov_count is the checked slice length.
         let amount = unsafe {
             libc::readv(
                 self.as_raw_fd(),
-                bufs.as_mut_ptr() as *mut libc::iovec as *const libc::iovec,
-                bufs.len() as libc::c_int,
+                bufs.as_ptr().cast::<libc::iovec>(),
+                iov_count,
             )
         };
-        if amount < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(amount as usize)
+        syscall_result_len(amount)
     }
     #[inline]
     #[cfg(any(
@@ -136,39 +150,35 @@ impl Fd {
         if bufs.len() > max_iov() {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
-        let amount =
-            unsafe { libc::readv(self.as_raw_fd(), bufs.as_ptr(), bufs.len() as libc::c_int) };
-        if amount < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(amount as usize)
+        let iov_count = checked_iov_count(bufs.len())?;
+        // SAFETY: bufs is a live array of libc::iovec values and iov_count is its checked length.
+        let amount = unsafe { libc::readv(self.as_raw_fd(), bufs.as_ptr(), iov_count) };
+        syscall_result_len(amount)
     }
 
     #[inline]
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
         let fd = self.as_raw_fd();
-        let amount = unsafe { libc::write(fd, buf.as_ptr() as *const _, buf.len()) };
-        if amount < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(amount as usize)
+        // SAFETY: buf provides readable storage for buf.len() bytes and fd is live.
+        let amount = unsafe { libc::write(fd, buf.as_ptr().cast(), buf.len()) };
+        syscall_result_len(amount)
     }
     #[inline]
     pub fn writev(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         if bufs.len() > max_iov() {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
+        let iov_count = checked_iov_count(bufs.len())?;
+        // SAFETY: IoSlice uses the platform iovec representation; bufs remains live for the
+        // duration of writev, and iov_count is the checked slice length.
         let amount = unsafe {
             libc::writev(
                 self.as_raw_fd(),
-                bufs.as_ptr() as *const libc::iovec,
-                bufs.len() as libc::c_int,
+                bufs.as_ptr().cast::<libc::iovec>(),
+                iov_count,
             )
         };
-        if amount < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(amount as usize)
+        syscall_result_len(amount)
     }
 }
 #[cfg(any(
@@ -228,6 +238,7 @@ impl IntoRawFd for Fd {
 impl Drop for Fd {
     fn drop(&mut self) {
         if self.should_drop_cleanup() {
+            // SAFETY: should_drop_cleanup guarantees this is an owned live descriptor.
             unsafe { libc::close(self.inner) };
             self.inner = -1;
         }
@@ -277,5 +288,22 @@ mod tests {
             std::io::Error::last_os_error().raw_os_error(),
             Some(libc::EBADF)
         );
+    }
+}
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::{checked_iov_count, syscall_result_len};
+
+    #[test]
+    fn syscall_result_len_rejects_negative_results() {
+        assert!(matches!(syscall_result_len(0), Ok(0)));
+        assert!(syscall_result_len(-1).is_err());
+    }
+
+    #[test]
+    fn iov_count_rejects_values_outside_c_int_range() {
+        assert!(matches!(checked_iov_count(0), Ok(0)));
+        assert!(checked_iov_count(usize::MAX).is_err());
     }
 }
