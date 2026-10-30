@@ -34,6 +34,15 @@ use std::{
 const OVERWRITE_SIZE: usize = mem::size_of::<libc::__c_anonymous_ifr_ifru>();
 const IFF_BACKPRESSURE: c_short = 0x0080;
 
+fn interface_index_to_c_int(value: u32) -> io::Result<libc::c_int> {
+    libc::c_int::try_from(value).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "interface index exceeds Linux signed integer range",
+        )
+    })
+}
+
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     pub(crate) tun: Tun,
@@ -753,8 +762,8 @@ impl DeviceImpl {
             let if_index = self.if_index_impl()?;
             let ctl = ctl_v6()?;
             let mut ifrv6: in6_ifreq = mem::zeroed();
-            ifrv6.ifr6_ifindex = if_index as i32;
-            ifrv6.ifr6_prefixlen = prefix as _;
+            ifrv6.ifr6_ifindex = interface_index_to_c_int(if_index)?;
+            ifrv6.ifr6_prefixlen = u32::from(prefix);
             ifrv6.ifr6_addr = sockaddr_union::from(std::net::SocketAddr::new(addr.into(), 0))
                 .addr6
                 .sin6_addr;
@@ -1166,8 +1175,8 @@ impl DeviceImpl {
             let if_index = self.if_index_impl()?;
             let ctl = ctl_v6()?;
             let mut ifrv6: in6_ifreq = mem::zeroed();
-            ifrv6.ifr6_ifindex = if_index as i32;
-            ifrv6.ifr6_prefixlen = netmask.prefix()? as u32;
+            ifrv6.ifr6_ifindex = interface_index_to_c_int(if_index)?;
+            ifrv6.ifr6_prefixlen = u32::from(netmask.prefix()?);
             ifrv6.ifr6_addr =
                 sockaddr_union::from(std::net::SocketAddr::new(addr.ipv6()?.into(), 0))
                     .addr6
@@ -1329,8 +1338,19 @@ impl From<Layer> for c_short {
 
 #[cfg(test)]
 mod raw_fd_contract_tests {
-    use super::validate_adopted_tun_flags;
+    use super::{interface_index_to_c_int, validate_adopted_tun_flags};
     use std::io;
+
+    #[test]
+    fn interface_index_rejects_values_outside_linux_signed_range() {
+        assert!(
+            interface_index_to_c_int(i32::MAX.unsigned_abs()).is_ok_and(|value| value == i32::MAX)
+        );
+        assert!(matches!(
+            interface_index_to_c_int(u32::MAX),
+            Err(error) if error.kind() == io::ErrorKind::InvalidInput
+        ));
+    }
 
     #[test]
     fn adopted_raw_fd_rejects_virtio_header_framing() {
