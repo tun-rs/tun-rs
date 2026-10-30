@@ -201,7 +201,7 @@ fn ipv6_conversion_preserves_flowinfo_and_scope_id() {
     assert_eq!(actual, old);
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 #[test]
 fn ipaddr_to_sockaddr_writes_through_complete_ifreq_union_storage() {
     let old = std::net::IpAddr::V4([10, 26, 1, 100].into());
