@@ -1594,6 +1594,11 @@ fn udp_gro<B: ExpandBuffer>(
         return GroResult::Noop;
     }
 
+    let udp_len = usize::from(u16::from_be_bytes([pkt[iph_len + 4], pkt[iph_len + 5]]));
+    if udp_len != pkt.len() - iph_len {
+        return GroResult::Noop;
+    }
+
     if !is_v6 && (pkt[6] & IPV4_FLAG_MORE_FRAGMENTS != 0 || pkt[6] << 3 != 0 || pkt[7] != 0) {
         // No GRO support for fragmented segments for now.
         return GroResult::Noop;
@@ -2596,6 +2601,77 @@ mod tests {
         pkt[IPH_LEN + 16..IPH_LEN + 18].copy_from_slice(&tcp_checksum.to_be_bytes());
 
         pkt
+    }
+
+    fn make_ipv4_udp_packet_with_declared_len(
+        payload_len: usize,
+        declared_udp_len: u16,
+    ) -> Vec<u8> {
+        const IPH_LEN: usize = 20;
+        const UDPH_LEN: usize = 8;
+        let total_len = IPH_LEN + UDPH_LEN + payload_len;
+        let mut pkt = vec![0u8; total_len];
+        pkt[0] = 0x45;
+        pkt[2..4].copy_from_slice(&(total_len as u16).to_be_bytes());
+        pkt[6] = 0x40;
+        pkt[8] = 64;
+        pkt[9] = IPPROTO_UDP as u8;
+        pkt[12..16].copy_from_slice(&[10, 0, 0, 1]);
+        pkt[16..20].copy_from_slice(&[10, 0, 0, 2]);
+        pkt[IPH_LEN..IPH_LEN + 2].copy_from_slice(&10000u16.to_be_bytes());
+        pkt[IPH_LEN + 2..IPH_LEN + 4].copy_from_slice(&10001u16.to_be_bytes());
+        pkt[IPH_LEN + 4..IPH_LEN + 6].copy_from_slice(&declared_udp_len.to_be_bytes());
+        for (index, byte) in pkt[IPH_LEN + UDPH_LEN..].iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        let ip_checksum = !checksum(&pkt[..IPH_LEN], 0);
+        pkt[10..12].copy_from_slice(&ip_checksum.to_be_bytes());
+        let pseudo = pseudo_header_checksum_no_fold(
+            IPPROTO_UDP as u8,
+            &pkt[12..16],
+            &pkt[16..20],
+            (UDPH_LEN + payload_len) as u16,
+        );
+        let udp_checksum = !checksum(&pkt[IPH_LEN..], pseudo);
+        pkt[IPH_LEN + 6..IPH_LEN + 8].copy_from_slice(&udp_checksum.to_be_bytes());
+        pkt
+    }
+
+    #[test]
+    fn udp_gro_rejects_mismatched_udp_length() -> io::Result<()> {
+        const PAYLOAD_LEN: usize = 32;
+        const ACTUAL_UDP_LEN: u16 = (UDP_H_LEN + PAYLOAD_LEN) as u16;
+        for declared_udp_len in [ACTUAL_UDP_LEN - 1, ACTUAL_UDP_LEN + 1] {
+            let malformed = make_ipv4_udp_packet_with_declared_len(PAYLOAD_LEN, declared_udp_len);
+            assert!(checksum_valid(&malformed, 20, IPPROTO_UDP as u8, false));
+
+            let mut first = Vec::with_capacity(256);
+            first.resize(VIRTIO_NET_HDR_LEN, 0);
+            first.extend_from_slice(&malformed);
+            let mut second = Vec::with_capacity(256);
+            second.resize(VIRTIO_NET_HDR_LEN, 0);
+            second.extend_from_slice(&malformed);
+            let original_len = first.len();
+            let mut bufs = vec![first, second];
+            let mut table = GROTable::new();
+            table.apply_gro(&mut bufs, VIRTIO_NET_HDR_LEN, true)?;
+
+            assert_eq!(table.to_write, vec![0, 1]);
+            assert_eq!(bufs[0].len(), original_len);
+        }
+
+        let valid = make_ipv4_udp_packet_with_declared_len(PAYLOAD_LEN, ACTUAL_UDP_LEN);
+        let mut first = Vec::with_capacity(256);
+        first.resize(VIRTIO_NET_HDR_LEN, 0);
+        first.extend_from_slice(&valid);
+        let mut second = Vec::with_capacity(256);
+        second.resize(VIRTIO_NET_HDR_LEN, 0);
+        second.extend_from_slice(&valid);
+        let mut bufs = vec![first, second];
+        let mut table = GROTable::new();
+        table.apply_gro(&mut bufs, VIRTIO_NET_HDR_LEN, true)?;
+        assert_eq!(table.to_write, vec![0]);
+        Ok(())
     }
 
     #[test]
