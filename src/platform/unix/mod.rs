@@ -27,6 +27,15 @@ pub use interrupt::InterruptEvent;
 mod tun;
 pub(crate) use self::tun::Tun;
 
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
 pub(crate) fn read_operation_lock(
     lock: &std::sync::RwLock<()>,
 ) -> std::sync::RwLockReadGuard<'_, ()> {
@@ -34,6 +43,16 @@ pub(crate) fn read_operation_lock(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "illumos",
+))]
 pub(crate) fn write_operation_lock(
     lock: &std::sync::RwLock<()>,
 ) -> std::sync::RwLockWriteGuard<'_, ()> {
@@ -41,7 +60,18 @@ pub(crate) fn write_operation_lock(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(
+        all(target_os = "linux", not(target_env = "ohos")),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+    )
+))]
 mod operation_lock_tests {
     use super::{read_operation_lock, write_operation_lock};
     use std::sync::{Arc, RwLock};
