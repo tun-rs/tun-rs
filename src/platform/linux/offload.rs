@@ -2641,22 +2641,24 @@ mod tests {
     fn udp_gro_rejects_mismatched_udp_length() -> io::Result<()> {
         const PAYLOAD_LEN: usize = 32;
         const ACTUAL_UDP_LEN: u16 = (UDP_H_LEN + PAYLOAD_LEN) as u16;
-        let malformed = make_ipv4_udp_packet_with_declared_len(PAYLOAD_LEN, ACTUAL_UDP_LEN - 1);
-        assert!(checksum_valid(&malformed, 20, IPPROTO_UDP as u8, false));
+        for declared_udp_len in [ACTUAL_UDP_LEN - 1, ACTUAL_UDP_LEN + 1] {
+            let malformed = make_ipv4_udp_packet_with_declared_len(PAYLOAD_LEN, declared_udp_len);
+            assert!(checksum_valid(&malformed, 20, IPPROTO_UDP as u8, false));
 
-        let mut first = Vec::with_capacity(256);
-        first.resize(VIRTIO_NET_HDR_LEN, 0);
-        first.extend_from_slice(&malformed);
-        let mut second = Vec::with_capacity(256);
-        second.resize(VIRTIO_NET_HDR_LEN, 0);
-        second.extend_from_slice(&malformed);
-        let original_len = first.len();
-        let mut bufs = vec![first, second];
-        let mut table = GROTable::new();
-        table.apply_gro(&mut bufs, VIRTIO_NET_HDR_LEN, true)?;
+            let mut first = Vec::with_capacity(256);
+            first.resize(VIRTIO_NET_HDR_LEN, 0);
+            first.extend_from_slice(&malformed);
+            let mut second = Vec::with_capacity(256);
+            second.resize(VIRTIO_NET_HDR_LEN, 0);
+            second.extend_from_slice(&malformed);
+            let original_len = first.len();
+            let mut bufs = vec![first, second];
+            let mut table = GROTable::new();
+            table.apply_gro(&mut bufs, VIRTIO_NET_HDR_LEN, true)?;
 
-        assert_eq!(table.to_write, vec![0, 1]);
-        assert_eq!(bufs[0].len(), original_len);
+            assert_eq!(table.to_write, vec![0, 1]);
+            assert_eq!(bufs[0].len(), original_len);
+        }
 
         let valid = make_ipv4_udp_packet_with_declared_len(PAYLOAD_LEN, ACTUAL_UDP_LEN);
         let mut first = Vec::with_capacity(256);
