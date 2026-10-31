@@ -27,6 +27,74 @@ pub use interrupt::InterruptEvent;
 mod tun;
 pub(crate) use self::tun::Tun;
 
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+))]
+pub(crate) fn read_operation_lock(
+    lock: &std::sync::RwLock<()>,
+) -> std::sync::RwLockReadGuard<'_, ()> {
+    lock.read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(any(
+    all(target_os = "linux", not(target_env = "ohos")),
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "illumos",
+))]
+pub(crate) fn write_operation_lock(
+    lock: &std::sync::RwLock<()>,
+) -> std::sync::RwLockWriteGuard<'_, ()> {
+    lock.write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(all(
+    test,
+    any(
+        all(target_os = "linux", not(target_env = "ohos")),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+    )
+))]
+mod operation_lock_tests {
+    use super::{read_operation_lock, write_operation_lock};
+    use std::sync::{Arc, RwLock};
+
+    #[test]
+    fn poisoned_operation_lock_remains_usable() {
+        let lock = Arc::new(RwLock::new(()));
+        let panic_lock = Arc::clone(&lock);
+        assert!(std::thread::spawn(move || {
+            let _guard = panic_lock
+                .write()
+                .expect("fresh operation lock must be available");
+            panic!("poison operation lock");
+        })
+        .join()
+        .is_err());
+        assert!(lock.is_poisoned());
+
+        drop(read_operation_lock(&lock));
+        drop(write_operation_lock(&lock));
+    }
+}
+
 pub(crate) mod device;
 
 #[cfg(target_os = "illumos")]

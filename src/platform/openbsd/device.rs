@@ -284,13 +284,13 @@ impl DeviceImpl {
     /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
     /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         self.associate_route
             .store(associate_route, Ordering::Relaxed);
     }
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         self.associate_route.load(Ordering::Relaxed)
     }
     fn add_route(&self, addr: IpAddr, netmask: IpAddr, associate_route: bool) -> io::Result<()> {
@@ -409,7 +409,7 @@ impl DeviceImpl {
     /// # Note
     /// Retrieve whether the packet is ignored for the TUN Device; The TAP device always returns `false`.
     pub fn ignore_packet_info(&self) -> bool {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         self.tun.ignore_packet_info()
     }
     /// Sets whether the TUN device should ignore packet information (PI).
@@ -425,7 +425,7 @@ impl DeviceImpl {
     /// # Note
     /// This only works for a TUN device; The invocation will be ignored if the device is a TAP.
     pub fn set_ignore_packet_info(&self, ign: bool) {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         if let Ok(name) = self.name_impl() {
             if name.starts_with("tun") {
                 self.tun.set_ignore_packet_info(ign)
@@ -434,7 +434,7 @@ impl DeviceImpl {
     }
     /// Enables or disables the network interface.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         unsafe {
             let mut req = self.request()?;
             let ctl = ctl()?;
@@ -458,7 +458,7 @@ impl DeviceImpl {
     }
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> io::Result<u16> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name_impl()?;
@@ -473,7 +473,7 @@ impl DeviceImpl {
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         unsafe {
             let mut req: ifreq_mtu = mem::zeroed();
             let tun_name = self.name_impl()?;
@@ -494,7 +494,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         let associate_route = self.associate_route.load(Ordering::Relaxed);
         self.set_network_address_impl(address, netmask, destination, associate_route)
     }
@@ -536,7 +536,7 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         let associate_route = self.associate_route.load(Ordering::Relaxed);
         let addr = address.ipv4()?.into();
         let netmask = netmask.netmask()?.into();
@@ -545,7 +545,7 @@ impl DeviceImpl {
     }
     /// Removes an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         unsafe {
             match addr {
                 IpAddr::V4(addr) => {
@@ -602,7 +602,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         let associate_route = self.associate_route.load(Ordering::Relaxed);
         self.add_address(
             addr.ipv6()?.into(),
@@ -617,7 +617,7 @@ impl DeviceImpl {
     /// into the hardware address field. It then applies the change via a system call.
     /// This operation is typically supported only for TAP devices.
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_addr.sa_len = ETHER_ADDR_LEN;
@@ -632,7 +632,7 @@ impl DeviceImpl {
     }
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         self.name_impl()
     }
     /// Retrieves the MAC (hardware) address of the interface.
@@ -640,7 +640,7 @@ impl DeviceImpl {
     /// This function queries the MAC address by the interface name using getifaddrs.
     /// An error is returned if the MAC address cannot be found.
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         let name = self.name_impl()?;
         let interfaces = getifaddrs::getifaddrs()?;
         for interface in interfaces {
