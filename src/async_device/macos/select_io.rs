@@ -27,6 +27,7 @@ impl NonBlockingDevice {
         self.device.recv(buf)
     }
 
+    #[cfg(feature = "async_framed")]
     pub fn try_recv_uninit(&self, buf: &mut UninitSlice) -> io::Result<usize> {
         self.device.recv_uninit(buf)
     }
