@@ -1068,12 +1068,18 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
+        let address = address.ipv4()?;
+        let netmask = netmask.netmask()?;
+        let destination = destination
+            .map(|destination| destination.ipv4())
+            .transpose()?;
+
         let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         self.remove_all_address_v4()?;
-        self.set_address_v4(address.ipv4()?)?;
-        self.set_netmask(netmask.netmask()?)?;
+        self.set_address_v4(address)?;
+        self.set_netmask(netmask)?;
         if let Some(destination) = destination {
-            self.set_destination(destination.ipv4()?)?;
+            self.set_destination(destination)?;
         }
         Ok(())
     }
