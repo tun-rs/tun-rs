@@ -321,7 +321,7 @@ impl DeviceImpl {
         super::ffi::set_address(
             self.if_index_impl()?,
             address.ipv4()?.into(),
-            netmask.prefix()?,
+            crate::builder::validated_ipv4_prefix(&netmask)?,
             destination.map(|v| v.ipv4()).transpose()?.map(|v| v.into()),
         )
     }
@@ -366,7 +366,10 @@ impl DeviceImpl {
         let interface = netconfig_rs::Interface::try_from_index(self.if_index_impl()?)
             .map_err(io::Error::from)?;
         interface
-            .add_address(IpNet::new_assert(address.ipv4()?.into(), netmask.prefix()?))
+            .add_address(IpNet::new_assert(
+                address.ipv4()?.into(),
+                crate::builder::validated_ipv4_prefix(&netmask)?,
+            ))
             .map_err(io::Error::from)
     }
     /// Removes the specified IP address from the device.
@@ -414,7 +417,7 @@ impl DeviceImpl {
         super::ffi::add_address(
             self.if_index_impl()?,
             addr.ipv6()?.into(),
-            netmask.prefix()?,
+            crate::builder::validated_ipv6_prefix(&netmask)?,
             None,
         )
     }
