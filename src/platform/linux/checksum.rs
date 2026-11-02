@@ -6,19 +6,20 @@ fn checksum_no_fold_scalar(mut b: &[u8], initial: u64) -> u64 {
 
     // Process the slice in 4-byte (u32) chunks.
     while b.len() >= 4 {
-        accumulator += u64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+        accumulator =
+            accumulator.wrapping_add(u64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]])));
         b = &b[4..];
     }
 
     // Handle the remaining 1-3 bytes.
     if b.len() >= 2 {
-        accumulator += u64::from(u16::from_be_bytes([b[0], b[1]]));
+        accumulator = accumulator.wrapping_add(u64::from(u16::from_be_bytes([b[0], b[1]])));
         b = &b[2..];
     }
     if let Some(&byte) = b.first() {
         // For odd-length inputs, the last byte is treated as the high byte
         // of a 16-bit word (e.g., [0xAB] becomes 0xAB00), as per RFC 1071.
-        accumulator += (byte as u64) << 8;
+        accumulator = accumulator.wrapping_add((byte as u64) << 8);
     }
 
     accumulator
@@ -65,10 +66,10 @@ unsafe fn checksum_no_fold_avx2(mut b: &[u8], initial: u64) -> u64 {
         }
 
         // Perform a horizontal sum to combine the partial sums in the vector.
-        accumulator += _mm256_extract_epi64(sums, 0) as u64;
-        accumulator += _mm256_extract_epi64(sums, 1) as u64;
-        accumulator += _mm256_extract_epi64(sums, 2) as u64;
-        accumulator += _mm256_extract_epi64(sums, 3) as u64;
+        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 0) as u64);
+        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 1) as u64);
+        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 2) as u64);
+        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 3) as u64);
     }
 
     // Process any remaining data using the scalar implementation.
@@ -113,8 +114,8 @@ unsafe fn checksum_no_fold_sse41(mut b: &[u8], initial: u64) -> u64 {
         }
 
         // Horizontal sum of the two 64-bit lanes.
-        accumulator += _mm_cvtsi128_si64(sums) as u64;
-        accumulator += _mm_extract_epi64(sums, 1) as u64;
+        accumulator = accumulator.wrapping_add(_mm_cvtsi128_si64(sums) as u64);
+        accumulator = accumulator.wrapping_add(_mm_extract_epi64(sums, 1) as u64);
     }
 
     // Process any remaining data using the scalar implementation.
@@ -127,6 +128,8 @@ unsafe fn checksum_no_fold_sse41(mut b: &[u8], initial: u64) -> u64 {
 /// or scalar) based on CPU feature detection. The algorithm is consistent with the
 /// WireGuard-Go implementation: it treats the input as a sequence of big-endian u32s,
 /// accumulates them as u64s, and handles the remainder.
+/// Accumulation uses wrapping `u64` arithmetic, matching Go integer semantics and
+/// keeping debug and release builds behaviorally identical at the overflow boundary.
 #[inline]
 pub fn checksum_no_fold(b: &[u8], initial: u64) -> u64 {
     // Dispatch to the best available implementation based on runtime CPU feature detection.
@@ -192,6 +195,25 @@ mod tests {
     use crate::platform::linux::checksum::{
         checksum_no_fold_avx2, checksum_no_fold_scalar, checksum_no_fold_sse41,
     };
+
+    #[test]
+    fn checksum_no_fold_wraps_accumulator_consistently() {
+        let data = [0xff, 0xff, 0xff, 0xff];
+        let expected = u64::MAX.wrapping_add(u64::from(u32::MAX));
+        assert_eq!(checksum_no_fold_scalar(&data, u64::MAX), expected);
+        assert_eq!(super::checksum_no_fold(&data, u64::MAX), expected);
+
+        let vector_sized = [0xff; 32];
+        let vector_expected = u64::MAX.wrapping_add(u64::from(u32::MAX).wrapping_mul(8));
+        assert_eq!(
+            checksum_no_fold_scalar(&vector_sized, u64::MAX),
+            vector_expected
+        );
+        assert_eq!(
+            super::checksum_no_fold(&vector_sized, u64::MAX),
+            vector_expected
+        );
+    }
 
     #[test]
     fn test_checksum_avx2_vs_scalar_output() {

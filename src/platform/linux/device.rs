@@ -18,8 +18,8 @@ use crate::{ToIpv4Address, ToIpv4Netmask};
 #[cfg(feature = "address-management")]
 use ipnet::IpNet;
 use libc::{
-    self, c_char, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI, IFF_RUNNING,
-    IFF_TAP, IFF_TUN, IFF_UP, IFNAMSIZ, O_RDWR,
+    self, c_char, c_int, c_short, ifreq, in6_ifreq, ARPHRD_ETHER, IFF_MULTI_QUEUE, IFF_NO_PI,
+    IFF_RUNNING, IFF_TAP, IFF_TUN, IFF_UP, IFNAMSIZ, O_RDWR,
 };
 use std::net::Ipv6Addr;
 use std::sync::{Arc, RwLock};
@@ -41,6 +41,21 @@ fn interface_index_to_c_int(value: u32) -> io::Result<libc::c_int> {
             "interface index exceeds Linux signed integer range",
         )
     })
+}
+
+fn tx_queue_len_to_c_int(value: u32) -> io::Result<c_int> {
+    c_int::try_from(value).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "transmit queue length exceeds Linux signed integer range",
+        )
+    })
+}
+
+fn tx_queue_len_from_c_int(value: c_int) -> u32 {
+    // SIOCGIFTXQLEN copies the kernel's unsigned tx_queue_len through the
+    // signed ifr_qlen ABI field, so preserve the field's 32-bit representation.
+    u32::from_ne_bytes(value.to_ne_bytes())
 }
 
 /// A TUN device using the TUN/TAP Linux driver.
@@ -273,7 +288,7 @@ impl DeviceImpl {
         let _guard = self.op_lock.write().unwrap();
         unsafe {
             let mut ifreq = self.request()?;
-            ifreq.ifr_ifru.ifru_metric = tx_queue_len as _;
+            ifreq.ifr_ifru.ifru_metric = tx_queue_len_to_c_int(tx_queue_len)?;
             if let Err(err) = change_tx_queue_len(ctl()?.as_raw_fd(), &ifreq) {
                 return Err(io::Error::from(err));
             }
@@ -291,7 +306,7 @@ impl DeviceImpl {
             if let Err(err) = tx_queue_len(ctl()?.as_raw_fd(), &mut ifreq) {
                 return Err(io::Error::from(err));
             }
-            Ok(ifreq.ifr_ifru.ifru_metric as _)
+            Ok(tx_queue_len_from_c_int(ifreq.ifr_ifru.ifru_metric))
         }
     }
     /// Make the device persistent.
@@ -993,8 +1008,10 @@ impl DeviceImpl {
             if let Err(err) = siocgifbrdaddr(ctl()?.as_raw_fd(), &mut req) {
                 return Err(io::Error::from(err));
             }
-            let sa = sockaddr_union::from(req.ifr_ifru.ifru_broadaddr);
-            Ok(std::net::SocketAddr::try_from(sa)?.ip())
+            let raw = req.ifr_ifru.ifru_broadaddr;
+            crate::platform::unix::sockaddr_v4_to_rs_addr(&raw)
+                .map(|addr| addr.ip())
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
         }
     }
     /// Sets the broadcast address of the network interface.
@@ -1339,8 +1356,9 @@ impl From<Layer> for c_short {
 #[cfg(test)]
 mod raw_fd_contract_tests {
     use super::{interface_index_to_c_int, validate_adopted_tun_flags};
+    use super::{tx_queue_len_from_c_int, tx_queue_len_to_c_int, validate_adopted_tun_flags};
     use std::io;
-
+  
     #[test]
     fn interface_index_rejects_values_outside_linux_signed_range() {
         assert!(
@@ -1350,6 +1368,17 @@ mod raw_fd_contract_tests {
             interface_index_to_c_int(u32::MAX),
             Err(error) if error.kind() == io::ErrorKind::InvalidInput
         ));
+    }
+  
+    #[test]
+    fn tx_queue_len_preserves_unsigned_getter_values() {
+        assert!(tx_queue_len_to_c_int(i32::MAX.unsigned_abs()).is_ok_and(|value| value == i32::MAX));
+        assert!(matches!(
+            tx_queue_len_to_c_int(u32::MAX),
+            Err(error) if error.kind() == io::ErrorKind::InvalidInput
+        ));
+        assert_eq!(tx_queue_len_from_c_int(-1), u32::MAX);
+        assert_eq!(tx_queue_len_from_c_int(i32::MIN), 1 << 31);
     }
 
     #[test]
