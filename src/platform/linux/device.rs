@@ -1282,8 +1282,11 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_hwaddr.sa_family = ARPHRD_ETHER;
-            req.ifr_ifru.ifru_hwaddr.sa_data[0..ETHER_ADDR_LEN as usize]
-                .copy_from_slice(eth_addr.map(u8::cast_signed).as_slice());
+            req.ifr_ifru.ifru_hwaddr.sa_data[0..ETHER_ADDR_LEN as usize].copy_from_slice(
+                eth_addr
+                    .map(|byte| c_char::from_ne_bytes([byte]))
+                    .as_slice(),
+            );
             if let Err(err) = siocsifhwaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -1305,7 +1308,7 @@ impl DeviceImpl {
 
             let mut mac = [0u8; ETHER_ADDR_LEN as usize];
             for (i, b) in hw.iter().take(6).enumerate() {
-                mac[i] = (*b).cast_unsigned();
+                mac[i] = u8::from_ne_bytes((*b).to_ne_bytes());
             }
 
             Ok(mac)
@@ -1393,6 +1396,10 @@ mod raw_fd_contract_tests {
         assert!(ifreq_flag(i32::from(i16::MAX)).is_ok_and(|value| value == i16::MAX));
         assert!(matches!(
             ifreq_flag(i32::from(i16::MAX) + 1),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData
+        ));
+        assert!(matches!(
+            ifreq_flag(i32::from(i16::MIN) - 1),
             Err(error) if error.kind() == io::ErrorKind::InvalidData
         ));
     }
