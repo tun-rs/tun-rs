@@ -1695,4 +1695,12 @@ mod netmask_contract_tests {
         ));
         assert!(matches!(super::validate_ipv6_prefix(128), Ok(128)));
     }
+
+    #[test]
+    fn default_ipv6_netmask_for_full_prefix_is_all_ones() {
+        assert_eq!(
+            ToIpv6Netmask::netmask(&128_u8).unwrap(),
+            std::net::Ipv6Addr::from(u128::MAX)
+        );
+    }
 }
