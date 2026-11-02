@@ -2698,6 +2698,9 @@ mod tests {
         let tcp_checksum = !checksum(&pkt[IPH_LEN..], pseudo);
         pkt[IPH_LEN + 16..IPH_LEN + 18].copy_from_slice(&tcp_checksum.to_be_bytes());
 
+        pkt
+    }
+
     fn make_ipv4_udp_packet_with_declared_len(
         payload_len: usize,
         declared_udp_len: u16,
@@ -2726,6 +2729,37 @@ mod tests {
             &pkt[12..16],
             &pkt[16..20],
             (UDPH_LEN + payload_len) as u16,
+        );
+        let udp_checksum = !checksum(&pkt[IPH_LEN..], pseudo);
+        pkt[IPH_LEN + 6..IPH_LEN + 8].copy_from_slice(&udp_checksum.to_be_bytes());
+        pkt
+    }
+
+    fn make_ipv6_udp_packet_with_declared_len(
+        payload_len: usize,
+        declared_udp_len: u16,
+    ) -> Vec<u8> {
+        const IPH_LEN: usize = 40;
+        const UDPH_LEN: usize = 8;
+        let udp_len = UDPH_LEN + payload_len;
+        let mut pkt = vec![0u8; IPH_LEN + udp_len];
+        pkt[0] = 0x60;
+        pkt[4..6].copy_from_slice(&(udp_len as u16).to_be_bytes());
+        pkt[6] = IPPROTO_UDP as u8;
+        pkt[7] = 64;
+        pkt[8..24].copy_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+        pkt[24..40].copy_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+        pkt[IPH_LEN..IPH_LEN + 2].copy_from_slice(&10000u16.to_be_bytes());
+        pkt[IPH_LEN + 2..IPH_LEN + 4].copy_from_slice(&10001u16.to_be_bytes());
+        pkt[IPH_LEN + 4..IPH_LEN + 6].copy_from_slice(&declared_udp_len.to_be_bytes());
+        for (index, byte) in pkt[IPH_LEN + UDPH_LEN..].iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        let pseudo = pseudo_header_checksum_no_fold(
+            IPPROTO_UDP as u8,
+            &pkt[8..24],
+            &pkt[24..40],
+            udp_len as u16,
         );
         let udp_checksum = !checksum(&pkt[IPH_LEN..], pseudo);
         pkt[IPH_LEN + 6..IPH_LEN + 8].copy_from_slice(&udp_checksum.to_be_bytes());
@@ -2866,6 +2900,11 @@ mod tests {
         assert_eq!(table.to_write, vec![0, 1]);
         assert_eq!(bufs[0].len(), VIRTIO_NET_HDR_LEN + PACKET_LEN);
         assert_eq!(bufs[1].len(), VIRTIO_NET_HDR_LEN + PACKET_LEN);
+
+        Ok(())
+    }
+
+    #[test]
     fn udp_gro_rejects_mismatched_udp_length() -> io::Result<()> {
         const PAYLOAD_LEN: usize = 32;
         const ACTUAL_UDP_LEN: u16 = (UDP_H_LEN + PAYLOAD_LEN) as u16;
@@ -2908,6 +2947,41 @@ mod tests {
     }
 
     #[test]
+    fn udp_gro_rejects_mismatched_udp_length_ipv6() -> io::Result<()> {
+        const PAYLOAD_LEN: usize = 32;
+        const IPH_LEN: u8 = 40;
+        const ACTUAL_UDP_LEN: u16 = (UDP_H_LEN + PAYLOAD_LEN) as u16;
+        let malformed = make_ipv6_udp_packet_with_declared_len(PAYLOAD_LEN, ACTUAL_UDP_LEN - 1);
+        let valid = make_ipv6_udp_packet_with_declared_len(PAYLOAD_LEN, ACTUAL_UDP_LEN);
+        assert!(checksum_valid(&malformed, IPH_LEN, IPPROTO_UDP as u8, true));
+
+        let mut malformed_buf = Vec::with_capacity(256);
+        malformed_buf.resize(VIRTIO_NET_HDR_LEN, 0xa5);
+        malformed_buf.extend_from_slice(&malformed);
+        let malformed_payload = malformed_buf[VIRTIO_NET_HDR_LEN..].to_vec();
+        let mut first_valid = Vec::with_capacity(256);
+        first_valid.resize(VIRTIO_NET_HDR_LEN, 0);
+        first_valid.extend_from_slice(&valid);
+        let mut second_valid = Vec::with_capacity(256);
+        second_valid.resize(VIRTIO_NET_HDR_LEN, 0);
+        second_valid.extend_from_slice(&valid);
+
+        let mut bufs = vec![malformed_buf, first_valid, second_valid];
+        let mut table = GROTable::new();
+        table.apply_gro(&mut bufs, VIRTIO_NET_HDR_LEN, true)?;
+
+        assert_eq!(table.to_write, vec![0, 1]);
+        let mut default_hdr = [0u8; VIRTIO_NET_HDR_LEN];
+        VirtioNetHdr::default().encode(&mut default_hdr)?;
+        assert_eq!(&bufs[0][..VIRTIO_NET_HDR_LEN], &default_hdr);
+        assert_eq!(&bufs[0][VIRTIO_NET_HDR_LEN..], malformed_payload.as_slice());
+        let hdr = VirtioNetHdr::decode(&bufs[1][..VIRTIO_NET_HDR_LEN])?;
+        assert_eq!(hdr.gso_type, VIRTIO_NET_HDR_GSO_UDP_L4);
+        assert_eq!(hdr.gso_size, PAYLOAD_LEN as u16);
+        Ok(())
+    }
+
+    #[test]
     fn malformed_udp_gro_packet_does_not_contaminate_valid_flow() -> io::Result<()> {
         const PAYLOAD_LEN: usize = 32;
         const ACTUAL_UDP_LEN: u16 = (UDP_H_LEN + PAYLOAD_LEN) as u16;
@@ -2932,9 +3006,48 @@ mod tests {
 
         assert_eq!(table.to_write, vec![0, 1]);
         assert_eq!(bufs[0], malformed_original);
+        let payload_start = VIRTIO_NET_HDR_LEN + 20 + UDP_H_LEN;
+        let merged_payload = &bufs[1][payload_start..];
+        let original_payload = &valid[20 + UDP_H_LEN..];
+        assert_eq!(merged_payload.len(), PAYLOAD_LEN * 2);
+        assert_eq!(&merged_payload[..PAYLOAD_LEN], original_payload);
+        assert_eq!(&merged_payload[PAYLOAD_LEN..], original_payload);
         let hdr = VirtioNetHdr::decode(&bufs[1][..VIRTIO_NET_HDR_LEN])?;
         assert_eq!(hdr.gso_type, VIRTIO_NET_HDR_GSO_UDP_L4);
         assert_eq!(hdr.gso_size, PAYLOAD_LEN as u16);
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_udp_gro_packet_after_valid_flow_is_not_coalesced() -> io::Result<()> {
+        const PAYLOAD_LEN: usize = 32;
+        const ACTUAL_UDP_LEN: u16 = (UDP_H_LEN + PAYLOAD_LEN) as u16;
+        let valid = make_ipv4_udp_packet_with_declared_len(PAYLOAD_LEN, ACTUAL_UDP_LEN);
+        let malformed = make_ipv4_udp_packet_with_declared_len(PAYLOAD_LEN, ACTUAL_UDP_LEN - 1);
+
+        let mut first_valid = Vec::with_capacity(256);
+        first_valid.resize(VIRTIO_NET_HDR_LEN, 0);
+        first_valid.extend_from_slice(&valid);
+        let mut second_valid = Vec::with_capacity(256);
+        second_valid.resize(VIRTIO_NET_HDR_LEN, 0);
+        second_valid.extend_from_slice(&valid);
+        let mut malformed_buf = Vec::with_capacity(256);
+        malformed_buf.resize(VIRTIO_NET_HDR_LEN, 0xa5);
+        malformed_buf.extend_from_slice(&malformed);
+        let malformed_payload = malformed_buf[VIRTIO_NET_HDR_LEN..].to_vec();
+
+        let mut bufs = vec![first_valid, second_valid, malformed_buf];
+        let mut table = GROTable::new();
+        table.apply_gro(&mut bufs, VIRTIO_NET_HDR_LEN, true)?;
+
+        assert_eq!(table.to_write, vec![0, 2]);
+        let hdr = VirtioNetHdr::decode(&bufs[0][..VIRTIO_NET_HDR_LEN])?;
+        assert_eq!(hdr.gso_type, VIRTIO_NET_HDR_GSO_UDP_L4);
+        assert_eq!(hdr.gso_size, PAYLOAD_LEN as u16);
+        let mut default_hdr = [0u8; VIRTIO_NET_HDR_LEN];
+        VirtioNetHdr::default().encode(&mut default_hdr)?;
+        assert_eq!(&bufs[2][..VIRTIO_NET_HDR_LEN], &default_hdr);
+        assert_eq!(&bufs[2][VIRTIO_NET_HDR_LEN..], malformed_payload.as_slice());
         Ok(())
     }
 
