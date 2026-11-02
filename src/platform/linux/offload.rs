@@ -2715,6 +2715,31 @@ mod tests {
     }
 
     #[test]
+    fn ipv6_gro_rejects_transport_length_overflow_without_mutation() -> io::Result<()> {
+        const PAYLOAD_LEN: usize = 32_758;
+        const LARGE_CAPACITY: usize = 65_664;
+
+        let mut first = Vec::with_capacity(LARGE_CAPACITY);
+        first.resize(VIRTIO_NET_HDR_LEN, 0);
+        first.extend_from_slice(&make_ipv6_tcp_packet(1, PAYLOAD_LEN));
+
+        let mut second = Vec::with_capacity(LARGE_CAPACITY);
+        second.resize(VIRTIO_NET_HDR_LEN, 0);
+        second.extend_from_slice(&make_ipv6_tcp_packet(1 + PAYLOAD_LEN as u32, PAYLOAD_LEN));
+
+        let original = [first.clone(), second.clone()];
+        let mut bufs = vec![first, second];
+        let mut table = GROTable::new();
+        table.apply_gro(&mut bufs, VIRTIO_NET_HDR_LEN, false)?;
+
+        assert_eq!(20 + PAYLOAD_LEN * 2, usize::from(u16::MAX) + 1);
+        assert_eq!(table.to_write, vec![0, 1]);
+        assert_eq!(bufs[0], original[0]);
+        assert_eq!(bufs[1], original[1]);
+        Ok(())
+    }
+
+    #[test]
     fn udp_coalesce_rejects_packets_larger_than_wire_length_fields() {
         const PACKET_LEN: usize = 33_028;
         let mut bufs = vec![vec![0; PACKET_LEN]];
