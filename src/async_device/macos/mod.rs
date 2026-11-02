@@ -1,5 +1,6 @@
 use crate::async_device::unix;
 use crate::{DeviceImpl, SyncDevice};
+#[cfg(feature = "async_framed")]
 use bytes::buf::UninitSlice;
 use std::io;
 use std::io::{IoSlice, IoSliceMut};
@@ -215,6 +216,7 @@ impl AsyncDevice {
             AsyncModel::Select(dev) => dev.poll_recv(cx, buf),
         }
     }
+    #[cfg(feature = "async_framed")]
     #[allow(dead_code)]
     pub(crate) fn poll_recv_uninit(
         &self,
