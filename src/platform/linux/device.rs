@@ -1356,9 +1356,9 @@ impl From<Layer> for c_short {
 #[cfg(test)]
 mod raw_fd_contract_tests {
     use super::{interface_index_to_c_int, validate_adopted_tun_flags};
-    use super::{tx_queue_len_from_c_int, tx_queue_len_to_c_int, validate_adopted_tun_flags};
+    use super::{tx_queue_len_from_c_int, tx_queue_len_to_c_int};
     use std::io;
-  
+
     #[test]
     fn interface_index_rejects_values_outside_linux_signed_range() {
         assert!(
@@ -1369,7 +1369,7 @@ mod raw_fd_contract_tests {
             Err(error) if error.kind() == io::ErrorKind::InvalidInput
         ));
     }
-  
+
     #[test]
     fn tx_queue_len_preserves_unsigned_getter_values() {
         assert!(tx_queue_len_to_c_int(i32::MAX.unsigned_abs()).is_ok_and(|value| value == i32::MAX));
