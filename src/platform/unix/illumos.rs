@@ -1,4 +1,4 @@
-use super::{DeviceImpl, Fd, Tun};
+use super::{write_operation_lock, DeviceImpl, Fd, Tun};
 use crate::builder::DeviceConfig;
 use crate::{ToIpv4Address, ToIpv4Netmask, ToIpv6Address, ToIpv6Netmask};
 use libc::c_int;
@@ -202,7 +202,7 @@ impl DeviceImpl {
     }
 
     pub fn set_mtu(&self, mtu: u16) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = write_operation_lock(&self.op_lock);
         let name = self.ifname()?;
         let m = mtu.to_string();
         // With no address family, ifconfig only touches IPv4.
@@ -225,7 +225,7 @@ impl DeviceImpl {
     pub fn enabled(&self, up: bool) -> io::Result<()> {
         // Hold the configuration lock for the whole function, so concurrent
         // enabled() calls cannot interleave their ifconfig commands.
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = write_operation_lock(&self.op_lock);
 
         let name = self.ifname()?;
         let flag = if up { "up" } else { "down" };
@@ -272,7 +272,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = write_operation_lock(&self.op_lock);
         let name = self.ifname()?;
         let addr = address.ipv4()?;
         let mask = netmask.netmask()?;
@@ -318,7 +318,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = write_operation_lock(&self.op_lock);
         let name = self.ifname()?;
         let a = addr.ipv6()?.to_string();
         let prefix = u128::from(netmask.netmask()?).leading_ones().to_string();

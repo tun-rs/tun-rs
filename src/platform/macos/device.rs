@@ -189,7 +189,7 @@ impl DeviceImpl {
 impl DeviceImpl {
     /// Retrieves the name of the network interface.
     pub fn name(&self) -> io::Result<String> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         self.name_impl()
     }
     /// System behavior:
@@ -200,7 +200,7 @@ impl DeviceImpl {
     /// If true (default), the program will automatically add or remove routes to provide consistent routing behavior across all platforms.
     /// Set this to be false to obtain the platform's default routing behavior.
     pub fn set_associate_route(&self, associate_route: bool) {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         if self.tun.is_tun() {
             self.associate_route
                 .store(associate_route, Ordering::Relaxed);
@@ -208,7 +208,7 @@ impl DeviceImpl {
     }
     /// Retrieve whether route is associated with the IP setting interface, see [`DeviceImpl::set_associate_route`]
     pub fn associate_route(&self) -> bool {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         self.associate_route.load(Ordering::Relaxed)
     }
     /// Enables or disables the network interface.
@@ -216,7 +216,7 @@ impl DeviceImpl {
     /// If `value` is true, the interface is enabled by setting the IFF_UP and IFF_RUNNING flags.
     /// If false, the IFF_UP flag is cleared. The change is applied using a system call.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -240,7 +240,7 @@ impl DeviceImpl {
     }
     /// Retrieves the current MTU (Maximum Transmission Unit) for the interface.
     pub fn mtu(&self) -> io::Result<u16> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -255,7 +255,7 @@ impl DeviceImpl {
     }
     /// Sets the MTU (Maximum Transmission Unit) for the interface.
     pub fn set_mtu(&self, value: u16) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         self.tun.set_mtu(value)
     }
     /// Sets the IPv4 network address, netmask, and an optional destination address.
@@ -266,7 +266,7 @@ impl DeviceImpl {
         netmask: Netmask,
         destination: Option<IPv4>,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         let associate_route = self.associate_route.load(Ordering::Relaxed);
         self.set_network_address_impl(address, netmask, destination, associate_route)
     }
@@ -308,7 +308,7 @@ impl DeviceImpl {
         address: IPv4,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         let associate_route = self.associate_route.load(Ordering::Relaxed);
         let netmask = netmask.netmask()?;
         let address = address.ipv4()?;
@@ -324,7 +324,7 @@ impl DeviceImpl {
     }
     /// Remove an IP address from the interface.
     pub fn remove_address(&self, addr: IpAddr) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         let is_associate_route = self.associate_route.load(Ordering::Relaxed);
         unsafe {
             match addr {
@@ -393,7 +393,7 @@ impl DeviceImpl {
         addr: IPv6,
         netmask: Netmask,
     ) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         let addr = addr.ipv6()?;
         unsafe {
             let tun_name = self.name_impl()?;
@@ -419,12 +419,12 @@ impl DeviceImpl {
     }
     /// Set MAC address on L2 layer
     pub fn set_mac_address(&self, eth_addr: [u8; ETHER_ADDR_LEN as usize]) -> io::Result<()> {
-        let _guard = self.op_lock.write().unwrap();
+        let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         self.tun.set_mac_address(eth_addr)
     }
     /// Retrieve MAC address for the device
     pub fn mac_address(&self) -> io::Result<[u8; ETHER_ADDR_LEN as usize]> {
-        let _guard = self.op_lock.read().unwrap();
+        let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         self.tun.mac_address()
     }
 }
