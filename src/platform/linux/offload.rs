@@ -2579,6 +2579,7 @@ mod tests {
 
         table.reset();
         assert_eq!(table.values().count(), 0);
+        assert!(table.slots.iter().all(|slot| slot.items.is_empty()));
         assert!(table
             .lookup_or_insert_with(CollidingFlowKey(7), || 7)
             .is_none());
