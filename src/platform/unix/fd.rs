@@ -249,18 +249,24 @@ impl Drop for Fd {
 mod tests {
     use super::Fd;
     use std::fs::File;
-    use std::os::fd::AsRawFd;
+    use std::io;
+    use std::os::fd::{AsRawFd, IntoRawFd};
+    use std::os::unix::net::UnixStream;
 
     #[test]
-    fn should_drop_cleanup_matches_ownership() {
-        let owned = unsafe { Fd::new_unchecked(1) };
+    fn should_drop_cleanup_matches_ownership() -> io::Result<()> {
+        let (owned_stream, borrowed_stream) = UnixStream::pair()?;
+        // SAFETY: ownership of this live descriptor is transferred from `owned_stream`.
+        let owned = unsafe { Fd::new_unchecked(owned_stream.into_raw_fd()) };
         assert!(owned.should_drop_cleanup());
 
-        let borrowed = unsafe { Fd::new_unchecked_with_borrow(1, true) };
+        // SAFETY: `borrowed_stream` keeps the descriptor live for the wrapper's lifetime.
+        let borrowed = unsafe { Fd::new_unchecked_with_borrow(borrowed_stream.as_raw_fd(), true) };
         assert!(!borrowed.should_drop_cleanup());
 
         let invalid = unsafe { Fd::new_unchecked_with_borrow(-1, false) };
         assert!(!invalid.should_drop_cleanup());
+        Ok(())
     }
 
     #[test]
