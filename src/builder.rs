@@ -1504,15 +1504,44 @@ impl ToIpv6Address for &str {
         }
     }
 }
+fn validate_prefix(prefix: u8, max: u8) -> io::Result<u8> {
+    if prefix > max {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid IP prefix length",
+        ));
+    }
+    Ok(prefix)
+}
+
+pub(super) fn validate_ipv4_prefix(prefix: u8) -> io::Result<u8> {
+    validate_prefix(prefix, 32)
+}
+
+pub(super) fn validate_ipv6_prefix(prefix: u8) -> io::Result<u8> {
+    validate_prefix(prefix, 128)
+}
+
+pub(super) fn validated_ipv4_prefix<Netmask: ToIpv4Netmask + ?Sized>(
+    netmask: &Netmask,
+) -> io::Result<u8> {
+    validate_ipv4_prefix(netmask.prefix()?)
+}
+
+pub(super) fn validated_ipv6_prefix<Netmask: ToIpv6Netmask + ?Sized>(
+    netmask: &Netmask,
+) -> io::Result<u8> {
+    validate_ipv6_prefix(netmask.prefix()?)
+}
+
 /// Trait for converting various types into an IPv4 netmask (prefix length).
 pub trait ToIpv4Netmask {
     /// Returns the prefix length (i.e., the number of consecutive 1s in the netmask).
     fn prefix(&self) -> io::Result<u8>;
     /// Computes the IPv4 netmask based on the prefix length.
     fn netmask(&self) -> io::Result<Ipv4Addr> {
-        let ip = u32::MAX
-            .checked_shl(32 - self.prefix()? as u32)
-            .unwrap_or(0);
+        let prefix = validated_ipv4_prefix(self)?;
+        let ip = u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0);
         Ok(Ipv4Addr::from(ip))
     }
 }
@@ -1539,7 +1568,12 @@ impl ToIpv4Netmask for Ipv4Addr {
                 "invalid netmask",
             ));
         }
-        Ok(ip.leading_ones() as u8)
+        u8::try_from(ip.leading_ones()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "netmask prefix exceeds u8 range",
+            )
+        })
     }
 }
 impl ToIpv4Netmask for String {
@@ -1564,9 +1598,8 @@ pub trait ToIpv6Netmask {
     fn prefix(&self) -> io::Result<u8>;
     /// Computes the IPv6 netmask based on the prefix length.
     fn netmask(&self) -> io::Result<Ipv6Addr> {
-        let ip = u128::MAX
-            .checked_shl(128 - self.prefix()? as u32)
-            .unwrap_or(0);
+        let prefix = validated_ipv6_prefix(self)?;
+        let ip = u128::MAX.checked_shl(128 - u32::from(prefix)).unwrap_or(0);
         Ok(Ipv6Addr::from(ip))
     }
 }
@@ -1592,7 +1625,12 @@ impl ToIpv6Netmask for Ipv6Addr {
                 "invalid netmask",
             ));
         }
-        Ok(ip.leading_ones() as u8)
+        u8::try_from(ip.leading_ones()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "netmask prefix exceeds u8 range",
+            )
+        })
     }
 }
 impl ToIpv6Netmask for String {
@@ -1609,5 +1647,60 @@ impl ToIpv6Netmask for &str {
                 "invalid netmask str",
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod netmask_contract_tests {
+    use super::{ToIpv4Netmask, ToIpv6Netmask};
+    use std::io;
+
+    struct InvalidIpv4Prefix;
+
+    impl ToIpv4Netmask for InvalidIpv4Prefix {
+        fn prefix(&self) -> io::Result<u8> {
+            Ok(33)
+        }
+    }
+
+    struct InvalidIpv6Prefix;
+
+    impl ToIpv6Netmask for InvalidIpv6Prefix {
+        fn prefix(&self) -> io::Result<u8> {
+            Ok(129)
+        }
+    }
+
+    #[test]
+    fn default_ipv4_netmask_rejects_invalid_custom_prefix() {
+        assert!(matches!(
+            InvalidIpv4Prefix.netmask(),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData
+        ));
+    }
+
+    #[test]
+    fn default_ipv6_netmask_rejects_invalid_custom_prefix() {
+        assert!(matches!(
+            InvalidIpv6Prefix.netmask(),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData
+        ));
+    }
+
+    #[test]
+    fn raw_ipv6_prefix_validation_rejects_out_of_range_values() {
+        assert!(matches!(
+            super::validate_ipv6_prefix(129),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData
+        ));
+        assert!(matches!(super::validate_ipv6_prefix(128), Ok(128)));
+    }
+
+    #[test]
+    fn default_ipv6_netmask_for_full_prefix_is_all_ones() {
+        assert_eq!(
+            ToIpv6Netmask::netmask(&128_u8).unwrap(),
+            std::net::Ipv6Addr::from(u128::MAX)
+        );
     }
 }

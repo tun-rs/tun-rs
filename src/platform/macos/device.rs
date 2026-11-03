@@ -404,8 +404,11 @@ impl DeviceImpl {
                 tun_name.len(),
             );
             req.ifra_addr = sockaddr_union::from((addr, 0)).addr6;
-            let network_addr = ipnet::IpNet::new(addr.into(), netmask.prefix()?)
-                .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+            let network_addr = ipnet::IpNet::new(
+                addr.into(),
+                crate::builder::validated_ipv6_prefix(&netmask)?,
+            )
+            .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
             let mask = network_addr.netmask();
             req.ifra_prefixmask = sockaddr_union::from((mask, 0)).addr6;
             req.in6_addrlifetime.ia6t_vltime = 0xffffffff_u32;
