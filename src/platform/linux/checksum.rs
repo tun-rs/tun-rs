@@ -19,7 +19,7 @@ fn checksum_no_fold_scalar(mut b: &[u8], initial: u64) -> u64 {
     if let Some(&byte) = b.first() {
         // For odd-length inputs, the last byte is treated as the high byte
         // of a 16-bit word (e.g., [0xAB] becomes 0xAB00), as per RFC 1071.
-        accumulator = accumulator.wrapping_add((byte as u64) << 8);
+        accumulator = accumulator.wrapping_add(u64::from(byte) << 8);
     }
 
     accumulator
@@ -32,10 +32,15 @@ fn checksum_no_fold_scalar(mut b: &[u8], initial: u64) -> u64 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn checksum_no_fold_avx2(mut b: &[u8], initial: u64) -> u64 {
-    use std::arch::x86_64::*;
+    use std::arch::x86_64::{
+        __m256i, _mm256_add_epi64, _mm256_cvtepu32_epi64, _mm256_extract_epi64,
+        _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_set_epi8, _mm256_setzero_si256,
+        _mm256_shuffle_epi8,
+    };
+
+    const CHUNK_SIZE: usize = 32; // AVX2 processes 32 bytes (256 bits) at a time.
 
     let mut accumulator = initial;
-    const CHUNK_SIZE: usize = 32; // AVX2 processes 32 bytes (256 bits) at a time.
 
     if b.len() >= CHUNK_SIZE {
         // Use a 256-bit vector to hold four 64-bit partial sums.
@@ -49,8 +54,12 @@ unsafe fn checksum_no_fold_avx2(mut b: &[u8], initial: u64) -> u64 {
 
         while b.len() >= CHUNK_SIZE {
             // Load 32 bytes of data.
+            #[expect(
+                clippy::cast_ptr_alignment,
+                reason = "_mm256_loadu_si256 explicitly accepts unaligned addresses despite its SIMD-typed pointer parameter"
+            )]
             // SAFETY: b has at least CHUNK_SIZE bytes and this intrinsic permits unaligned loads.
-            let data = unsafe { _mm256_loadu_si256(b.as_ptr() as *const __m256i) };
+            let data = unsafe { _mm256_loadu_si256(b.as_ptr().cast::<__m256i>()) };
             // Swap byte order from BE to LE.
             let swapped = _mm256_shuffle_epi8(data, shuffle_mask);
 
@@ -66,10 +75,10 @@ unsafe fn checksum_no_fold_avx2(mut b: &[u8], initial: u64) -> u64 {
         }
 
         // Perform a horizontal sum to combine the partial sums in the vector.
-        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 0) as u64);
-        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 1) as u64);
-        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 2) as u64);
-        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 3) as u64);
+        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 0).cast_unsigned());
+        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 1).cast_unsigned());
+        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 2).cast_unsigned());
+        accumulator = accumulator.wrapping_add(_mm256_extract_epi64(sums, 3).cast_unsigned());
     }
 
     // Process any remaining data using the scalar implementation.
@@ -83,10 +92,14 @@ unsafe fn checksum_no_fold_avx2(mut b: &[u8], initial: u64) -> u64 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse4.1")]
 unsafe fn checksum_no_fold_sse41(mut b: &[u8], initial: u64) -> u64 {
-    use std::arch::x86_64::*;
+    use std::arch::x86_64::{
+        __m128i, _mm_add_epi64, _mm_bsrli_si128, _mm_cvtepu32_epi64, _mm_cvtsi128_si64,
+        _mm_extract_epi64, _mm_loadu_si128, _mm_set_epi8, _mm_setzero_si128, _mm_shuffle_epi8,
+    };
+
+    const CHUNK_SIZE: usize = 16; // SSE processes 16 bytes (128 bits) at a time.
 
     let mut accumulator = initial;
-    const CHUNK_SIZE: usize = 16; // SSE processes 16 bytes (128 bits) at a time.
 
     if b.len() >= CHUNK_SIZE {
         // Use a 128-bit vector to hold two 64-bit partial sums.
@@ -97,8 +110,12 @@ unsafe fn checksum_no_fold_sse41(mut b: &[u8], initial: u64) -> u64 {
 
         while b.len() >= CHUNK_SIZE {
             // Load 16 bytes of data.
+            #[expect(
+                clippy::cast_ptr_alignment,
+                reason = "_mm_loadu_si128 explicitly accepts unaligned addresses despite its SIMD-typed pointer parameter"
+            )]
             // SAFETY: b has at least CHUNK_SIZE bytes and this intrinsic permits unaligned loads.
-            let data = unsafe { _mm_loadu_si128(b.as_ptr() as *const __m128i) };
+            let data = unsafe { _mm_loadu_si128(b.as_ptr().cast::<__m128i>()) };
             // Swap byte order from BE to LE.
             let swapped = _mm_shuffle_epi8(data, shuffle_mask);
 
@@ -114,8 +131,8 @@ unsafe fn checksum_no_fold_sse41(mut b: &[u8], initial: u64) -> u64 {
         }
 
         // Horizontal sum of the two 64-bit lanes.
-        accumulator = accumulator.wrapping_add(_mm_cvtsi128_si64(sums) as u64);
-        accumulator = accumulator.wrapping_add(_mm_extract_epi64(sums, 1) as u64);
+        accumulator = accumulator.wrapping_add(_mm_cvtsi128_si64(sums).cast_unsigned());
+        accumulator = accumulator.wrapping_add(_mm_extract_epi64(sums, 1).cast_unsigned());
     }
 
     // Process any remaining data using the scalar implementation.
@@ -131,6 +148,7 @@ unsafe fn checksum_no_fold_sse41(mut b: &[u8], initial: u64) -> u64 {
 /// Accumulation uses wrapping `u64` arithmetic, matching Go integer semantics and
 /// keeping debug and release builds behaviorally identical at the overflow boundary.
 #[inline]
+#[must_use]
 pub fn checksum_no_fold(b: &[u8], initial: u64) -> u64 {
     // Dispatch to the best available implementation based on runtime CPU feature detection.
     #[cfg(target_arch = "x86_64")]
@@ -157,15 +175,17 @@ pub fn checksum_no_fold(b: &[u8], initial: u64) -> u64 {
 /// This performs the standard one's complement sum fold-down of a 64-bit accumulator
 /// into a 16-bit value. The loop ensures correctness regardless of the initial magnitude
 /// of the accumulator.
+#[must_use]
 pub fn checksum(b: &[u8], initial: u64) -> u16 {
     let mut accumulator = checksum_no_fold(b, initial);
 
     // Fold the 64-bit accumulator into 16 bits.
-    while accumulator > 0xFFFF {
+    loop {
+        if let Ok(folded) = u16::try_from(accumulator) {
+            return folded;
+        }
         accumulator = (accumulator >> 16) + (accumulator & 0xFFFF);
     }
-
-    accumulator as u16
 }
 
 /// Calculates the checksum accumulator for a TCP/UDP pseudo-header.
@@ -213,6 +233,21 @@ mod tests {
             super::checksum_no_fold(&vector_sized, u64::MAX),
             vector_expected
         );
+    }
+
+    #[test]
+    fn checksum_folds_large_initial_accumulators() {
+        let cases: [(u64, u16); 5] = [
+            (0, 0),
+            (0xFFFF, 0xFFFF),
+            (0x1_0000, 1),
+            (u64::MAX, u16::MAX),
+            (0x1234_5678_9ABC_DEF0, 0xE259),
+        ];
+
+        for (initial, expected) in cases {
+            assert_eq!(super::checksum(&[], initial), expected);
+        }
     }
 
     #[test]
