@@ -6,7 +6,12 @@ use crate::platform::unix::device::{ctl, ctl_v6};
 use crate::platform::{ExpandBuffer, GROTable};
 use crate::{
     builder::{DeviceConfig, Layer},
-    platform::linux::sys::*,
+    platform::linux::sys::{
+        change_tx_queue_len, siocdifaddr_in6, siocgifbrdaddr, siocgifflags, siocgifhwaddr,
+        siocgifmtu, siocsifaddr, siocsifaddr_in6, siocsifbrdaddr, siocsifdstaddr, siocsifflags,
+        siocsifhwaddr, siocsifmtu, siocsifname, siocsifnetmask, tungetiff, tunsetgroup, tunsetiff,
+        tunsetoffload, tunsetowner, tunsetpersist, tx_queue_len,
+    },
     platform::{
         unix::{ipaddr_to_sockaddr, sockaddr_union, Fd, Tun},
         ETHER_ADDR_LEN,
@@ -58,6 +63,15 @@ fn tx_queue_len_from_c_int(value: c_int) -> u32 {
     u32::from_ne_bytes(value.to_ne_bytes())
 }
 
+fn ifreq_flag(value: c_int) -> io::Result<c_short> {
+    c_short::try_from(value).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Linux interface flag {value:#x} does not fit the ifreq flag field"),
+        )
+    })
+}
+
 /// A TUN device using the TUN/TAP Linux driver.
 pub struct DeviceImpl {
     pub(crate) tun: Tun,
@@ -106,16 +120,19 @@ impl DeviceImpl {
 
             if let Some(dev_name) = dev_name.as_ref() {
                 ptr::copy_nonoverlapping(
-                    dev_name.as_ptr() as *const c_char,
+                    dev_name.as_ptr().cast::<c_char>(),
                     req.ifr_name.as_mut_ptr(),
                     dev_name.as_bytes_with_nul().len(),
                 );
             }
             let multi_queue = config.multi_queue.unwrap_or(false);
-            let device_type: c_short = config.layer.unwrap_or(Layer::L3).into();
-            let iff_no_pi = IFF_NO_PI as c_short;
-            let iff_vnet_hdr = libc::IFF_VNET_HDR as c_short;
-            let iff_multi_queue = IFF_MULTI_QUEUE as c_short;
+            let device_type = ifreq_flag(match config.layer.unwrap_or(Layer::L3) {
+                Layer::L2 => IFF_TAP,
+                Layer::L3 => IFF_TUN,
+            })?;
+            let iff_no_pi = ifreq_flag(IFF_NO_PI)?;
+            let iff_vnet_hdr = ifreq_flag(libc::IFF_VNET_HDR)?;
+            let iff_multi_queue = ifreq_flag(IFF_MULTI_QUEUE)?;
             let packet_information = config.packet_information.unwrap_or(false);
             let offload = config.offload.unwrap_or(false);
             let backpressure = config.backpressure.unwrap_or(false);
@@ -131,13 +148,9 @@ impl DeviceImpl {
                 | if offload { iff_vnet_hdr } else { 0 }
                 | if backpressure { IFF_BACKPRESSURE } else { 0 };
 
-            let fd = libc::open(
-                c"/dev/net/tun".as_ptr() as *const _,
-                O_RDWR | libc::O_CLOEXEC,
-                0,
-            );
+            let fd = libc::open(c"/dev/net/tun".as_ptr().cast(), O_RDWR | libc::O_CLOEXEC, 0);
             let tun_fd = Fd::new(fd)?;
-            if let Err(err) = tunsetiff(tun_fd.inner, &mut req as *mut _ as *mut _) {
+            if let Err(err) = tunsetiff(tun_fd.inner, (&raw mut req).cast::<c_int>()) {
                 return Err(io::Error::from(err));
             }
             let (vnet_hdr, udp_gso) = if offload && libc::IFF_VNET_HDR != 0 {
@@ -231,7 +244,8 @@ impl DeviceImpl {
     /// When multi-queue is enabled, create a new queue by duplicating an existing one.
     pub(crate) fn try_clone(&self) -> io::Result<DeviceImpl> {
         let flags = self.flags;
-        if flags & (IFF_MULTI_QUEUE as c_short) != IFF_MULTI_QUEUE as c_short {
+        let iff_multi_queue = ifreq_flag(IFF_MULTI_QUEUE)?;
+        if flags & iff_multi_queue != iff_multi_queue {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "iff_multi_queue not enabled",
@@ -240,12 +254,9 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_flags = flags;
-            let fd = libc::open(
-                c"/dev/net/tun".as_ptr() as *const _,
-                O_RDWR | libc::O_CLOEXEC,
-            );
+            let fd = libc::open(c"/dev/net/tun".as_ptr().cast(), O_RDWR | libc::O_CLOEXEC);
             let tun_fd = Fd::new(fd)?;
-            if let Err(err) = tunsetiff(tun_fd.inner, &mut req as *mut _ as *mut _) {
+            if let Err(err) = tunsetiff(tun_fd.inner, (&raw mut req).cast::<c_int>()) {
                 return Err(io::Error::from(err));
             }
             let dev = DeviceImpl {
@@ -932,7 +943,7 @@ impl DeviceImpl {
 
             let mut req = self.request()?;
             ptr::copy_nonoverlapping(
-                tun_name.as_ptr() as *const c_char,
+                tun_name.as_ptr().cast::<c_char>(),
                 req.ifr_ifru.ifru_newname.as_mut_ptr(),
                 value.len(),
             );
@@ -950,7 +961,8 @@ impl DeviceImpl {
     pub fn is_running(&self) -> io::Result<bool> {
         let _guard = crate::platform::unix::read_operation_lock(&self.op_lock);
         let flags = self.ifru_flags()?;
-        Ok(flags & (IFF_UP | IFF_RUNNING) as c_short == (IFF_UP | IFF_RUNNING) as c_short)
+        let running_flags = ifreq_flag(IFF_UP | IFF_RUNNING)?;
+        Ok(flags & running_flags == running_flags)
     }
     /// Enables or disables the network interface.
     ///
@@ -958,6 +970,8 @@ impl DeviceImpl {
     /// If false, the IFF_UP flag is cleared. The change is applied using a system call.
     pub fn enabled(&self, value: bool) -> io::Result<()> {
         let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
+        let running_flags = ifreq_flag(IFF_UP | IFF_RUNNING)?;
+        let iff_up = ifreq_flag(IFF_UP)?;
         unsafe {
             let ctl = ctl()?;
             let mut req = self.request()?;
@@ -967,9 +981,9 @@ impl DeviceImpl {
             }
 
             if value {
-                req.ifr_ifru.ifru_flags |= (IFF_UP | IFF_RUNNING) as c_short;
+                req.ifr_ifru.ifru_flags |= running_flags;
             } else {
-                req.ifr_ifru.ifru_flags &= !(IFF_UP as c_short);
+                req.ifr_ifru.ifru_flags &= !iff_up;
             }
 
             if let Err(err) = siocsifflags(ctl.as_raw_fd(), &req) {
@@ -1250,7 +1264,7 @@ impl DeviceImpl {
         let _guard = crate::platform::unix::write_operation_lock(&self.op_lock);
         unsafe {
             let mut req = self.request()?;
-            req.ifr_ifru.ifru_mtu = value as i32;
+            req.ifr_ifru.ifru_mtu = i32::from(value);
 
             if let Err(err) = siocsifmtu(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
@@ -1268,8 +1282,11 @@ impl DeviceImpl {
         unsafe {
             let mut req = self.request()?;
             req.ifr_ifru.ifru_hwaddr.sa_family = ARPHRD_ETHER;
-            req.ifr_ifru.ifru_hwaddr.sa_data[0..ETHER_ADDR_LEN as usize]
-                .copy_from_slice(eth_addr.map(|c| c as _).as_slice());
+            req.ifr_ifru.ifru_hwaddr.sa_data[0..ETHER_ADDR_LEN as usize].copy_from_slice(
+                eth_addr
+                    .map(|byte| c_char::from_ne_bytes([byte]))
+                    .as_slice(),
+            );
             if let Err(err) = siocsifhwaddr(ctl()?.as_raw_fd(), &req) {
                 return Err(io::Error::from(err));
             }
@@ -1291,7 +1308,7 @@ impl DeviceImpl {
 
             let mut mac = [0u8; ETHER_ADDR_LEN as usize];
             for (i, b) in hw.iter().take(6).enumerate() {
-                mac[i] = *b as u8;
+                mac[i] = u8::from_ne_bytes((*b).to_ne_bytes());
             }
 
             Ok(mac)
@@ -1302,13 +1319,13 @@ impl DeviceImpl {
 fn tun_flags(fd: RawFd) -> io::Result<c_short> {
     unsafe {
         let mut req: ifreq = mem::zeroed();
-        tungetiff(fd, &mut req as *mut _ as *mut _).map_err(io::Error::from)?;
+        tungetiff(fd, (&raw mut req).cast::<c_int>()).map_err(io::Error::from)?;
         Ok(req.ifr_ifru.ifru_flags)
     }
 }
 
 fn validate_adopted_tun_flags(flags: c_short) -> io::Result<()> {
-    if flags & (libc::IFF_VNET_HDR as c_short) != 0 {
+    if flags & ifreq_flag(libc::IFF_VNET_HDR)? != 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "Linux raw-fd adoption does not support IFF_VNET_HDR; use an explicitly configured device instead",
@@ -1321,11 +1338,11 @@ unsafe fn name(fd: RawFd) -> io::Result<String> {
     // SAFETY: ifreq is C request storage that is initialized by TUNGETIFF below.
     let mut req: ifreq = unsafe { mem::zeroed() };
     // SAFETY: the caller provides a live TUN fd and req is writable request storage.
-    if let Err(err) = unsafe { tungetiff(fd, &mut req as *mut _ as *mut _) } {
+    if let Err(err) = unsafe { tungetiff(fd, (&raw mut req).cast::<c_int>()) } {
         return Err(io::Error::from(err));
     }
     // SAFETY: successful TUNGETIFF initializes ifr_name as a NUL-terminated interface name.
-    let c_str = unsafe { std::ffi::CStr::from_ptr(req.ifr_name.as_ptr() as *const c_char) };
+    let c_str = unsafe { std::ffi::CStr::from_ptr(req.ifr_name.as_ptr().cast::<c_char>()) };
     let tun_name = c_str.to_string_lossy().into_owned();
     Ok(tun_name)
 }
@@ -1336,7 +1353,7 @@ unsafe fn request(name: &str) -> io::Result<ifreq> {
     // SAFETY: source and destination are non-overlapping and the caller guarantees the copy fits.
     unsafe {
         ptr::copy_nonoverlapping(
-            name.as_ptr() as *const c_char,
+            name.as_ptr().cast::<c_char>(),
             req.ifr_name.as_mut_ptr(),
             name.len(),
         );
@@ -1344,19 +1361,12 @@ unsafe fn request(name: &str) -> io::Result<ifreq> {
     Ok(req)
 }
 
-impl From<Layer> for c_short {
-    fn from(layer: Layer) -> Self {
-        match layer {
-            Layer::L2 => IFF_TAP as c_short,
-            Layer::L3 => IFF_TUN as c_short,
-        }
-    }
-}
-
 #[cfg(test)]
 mod raw_fd_contract_tests {
-    use super::{interface_index_to_c_int, validate_adopted_tun_flags};
-    use super::{tx_queue_len_from_c_int, tx_queue_len_to_c_int};
+    use super::{
+        ifreq_flag, interface_index_to_c_int, tx_queue_len_from_c_int, tx_queue_len_to_c_int,
+        validate_adopted_tun_flags,
+    };
     use std::io;
 
     #[test]
@@ -1382,11 +1392,26 @@ mod raw_fd_contract_tests {
     }
 
     #[test]
-    fn adopted_raw_fd_rejects_virtio_header_framing() {
-        assert!(validate_adopted_tun_flags(0).is_ok());
+    fn ifreq_flags_reject_values_outside_linux_short_range() {
+        assert!(ifreq_flag(i32::from(i16::MAX)).is_ok_and(|value| value == i16::MAX));
         assert!(matches!(
-            validate_adopted_tun_flags(libc::IFF_VNET_HDR as libc::c_short),
+            ifreq_flag(i32::from(i16::MAX) + 1),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData
+        ));
+        assert!(matches!(
+            ifreq_flag(i32::from(i16::MIN) - 1),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData
+        ));
+    }
+
+    #[test]
+    fn adopted_raw_fd_rejects_virtio_header_framing() -> io::Result<()> {
+        assert!(validate_adopted_tun_flags(0).is_ok());
+        let vnet_hdr = ifreq_flag(libc::IFF_VNET_HDR)?;
+        assert!(matches!(
+            validate_adopted_tun_flags(vnet_hdr),
             Err(error) if error.kind() == io::ErrorKind::InvalidInput
         ));
+        Ok(())
     }
 }
