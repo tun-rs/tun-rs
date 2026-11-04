@@ -1408,6 +1408,16 @@ unsafe fn request(name: &str) -> io::Result<ifreq> {
     Ok(req)
 }
 
+impl From<Layer> for c_short {
+    fn from(layer: Layer) -> Self {
+        ifreq_flag(match layer {
+            Layer::L2 => IFF_TAP,
+            Layer::L3 => IFF_TUN,
+        })
+        .expect("Linux TUN/TAP layer flags fit the ifreq flag field")
+    }
+}
+
 #[cfg(test)]
 mod raw_fd_contract_tests {
     use super::{
