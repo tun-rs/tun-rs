@@ -115,8 +115,22 @@ enum GroLookup {
     Full,
 }
 
+struct GroSlot<K, I> {
+    key: Option<K>,
+    items: Vec<I>,
+}
+
+impl<K, I> GroSlot<K, I> {
+    const fn empty() -> Self {
+        Self {
+            key: None,
+            items: Vec::new(),
+        }
+    }
+}
+
 struct GroFlowTable<K, I, S = ahash::RandomState> {
-    slots: Vec<Option<(K, Vec<I>)>>,
+    slots: Vec<GroSlot<K, I>>,
     occupied: Vec<usize>,
     items_pool: Vec<Vec<I>>,
     hash_builder: S,
@@ -129,9 +143,9 @@ impl<K: GroFlowKey, I> GroFlowTable<K, I> {
 }
 
 impl<K: GroFlowKey, I, S: BuildHasher> GroFlowTable<K, I, S> {
-    fn empty_slots(count: usize) -> Vec<Option<(K, Vec<I>)>> {
+    fn empty_slots(count: usize) -> Vec<GroSlot<K, I>> {
         let mut slots = Vec::with_capacity(count);
-        slots.resize_with(count, || None);
+        slots.resize_with(count, GroSlot::empty);
         slots
     }
 
@@ -154,8 +168,8 @@ impl<K: GroFlowKey, I, S: BuildHasher> GroFlowTable<K, I, S> {
         let start = self.hash_builder.hash_one(key) as usize & mask;
         for probe in 0..self.slots.len() {
             let index = (start + probe) & mask;
-            match &self.slots[index] {
-                Some((existing, _)) if *existing == key => return GroLookup::Occupied(index),
+            match self.slots[index].key {
+                Some(existing) if existing == key => return GroLookup::Occupied(index),
                 Some(_) => {}
                 None => return GroLookup::Vacant(index),
             }
@@ -164,10 +178,7 @@ impl<K: GroFlowKey, I, S: BuildHasher> GroFlowTable<K, I, S> {
     }
 
     fn occupied_mut(&mut self, index: usize) -> &mut Vec<I> {
-        &mut self.slots[index]
-            .as_mut()
-            .expect("occupied GRO slot disappeared")
-            .1
+        &mut self.slots[index].items
     }
 
     fn at_insert_load_limit(&self) -> bool {
@@ -188,24 +199,31 @@ impl<K: GroFlowKey, I, S: BuildHasher> GroFlowTable<K, I, S> {
         };
         let mut items = self.items_pool.pop().unwrap_or_default();
         items.push(make_item());
-        self.slots[index] = Some((key, items));
+        self.slots[index] = GroSlot {
+            key: Some(key),
+            items,
+        };
         self.occupied.push(index);
         None
     }
 
     fn grow(&mut self) {
-        let new_len = self
-            .slots
-            .len()
-            .checked_mul(2)
-            .expect("GRO flow table capacity overflow");
+        // A Vec allocation is bounded to isize::MAX bytes, so doubling this
+        // non-zero-sized slot count cannot overflow usize on supported targets.
+        let new_len = self.slots.len() * 2;
         let old_slots = std::mem::replace(&mut self.slots, Self::empty_slots(new_len));
         self.occupied.clear();
-        for entry in old_slots.into_iter().flatten() {
-            let GroLookup::Vacant(index) = self.find(entry.0) else {
+        for slot in old_slots {
+            let Some(key) = slot.key else {
+                continue;
+            };
+            let GroLookup::Vacant(index) = self.find(key) else {
                 unreachable!("freshly grown GRO flow table must have a vacant slot");
             };
-            self.slots[index] = Some(entry);
+            self.slots[index] = GroSlot {
+                key: Some(key),
+                items: slot.items,
+            };
             self.occupied.push(index);
         }
     }
@@ -213,34 +231,35 @@ impl<K: GroFlowKey, I, S: BuildHasher> GroFlowTable<K, I, S> {
     fn insert(&mut self, key: K, item: I) {
         let index = loop {
             match self.find(key) {
-                GroLookup::Occupied(index) => break index,
+                GroLookup::Occupied(index) => {
+                    self.slots[index].items.push(item);
+                    return;
+                }
                 GroLookup::Vacant(index) if !self.at_insert_load_limit() => break index,
                 GroLookup::Vacant(_) | GroLookup::Full => self.grow(),
             }
         };
-        if self.slots[index].is_none() {
-            let items = self.items_pool.pop().unwrap_or_default();
-            self.slots[index] = Some((key, items));
-            self.occupied.push(index);
-        }
-        if let Some((_, items)) = &mut self.slots[index] {
-            items.push(item);
-        }
+        let mut items = self.items_pool.pop().unwrap_or_default();
+        items.push(item);
+        self.slots[index] = GroSlot {
+            key: Some(key),
+            items,
+        };
+        self.occupied.push(index);
     }
 
     fn reset(&mut self) {
         for index in self.occupied.drain(..) {
-            if let Some((_, mut items)) = self.slots[index].take() {
-                items.clear();
-                self.items_pool.push(items);
-            }
+            let slot = &mut self.slots[index];
+            slot.key = None;
+            let mut items = std::mem::take(&mut slot.items);
+            items.clear();
+            self.items_pool.push(items);
         }
     }
 
     fn values(&self) -> impl Iterator<Item = &Vec<I>> {
-        self.occupied
-            .iter()
-            .filter_map(|&index| self.slots[index].as_ref().map(|(_, items)| items))
+        self.occupied.iter().map(|&index| &self.slots[index].items)
     }
 }
 
@@ -2560,6 +2579,7 @@ mod tests {
 
         table.reset();
         assert_eq!(table.values().count(), 0);
+        assert!(table.slots.iter().all(|slot| slot.items.is_empty()));
         assert!(table
             .lookup_or_insert_with(CollidingFlowKey(7), || 7)
             .is_none());
@@ -2567,6 +2587,28 @@ mod tests {
             .lookup_or_insert_with(CollidingFlowKey(7), || panic!("existing key reinserted"))
             .unwrap();
         assert_eq!(items, &[7]);
+    }
+
+    #[test]
+    fn flow_table_supports_non_copy_items_across_growth() {
+        type CollisionTable =
+            GroFlowTable<CollidingFlowKey, String, std::hash::BuildHasherDefault<ZeroHasher>>;
+
+        let mut table = CollisionTable::with_hasher(std::hash::BuildHasherDefault::default());
+        for value in 0u16..=256 {
+            table.insert(CollidingFlowKey(value), format!("item-{value}"));
+        }
+        table.insert(CollidingFlowKey(0), String::from("second"));
+
+        let first = table
+            .lookup_or_insert_with(CollidingFlowKey(0), || {
+                String::from("unexpected replacement")
+            })
+            .map(|items| items.clone());
+        assert_eq!(
+            first,
+            Some(vec![String::from("item-0"), String::from("second")])
+        );
     }
 
     #[test]
